@@ -18,7 +18,7 @@ from openpyxl import load_workbook
 
 from finance_analytics.sources.xtb import schema
 
-PARSER_VERSION = 2  # bump when parsing or projection changes; `fa sync` then rebuilds everything
+PARSER_VERSION = 3  # bump when parsing or projection changes; `fa sync` then rebuilds everything
 
 FILE_NAME_RE = re.compile(
     r"^(?P<prefix>IKZE|IKE|PLN|EUR|USD)_(?P<number>\d+)_(?P<start>\d{4}-\d{2}-\d{2})_(?P<end>\d{4}-\d{2}-\d{2})"
@@ -86,6 +86,9 @@ class ParsedFile:
     date_from: date
     date_to: date
     empty: bool = False
+    # B1 of a sub-account (IKE, IKZE, …) holds the main account's number; the file name holds
+    # the sub-account's own number, which identifies the account (D-015, D-033).
+    parent_number: str | None = None
     cash: list[CashOperation] = field(default_factory=list)
     open_positions: list[Position] = field(default_factory=list)
     closed_positions: list[Position] = field(default_factory=list)
@@ -322,11 +325,13 @@ def parse_file(path: Path) -> ParsedFile:
         rows = sheets[layout.name]
         if is_empty(rows):
             continue
-        in_file = _id(rows[0][1]) if rows and len(rows[0]) > 1 else None
-        if rows[0][0] != schema.ACCOUNT_NUMBER_LABEL or in_file != number:
-            raise XtbFormatError(
-                f"sheet {layout.name!r}: account number in B1 does not match the file name"
-            )
+        if rows[0][0] != schema.ACCOUNT_NUMBER_LABEL:
+            raise XtbFormatError(f"sheet {layout.name!r}: no {schema.ACCOUNT_NUMBER_LABEL!r} in A1")
+        in_file = _id(rows[0][1]) if len(rows[0]) > 1 else None
+        if in_file and in_file != number:
+            if parsed.parent_number not in (None, in_file):
+                parsed.warnings.append("sheets name different main accounts in B1; the file name is used")
+            parsed.parent_number = in_file
     _parse_cash(parsed, sheets[schema.CASH_OPERATIONS.name])
     _parse_open(parsed, sheets[schema.OPEN_POSITIONS.name])
     _parse_closed(parsed, sheets[schema.CLOSED_POSITIONS.name])

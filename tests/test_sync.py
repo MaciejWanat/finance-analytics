@@ -171,3 +171,25 @@ def test_reports_read_mixed_timestamp_formats_already_in_the_database(settings, 
     opened = reports.positions(settings.db_path, "xtb-1000001", open_only=True)
     assert opened["open_time"].notna().all()
     assert reports.cash_ledger(settings.db_path, "xtb-1000001")["ts"].notna().all()
+
+
+def test_sub_accounts_stay_separate_and_remember_their_main_account(settings, export, tmp_path):
+    """PLN, IKE and IKZE files of one login carry the main account in B1 but stay three accounts."""
+    from openpyxl import load_workbook
+
+    root = tmp_path / "sub_accounts"
+    shutil.copytree(export, root)
+    for path in root.rglob("*.xlsx"):
+        if path.name.split("_")[0] in ("PLN", "IKE", "IKZE"):
+            wb = load_workbook(path)
+            for ws in wb.worksheets:
+                ws["B1"] = "1000002"  # the PLN main account
+            wb.save(path)
+    import_xtb(root, settings)
+    result = sync(settings)
+    assert not result.errors, result.errors
+    data = yaml.safe_load(settings.accounts_file.read_text(encoding="utf-8"))
+    by_id = {a["id"]: a for a in data["accounts"]}
+    assert by_id["xtb-20000003"]["tax_wrapper"] == "IKE" and by_id["xtb-20000003"]["parent_no"] == "1000002"
+    assert by_id["xtb-20000004"]["tax_wrapper"] == "IKZE"
+    assert by_id["xtb-1000002"]["parent_no"] is None  # B1 equals its own number

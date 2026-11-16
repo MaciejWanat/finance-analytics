@@ -42,7 +42,7 @@ Every file has three sheets in this order: `Closed Positions`, `Cash Operations`
 
 | Row | A | B |
 |---|---|---|
-| 1 | `Account number` | account number, as text |
+| 1 | `Account number` | account number, as text; for a sub-account (IKE, IKZE…) this is the main account's number, while the file name carries the sub-account's own number (D-033) |
 | 2 | sheet title | |
 | 3 | `Date from (…)` | datetime (Closed Positions, Cash Operations) |
 | 4 | `Date to (…)` | datetime |

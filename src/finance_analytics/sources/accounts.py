@@ -36,6 +36,7 @@ class AccountConfig(BaseModel):
     currency: str
     alias: str
     external_no: str | None = None
+    parent_no: str | None = None  # main account of a sub-account (e.g. the PLN account an IKE belongs to)
     tax_wrapper: Literal["IKE", "IKZE"] | None = None
 
 
@@ -128,8 +129,10 @@ def add_bank_account(path: Path, alias: str, currency: str, institution: str = "
     return account
 
 
-def register_xtb_accounts(path: Path, found: list[tuple[str, str, str, str | None]]) -> list[AccountConfig]:
-    """Add XTB accounts (number, prefix, currency, tax_wrapper) missing from the file.
+def register_xtb_accounts(
+    path: Path, found: list[tuple[str, str, str, str | None, str | None]]
+) -> list[AccountConfig]:
+    """Add XTB accounts (number, prefix, currency, tax_wrapper, parent number) missing from the file.
 
     Existing entries, including edited aliases, are left untouched. Returns the added ones.
     """
@@ -137,7 +140,7 @@ def register_xtb_accounts(path: Path, found: list[tuple[str, str, str, str | Non
     known = {a.id for a in accounts}
     aliases = {a.alias for a in accounts}
     added = []
-    for number, prefix, currency, wrapper in found:
+    for number, prefix, currency, wrapper, parent in found:
         account_id = xtb_account_id(number)
         if account_id in known:
             continue
@@ -146,7 +149,7 @@ def register_xtb_accounts(path: Path, found: list[tuple[str, str, str, str | Non
             alias = f"{alias} …{number[-3:]}"
         account = AccountConfig(
             id=account_id, institution="xtb", kind="broker", currency=currency, alias=alias,
-            external_no=number, tax_wrapper=wrapper,
+            external_no=number, parent_no=parent, tax_wrapper=wrapper,
         )
         accounts.append(account)
         added.append(account)

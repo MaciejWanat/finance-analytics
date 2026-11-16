@@ -64,20 +64,28 @@ with st.container(border=True):
         "Wskaż pliki .xlsx z folderu eksportu xStation (np. `USD_…xlsx`, `IKE_…xlsx`). "
         "Pliki zostają na tym komputerze: trafiają do `data/raw/xtb/` i do lokalnej bazy."
     )
+    # A new widget key after each import empties the picker: imported files disappear from it.
+    upload_round = st.session_state.get("xtb_upload_round", 0)
     uploads = st.file_uploader(
-        "Pliki eksportu", type="xlsx", accept_multiple_files=True, label_visibility="collapsed"
+        "Pliki eksportu", type="xlsx", accept_multiple_files=True, label_visibility="collapsed",
+        key=f"xtb_upload_{upload_round}",
     )
+    for message in st.session_state.pop("xtb_upload_failed", []):
+        st.error(message, icon=":material/error:")
     left, right = st.columns([1, 4])
     if left.button("Importuj", type="primary", disabled=not uploads, icon=":material/download:"):
-        stored = 0
+        stored, failed = 0, []
         for upload in uploads:
             try:
                 _, written = store_xtb_file(upload.name, upload.getvalue(), settings)
                 stored += written
             except XtbFormatError as exc:
-                st.error(f"{upload.name}: {exc}")
+                failed.append(f"{upload.name}: {exc}. Ten plik nie został zaimportowany.")
         st.session_state["last_sync"] = sync(settings)
         st.session_state["last_stored"] = stored
+        st.session_state["xtb_upload_failed"] = failed
+        st.session_state["xtb_upload_round"] = upload_round + 1
+        st.rerun()
     if right.button("Przebuduj bazę z plików", icon=":material/sync:", help="fa rebuild"):
         st.session_state["last_sync"] = sync(settings, force=True)
     try:

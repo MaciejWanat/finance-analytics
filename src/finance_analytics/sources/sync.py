@@ -198,7 +198,10 @@ def sync(settings: Settings, *, force: bool = False) -> SyncResult:
             except Exception as exc:  # unreadable workbook etc.
                 parsed.append((path, None, f"cannot read the file: {exc}"))
 
-        found = sorted({(p.account_number, p.prefix, p.currency, p.tax_wrapper) for _, p, _ in parsed if p})
+        found = sorted(
+            {(p.account_number, p.prefix, p.currency, p.tax_wrapper, p.parent_number) for _, p, _ in parsed if p},
+            key=lambda item: tuple(value or "" for value in item),
+        )
         added = register_xtb_accounts(settings.accounts_file, found)
         series = bond_files.load_series(settings.config_dir)
         lots = bond_files.read_lots(bond_files.bonds_file(settings.manual_dir), series.series, date.today())

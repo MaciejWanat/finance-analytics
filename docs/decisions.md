@@ -419,6 +419,19 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Only unpaired ones are reported.
   - `PARSER_VERSION` is now 2, so the next sync rebuilds the projection.
 
+### D-033 Sub-accounts: the file name identifies the account, B1 names the main account
+- **Date:** 2026-11-16 · **Status:** Accepted (refines D-015)
+- **Context:** in a real export, IKE and IKZE (and the PLN account of the same login) are sub-accounts.
+  - Their files sit in the folder of the main account and carry their own number in the file name.
+  - Cell B1 holds the main account's number.
+  - The parser rejected these files because B1 did not match the file name.
+- **Decision:**
+  - The number in the file name is the account (as in D-015). Each sub-account stays a separate account with its own tax wrapper.
+  - A different number in B1 is not an error. It is stored as `parent_no` in accounts.yaml.
+  - A1 must still read "Account number".
+  - `PARSER_VERSION` 3 re-parses previously rejected files.
+- **Also:** after "Importuj" the upload picker is emptied. Files that failed stay listed as errors with their reason, so they can be picked again.
+
 ---
 
 ## Open questions

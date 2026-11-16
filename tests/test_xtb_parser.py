@@ -98,10 +98,20 @@ def test_rejects_cfd_category(export, tmp_path):
         parse_file(_modified_copy(export, tmp_path, cfd))
 
 
-def test_rejects_account_number_mismatch(export, tmp_path):
-    def other_account(wb):
+def test_sub_account_keeps_its_file_name_number_and_records_the_main_account(export, tmp_path):
+    """IKE/IKZE are sub-accounts: B1 holds the main account, the file name the sub-account (D-033)."""
+    def main_account_in_b1(wb):
         for ws in wb.worksheets:
-            ws["B1"] = "9999999"
+            ws["B1"] = "7777777"
 
-    with pytest.raises(XtbFormatError, match="account number"):
-        parse_file(_modified_copy(export, tmp_path, other_account))
+    parsed = parse_file(_modified_copy(export, tmp_path, main_account_in_b1))
+    assert parsed.account_number == "1000001" and parsed.parent_number == "7777777"
+    assert parsed.cash and not [w for w in parsed.warnings if "main account" in w]
+
+
+def test_rejects_a_sheet_without_the_account_label(export, tmp_path):
+    def broken_label(wb):
+        wb[schema.CASH_OPERATIONS.name]["A1"] = "Something else"
+
+    with pytest.raises(XtbFormatError, match="Account number"):
+        parse_file(_modified_copy(export, tmp_path, broken_label))
