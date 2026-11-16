@@ -388,6 +388,11 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - **Docs:** README rewritten for a finished app; CLAUDE.md commands and architecture brought up to date.
 - **Consequences:** import and sync messages from the XTB parser and reconciliation are still in English on the "Importy" page; translating them is left for a later change.
 
+### D-030 Licence: MIT
+- **Date:** 2026-11-16 · **Status:** Accepted (resolves Q-005)
+- **Decision:** the project is released under the MIT licence (`LICENSE`, `pyproject.toml`).
+- **Consequences:** anyone may use, modify and redistribute the code, including in closed forks, as long as the copyright notice is kept. The shipped public reference data (bond series, NBP reference rates) comes from official public sources.
+
 ---
 
 ## Open questions
@@ -398,7 +403,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-002 | Where do COI coupons go? If to a bank account outside the tracked portfolio, they count as a withdrawal. | Resolved 2026-11-16 by D-026: coupons and redemptions are withdrawals (net of tax) |
 | Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open. Bonds: yes, the issue letters allow IKE and IKZE at PKO BP; D-026 drops the tax for bonds on an account with `tax_wrapper` IKE/IKZE, but still counts their coupons as withdrawals although they stay on the IKE register. |
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
-| Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
+| Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Resolved 2026-11-16 by D-030 |
 | Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
 | Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
 

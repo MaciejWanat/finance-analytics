@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "Self-hosted, privacy-first analytics for personal savings and investments, valued in PLN."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "click>=8.1",
     "numpy>=1.26",

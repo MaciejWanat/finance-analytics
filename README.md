@@ -130,4 +130,4 @@ generated in code, and the hook must never be bypassed.
 - The shipped bond data must be refreshed with each release; newer interest periods are computed from CPI or the NBP rate and labelled as such.
 - Tax figures are estimates, not tax advice.
 - Ideas for later: a customisable home page built from modules (I-001 in the decision log), a benchmark comparison.
-- **Licence:** not chosen yet (Q-005). Until it is, all rights are reserved.
+- **Licence:** MIT, see [LICENSE](LICENSE).
