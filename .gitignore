@@ -1,0 +1,65 @@
+# =============================================================================
+# PRIVACY FIRST: real financial data must NEVER be committed.
+# Only synthetic mock data (generated in code, or *.example.* files with fake
+# values) belongs in this repository. See CLAUDE.md and docs/decisions.md (D-014).
+# The pre-commit hook (.githooks/pre-commit) enforces the same rules.
+# =============================================================================
+
+# --- Local data: SQLite DB, raw broker exports, manual entries, reports -------
+data/
+data-*/
+exports/
+statements/
+
+# --- Spreadsheets, statements, documents --------------------------------------
+*.xlsx
+*.xlsm
+*.xls
+*.ods
+*.csv
+*.tsv
+*.pdf
+*.mt940
+*.sta
+*.ofx
+*.qif
+*.qfx
+
+# --- Databases ----------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Secrets ------------------------------------------------------------------
+.env
+.env.*
+secrets.toml
+.streamlit/secrets.toml
+
+# --- Allowed exceptions: public data and fake examples only -------------------
+!*.example.csv
+!src/finance_analytics/resources/*.csv
+
+# --- Python -------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Editors / OS / local tooling ---------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.claude/settings.local.json

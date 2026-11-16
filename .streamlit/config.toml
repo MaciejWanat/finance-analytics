@@ -1,0 +1,55 @@
+# Streamlit configuration. Privacy settings first (docs/decisions.md, D-011).
+
+[browser]
+# No usage statistics leave this machine.
+gatherUsageStats = false
+
+[server]
+# Listen on this machine only; never expose the app on the network.
+address = "localhost"
+port = 8501
+runOnSave = false
+# No first-run e-mail prompt; `fa ui` opens the browser tab itself.
+headless = true
+
+[client]
+# Hide developer options but keep the settings menu (theme selector).
+toolbarMode = "viewer"
+showErrorDetails = "stacktrace"
+# No "Ask Google / Ask ChatGPT" links under errors: tracebacks may contain data.
+showErrorLinks = false
+
+# ---------------------------------------------------------------------------
+# Theme (D-012). Surfaces match the ones the chart palette was validated on;
+# keep these in sync with app/ui/theme.py. The bundled sans font is used on
+# purpose: no external font requests.
+# ---------------------------------------------------------------------------
+[theme]
+font = "sans-serif"
+baseRadius = "0.6rem"
+headingFontWeights = [650, 600, 600, 600, 600, 600]
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f3f2ef"
+textColor = "#0b0b0b"
+borderColor = "#e1e0d9"
+chartCategoricalColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+[theme.light.sidebar]
+backgroundColor = "#f3f2ef"
+secondaryBackgroundColor = "#fcfcfb"
+
+[theme.dark]
+primaryColor = "#3987e5"
+backgroundColor = "#1a1a19"
+secondaryBackgroundColor = "#242422"
+textColor = "#f0efec"
+borderColor = "#2c2c2a"
+chartCategoricalColors = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9", "#e66767"]
+
+[theme.dark.sidebar]
+backgroundColor = "#141413"
+secondaryBackgroundColor = "#242422"

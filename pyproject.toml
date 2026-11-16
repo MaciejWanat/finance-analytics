@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finance-analytics"
+version = "0.1.0"
+description = "Self-hosted, privacy-first analytics for personal savings and investments, valued in PLN."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "numpy>=1.26",
+    "openpyxl>=3.1",
+    "pandas>=2.2",
+    "plotly>=5.24",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "requests>=2.32",
+    "streamlit>=1.40",
+    "yfinance>=0.2.54",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+fa = "finance_analytics.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+finance_analytics = ["db/migrations/*.sql", "resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]

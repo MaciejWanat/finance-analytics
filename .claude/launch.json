@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fa-ui-dev",
+      "runtimeExecutable": ".venv/Scripts/fa.exe",
+      "runtimeArgs": ["ui", "--dev", "--no-open"],
+      "port": 8501
+    }
+  ]
+}

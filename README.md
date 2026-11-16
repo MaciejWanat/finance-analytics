@@ -1,1 +1,59 @@
 # finance-analytics
+
+Self-hosted, privacy-first analytics for your savings and investments, valued in PLN.
+
+Load your broker exports, bank balances and Polish retail treasury bonds. See what
+your whole portfolio is worth, day by day, and where the return came from:
+- the instruments themselves versus currency moves;
+- dividends after tax;
+- inflation-adjusted performance (TWR, XIRR, drawdown).
+
+> **Status:** early development. The project skeleton and UI foundation are in place;
+> the XTB importer, market data and valuation are next.
+
+## Privacy
+
+- Your data stays on your machine. Everything lives in a local `data/` folder: one SQLite file plus your export files.
+- The only outbound requests are public market data: prices (Yahoo Finance via `yfinance`), FX rates (NBP API) and inflation (GUS). They contain tickers and dates, nothing about your accounts.
+- No telemetry: Streamlit usage statistics are disabled and the UI listens on `localhost` only.
+- The repository can never contain your data. `.gitignore` and a pre-commit hook block exports, statements, databases and account numbers.
+
+## Planned features
+
+- Daily portfolio value in PLN, by account and by asset class.
+- Return split into the instrument's own return and the FX effect: `(1 + r_PLN) = (1 + r_local) × (1 + r_FX)`.
+- Dividends: gross, withholding tax and net, over time and per company.
+- Nominal and real returns (CPI from GUS), TWR, XIRR, drawdown.
+- Polish retail treasury bonds (EDO, COI, …) valued automatically, including inflation indexation.
+- Cash balances at banks, entered by hand or imported from statement exports.
+
+## Quick start
+
+Requires Python 3.11+.
+
+```bash
+git clone <this repo> && cd finance-analytics
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
+pip install -e ".[dev]"
+fa init                         # creates data/, the database, and enables the privacy git hook
+fa ui                           # opens http://localhost:8501
+```
+
+`fa ui --dev` also shows a style preview page built from synthetic data.
+
+## Project layout
+
+```
+src/finance_analytics/   logic: config, database, (soon) importers, market data, portfolio maths
+app/                     Streamlit UI (Polish): pages in views/, design layer in ui/
+scripts/                 standalone tools: XTB export inspector, privacy check
+docs/decisions.md        requirements, decisions and open questions
+data/                    your private data (git-ignored)
+```
+
+## Contributing
+
+Read `docs/decisions.md` before proposing a change. Never commit real financial data:
+tests use synthetic fixtures generated in code.

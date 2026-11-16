@@ -1,0 +1,18 @@
+#!/bin/sh
+# Blocks commits that could contain real financial data (docs/decisions.md, D-014).
+# Enabled by `fa init` via: git config core.hooksPath .githooks
+# Never bypass with --no-verify.
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+if [ -x "$repo_root/.venv/Scripts/python.exe" ]; then
+    PY="$repo_root/.venv/Scripts/python.exe"
+elif [ -x "$repo_root/.venv/bin/python" ]; then
+    PY="$repo_root/.venv/bin/python"
+elif command -v python >/dev/null 2>&1; then
+    PY=python
+else
+    PY=python3
+fi
+
+exec "$PY" "$repo_root/scripts/check_no_private_data.py" --staged
