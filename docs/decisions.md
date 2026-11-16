@@ -132,6 +132,24 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Sheet and column names live in one module, `sources/xtb/schema.py`.
   - `fa mock-xtb` writes a synthetic export with this exact layout, for tests and the demo.
 
+### D-016 XTB data model: positions as lots plus a cash ledger
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:**
+  - The Open Positions sheet lists every open position with its open time and price, regardless of the export's date range.
+  - Cash Operations only covers the exported range.
+- **Decision:**
+  - `positions` holds one row per broker position (lot). It is opened once (from Open or Closed Positions) and optionally closed once.
+  - `cash_ledger` holds every cash operation in the account currency, with a normalised type: DEPOSIT, BUY, SELL, DIVIDEND, WHT, INTEREST, INTEREST_TAX, …
+  - Overlapping exports are merged:
+    - operations are de-duplicated by their ID;
+    - a closed record of a position wins over an open one;
+    - otherwise the export with the latest end date wins.
+  - Reconciliation warnings, never silent fixes, cover three cases: a purchase without a position, a sale without a closed position, and a position open in an older export but missing from the newest.
+  - Formats not yet seen in a real export (`Stock sale`, Closed Positions values) are accepted with a warning so the demo works. Unknown types still fail the file.
+- **Consequences:**
+  - Daily holdings come from lots, independent of the cash range.
+  - The cash balance comes from the ledger, so it needs exports covering the whole history.
+
 ---
 
 ## Open questions

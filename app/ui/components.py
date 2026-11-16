@@ -6,9 +6,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+import pandas as pd
 import streamlit as st
 
-from ui.fmt import MINUS
+from ui.charts import current_mode
+from ui.fmt import MINUS, fmt_number
+from ui.theme import TOKENS
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,47 @@ def kpi_row(kpis: Sequence[Kpi]) -> None:
             chart_data=list(kpi.trend) if kpi.trend else None,
             chart_type="area",
         )
+
+
+def table(
+    df: pd.DataFrame,
+    *,
+    numbers: dict[str, int] | None = None,
+    signed: Sequence[str] = (),
+    datetimes: Sequence[str] = (),
+    labels: dict[str, str] | None = None,
+) -> None:
+    """A dataframe with Polish number formatting that still sorts numerically.
+
+    numbers: column -> decimals; signed: columns coloured green/red by sign;
+    datetimes: columns shown as YYYY-MM-DD HH:MM; labels: column -> header text.
+    Empty cells show as "–" instead of None/NaN.
+    """
+    tokens = TOKENS[current_mode()]
+    labels = labels or {}
+    # Rename instead of column_config labels: Streamlit drops Styler display values
+    # for columns that have a column_config entry.
+    df = df.rename(columns=labels)
+    # Streamlit paints empty text cells as a grey "None"; show a dash instead.
+    text_columns = df.select_dtypes(include=["object", "string"]).columns
+    df[text_columns] = df[text_columns].astype(object).where(df[text_columns].notna(), "–")
+    numbers = {labels.get(col, col): d for col, d in (numbers or {}).items()}
+    signed = [labels.get(col, col) for col in signed]
+    datetimes = [labels.get(col, col) for col in datetimes]
+    # One format() call: each call with a dict resets every column it does not name.
+    formatters: dict[str, object] = {col: (lambda v, d=d: fmt_number(v, d)) for col, d in numbers.items()}
+    formatters |= {col: (lambda v: v.strftime("%Y-%m-%d %H:%M")) for col in datetimes}
+    formatters |= {col: (lambda v: str(v)) for col in df.columns if col not in formatters}
+    styler = df.style.format(formatters, na_rep="–")
+
+    def sign_color(value: object) -> str:
+        if isinstance(value, (int, float)) and value == value and value:
+            return f"color: {tokens.good if value > 0 else tokens.bad}"
+        return ""
+
+    if signed:
+        styler = styler.map(sign_color, subset=list(signed))
+    st.dataframe(styler, hide_index=True, width="stretch")
 
 
 def empty_state(title: str, body: str, *, icon: str = ":material/inbox:", steps: Sequence[str] = ()) -> None:

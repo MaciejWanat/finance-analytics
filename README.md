@@ -8,8 +8,8 @@ your whole portfolio is worth, day by day, and where the return came from:
 - dividends after tax;
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
-> **Status:** early development. The project skeleton and UI foundation are in place;
-> the XTB importer, market data and valuation are next.
+> **Status:** early development. XTB exports can be imported and browsed; market data and
+> the PLN valuation are next.
 
 ## Privacy
 
@@ -41,7 +41,14 @@ fa init                         # creates data/, the database, and enables the p
 fa ui                           # opens http://localhost:8501
 ```
 
-`fa ui --dev` also shows a style preview page built from synthetic data.
+Import an XTB export (the folder xStation produces) and open the UI:
+
+```bash
+fa import xtb <export folder>
+fa ui
+```
+
+To try it without your own data, run `fa demo`. It builds a `data-demo/` directory from a synthetic export and opens the UI on it.
 
 ## Project layout
 

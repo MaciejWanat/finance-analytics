@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/Scripts/fa.exe",
       "runtimeArgs": ["ui", "--dev", "--no-open"],
       "port": 8501
+    },
+    {
+      "name": "fa-demo",
+      "runtimeExecutable": ".venv/Scripts/fa.exe",
+      "runtimeArgs": ["demo", "--no-open", "--port", "8502"],
+      "port": 8502
     }
   ]
 }

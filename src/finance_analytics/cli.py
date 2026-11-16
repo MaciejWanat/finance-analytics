@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -13,28 +14,12 @@ from pathlib import Path
 import click
 
 from finance_analytics import __version__
-from finance_analytics.config import DATA_DIR_ENV, get_settings
+from finance_analytics.config import DATA_DIR_ENV, Settings, get_settings
 from finance_analytics.db import connect, migrate
+from finance_analytics.sources import accounts as accounts_file
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_MAIN = REPO_ROOT / "app" / "main.py"
-
-ACCOUNTS_TEMPLATE = """\
-# Accounts known to finance-analytics. This file is private: data/ is git-ignored.
-# XTB accounts are added here automatically on the first import of an export folder.
-# Change `alias` (the name the UI shows) whenever you like.
-#
-# Example entry (fake values):
-#   - id: xtb-usd
-#     institution: xtb
-#     kind: broker            # broker | bank | bonds
-#     currency: USD
-#     alias: XTB USD
-#     external_no: "00000000" # broker account number, stays local
-#     tax_wrapper: null       # null | IKE | IKZE
-accounts: []
-"""
-
 
 @click.group()
 @click.version_option(__version__, prog_name="fa")
@@ -42,23 +27,80 @@ def main() -> None:
     """finance-analytics: local, private analytics for your savings."""
 
 
+def _prepare(settings: Settings) -> list[str]:
+    """Data directories, accounts file and database schema. Returns applied migrations."""
+    for directory in settings.all_dirs():
+        directory.mkdir(parents=True, exist_ok=True)
+    if not settings.accounts_file.exists():
+        settings.accounts_file.write_text(accounts_file.HEADER + "\naccounts: []\n", encoding="utf-8")
+        click.echo(f"Created {settings.accounts_file}")
+    with closing(connect(settings.db_path)) as conn:
+        return migrate(conn)
+
+
 @main.command()
 def init() -> None:
     """Create the local data directory, the database and the privacy git hook."""
     settings = get_settings()
-    for directory in settings.all_dirs():
-        directory.mkdir(parents=True, exist_ok=True)
     click.echo(f"Data directory: {settings.data_dir}")
-
-    if not settings.accounts_file.exists():
-        settings.accounts_file.write_text(ACCOUNTS_TEMPLATE, encoding="utf-8")
-        click.echo(f"Created {settings.accounts_file}")
-
-    with closing(connect(settings.db_path)) as conn:
-        applied = migrate(conn)
+    applied = _prepare(settings)
     click.echo(f"Database: {settings.db_path} ({len(applied)} migration(s) applied)")
-
     _install_git_hooks()
+
+
+def _report_sync(result) -> None:
+    if not result.rebuilt:
+        click.echo(f"Sync: nothing changed ({result.files} file(s)).")
+        return
+    click.echo(f"Sync: rebuilt from {result.files} file(s).")
+    for alias in result.accounts_added:
+        click.echo(f"  new account: {alias} (rename it in data/config/accounts.yaml)")
+    for message in result.errors:
+        click.secho(f"  ERROR {message}", fg="red")
+    for message in result.warnings:
+        click.secho(f"  warning: {message}", fg="yellow")
+
+
+@main.command()
+@click.option("--force", is_flag=True, help="Rebuild even if no file changed.")
+def sync(force: bool) -> None:
+    """Rebuild the database from the files in the data directory when they changed."""
+    from finance_analytics.sources.sync import sync as run_sync
+
+    settings = get_settings()
+    _prepare(settings)
+    _report_sync(run_sync(settings, force=force))
+
+
+@main.command()
+def rebuild() -> None:
+    """Rebuild the database from the files in the data directory, unconditionally."""
+    from finance_analytics.sources.sync import sync as run_sync
+
+    settings = get_settings()
+    _prepare(settings)
+    _report_sync(run_sync(settings, force=True))
+
+
+@main.group("import")
+def import_() -> None:
+    """Import broker exports into the data directory."""
+
+
+@import_.command("xtb")
+@click.argument("source", type=click.Path(exists=True, path_type=Path))
+def import_xtb_command(source: Path) -> None:
+    """Import an xStation export folder (or one .xlsx file). The source is only read."""
+    from finance_analytics.sources.sync import import_xtb
+    from finance_analytics.sources.sync import sync as run_sync
+
+    settings = get_settings()
+    _prepare(settings)
+    result = import_xtb(source, settings)
+    click.echo(f"Copied {len(result.copied)} new file(s), {len(result.unchanged)} already imported.")
+    for path, reason in result.skipped:
+        click.secho(f"  skipped {path.name}: {reason}", fg="yellow")
+    _report_sync(run_sync(settings))
 
 
 @main.command()
@@ -67,9 +109,36 @@ def init() -> None:
 @click.option("--open/--no-open", "open_browser", default=True, show_default=True, help="Open a browser tab.")
 def ui(port: int, dev: bool, open_browser: bool) -> None:
     """Start the web UI on localhost."""
+    _launch_ui(get_settings(), port, dev, open_browser)
+
+
+@main.command()
+@click.option("--port", default=8501, show_default=True, help="Port on localhost.")
+@click.option("--open/--no-open", "open_browser", default=True, show_default=True, help="Open a browser tab.")
+@click.option("--no-ui", is_flag=True, help="Only prepare the demo data.")
+def demo(port: int, open_browser: bool, no_ui: bool) -> None:
+    """Build a demo data directory (data-demo/) from a synthetic XTB export and open the UI on it."""
+    from finance_analytics.mock.xtb_export import write_mock_export
+    from finance_analytics.sources.sync import import_xtb
+    from finance_analytics.sources.sync import sync as run_sync
+
+    settings = Settings(data_dir=Path("data-demo").resolve())
+    # The demo directory is disposable: start clean so repeated runs don't stack copies.
+    if settings.data_dir.exists():
+        shutil.rmtree(settings.data_dir)
+    export = settings.data_dir / "xtb_export"
+    write_mock_export(export)
+    _prepare(settings)
+    import_xtb(export, settings)
+    _report_sync(run_sync(settings))
+    click.echo(f"Demo data directory: {settings.data_dir} (synthetic, git-ignored)")
+    if not no_ui:
+        _launch_ui(settings, port, dev=True, open_browser=open_browser)
+
+
+def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> None:
     if not APP_MAIN.exists():
         raise click.ClickException(f"UI entry point not found: {APP_MAIN}")
-    settings = get_settings()
     env = {**os.environ, DATA_DIR_ENV: str(settings.data_dir)}
     if dev:
         env["FA_DEV"] = "1"

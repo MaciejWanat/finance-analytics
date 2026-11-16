@@ -41,6 +41,9 @@ ruff check .
 python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_report.md
 python scripts/check_no_private_data.py [--all]
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
+fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
+fa sync / fa rebuild   # rebuild projection tables when files changed / always
+fa demo                # data-demo/ from a synthetic export, then the UI on it
 ```
 
 The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
@@ -52,7 +55,12 @@ report, never from memory.
 - `src/finance_analytics/`: all logic. No Streamlit imports here.
   - `config.py`: data directory layout (`FA_DATA_DIR`, default `./data`).
   - `db/`: plain `sqlite3`. Numbered migrations in `db/migrations/NNNN_name.sql`, version in `PRAGMA user_version`.
-  - `sources/` (planned): files → projection tables (XTB parser, manual CSV/YAML, sync).
+  - `sources/`: files → projection tables. Contents:
+    - `xtb/schema.py` and `xtb/parser.py` for the export;
+    - `accounts.py` for `accounts.yaml`;
+    - `sync.py` for import, rebuild and reconciliation.
+  - `reports.py`: read-only queries for the UI.
+  - `mock/`: synthetic data generators.
   - `market/` (planned): **the only package allowed to use the network** (NBP, Yahoo, GUS); a test enforces this.
   - `portfolio/` (planned): holdings, valuation, returns, dividends, bonds (pandas).
 - `app/`: thin Streamlit UI, in Polish.

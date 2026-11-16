@@ -18,6 +18,9 @@ pages = {
     "Analiza": [
         st.Page("views/portfolio.py", title="Portfel", icon=":material/monitoring:", default=True),
     ],
+    "Dane": [
+        st.Page("views/imports.py", title="Importy", icon=":material/upload_file:"),
+    ],
 }
 if os.environ.get("FA_DEV") == "1":
     pages["Deweloper"] = [
