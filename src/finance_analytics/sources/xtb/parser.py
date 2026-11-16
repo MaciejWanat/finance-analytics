@@ -18,7 +18,7 @@ from openpyxl import load_workbook
 
 from finance_analytics.sources.xtb import schema
 
-PARSER_VERSION = 3  # bump when parsing or projection changes; `fa sync` then rebuilds everything
+PARSER_VERSION = 4  # bump when parsing or projection changes; `fa sync` then rebuilds everything
 
 FILE_NAME_RE = re.compile(
     r"^(?P<prefix>IKZE|IKE|PLN|EUR|USD)_(?P<number>\d+)_(?P<start>\d{4}-\d{2}-\d{2})_(?P<end>\d{4}-\d{2}-\d{2})"
@@ -180,11 +180,18 @@ def _remember(parsed: ParsedFile, symbol: str | None, name: object, category: ob
 # ------------------------------------------------------------------------ sheets
 
 
+def _has_table(rows: list[tuple], layout: schema.SheetLayout) -> bool:
+    """True when the sheet reaches its header row and that row is not empty."""
+    return len(rows) >= layout.header_row and any(_text(c) is not None for c in rows[layout.header_row - 1])
+
+
 def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
     layout = schema.CASH_OPERATIONS
     _check_header(rows, layout)
     records = _records(rows, layout)
-    if not records or records[-1]["Type"] != schema.CASH_TOTAL_ROW:
+    if not records:
+        return  # a header without operations
+    if records[-1]["Type"] != schema.CASH_TOTAL_ROW:
         raise XtbFormatError(f"sheet {layout.name!r}: missing the {schema.CASH_TOTAL_ROW!r} row at the end")
     *operations, total = records
     unknown = sorted({str(r["Type"]) for r in operations if r["Type"] not in CASH_TYPE_MAP})
@@ -332,9 +339,15 @@ def parse_file(path: Path) -> ParsedFile:
             if parsed.parent_number not in (None, in_file):
                 parsed.warnings.append("sheets name different main accounts in B1; the file name is used")
             parsed.parent_number = in_file
-    _parse_cash(parsed, sheets[schema.CASH_OPERATIONS.name])
-    _parse_open(parsed, sheets[schema.OPEN_POSITIONS.name])
-    _parse_closed(parsed, sheets[schema.CLOSED_POSITIONS.name])
+    # A sheet can carry only its header block (account number, title, dates) and no table:
+    # the account had no operations or positions of that kind in the exported range.
+    for layout, parse in (
+        (schema.CASH_OPERATIONS, _parse_cash),
+        (schema.OPEN_POSITIONS, _parse_open),
+        (schema.CLOSED_POSITIONS, _parse_closed),
+    ):
+        if _has_table(sheets[layout.name], layout):
+            parse(parsed, sheets[layout.name])
 
     for op in parsed.cash:
         if op.ledger_type != "BUY":

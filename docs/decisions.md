@@ -432,6 +432,15 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - `PARSER_VERSION` 3 re-parses previously rejected files.
 - **Also:** after "Importuj" the upload picker is emptied. Files that failed stay listed as errors with their reason, so they can be picked again.
 
+### D-034 A sheet with only its header block means "nothing of this kind"
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** a real export contained a sheet with the header block (account number, title) but no table. It belongs to a sub-account with no operations in the exported range, and the parser rejected the whole file.
+- **Decision:**
+  - A sheet that does not reach its header row, or whose header row is empty, is skipped as "no data of this kind". The other sheets of the file are still read.
+  - A Cash Operations table with a header but no rows needs no "Total" row.
+  - A header that is present but different still fails the file (D-006).
+  - `PARSER_VERSION` 4.
+
 ---
 
 ## Open questions

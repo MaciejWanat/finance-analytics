@@ -115,3 +115,23 @@ def test_rejects_a_sheet_without_the_account_label(export, tmp_path):
 
     with pytest.raises(XtbFormatError, match="Account number"):
         parse_file(_modified_copy(export, tmp_path, broken_label))
+
+
+def test_sheets_with_only_the_header_block_mean_no_operations(export, tmp_path):
+    """A sub-account without activity in the range: the sheet has A1-A4 but no table."""
+    def strip_tables(wb):
+        for layout in schema.SHEETS:
+            ws = wb[layout.name]
+            ws.delete_rows(3, ws.max_row)  # keep "Account number" and the title only
+
+    parsed = parse_file(_modified_copy(export, tmp_path, strip_tables))
+    assert not parsed.empty and not parsed.cash and not parsed.open_positions and not parsed.closed_positions
+
+
+def test_header_without_operations_and_without_total_is_fine(export, tmp_path):
+    def only_header(wb):
+        ws = wb[schema.CASH_OPERATIONS.name]
+        ws.delete_rows(schema.CASH_OPERATIONS.header_row + 1, ws.max_row)
+
+    parsed = parse_file(_modified_copy(export, tmp_path, only_header))
+    assert not parsed.cash and parsed.open_positions  # the other sheets are still read
