@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 
+import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, line_chart, show
 from ui.components import empty_state, page_header, section, table
@@ -13,9 +14,10 @@ from ui.glossary import G
 from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.market.update import update_market
+from finance_analytics.portfolio import inflation
 from finance_analytics.preferences import load_preferences
 
-page_header("Dane rynkowe", "Ceny instrumentów z Yahoo i kursy walut NBP, zapisane w lokalnej bazie.")
+page_header("Dane rynkowe", "Ceny instrumentów z Yahoo, kursy walut NBP i inflacja GUS, zapisane w lokalnej bazie.")
 settings = get_settings()
 
 
@@ -38,7 +40,8 @@ if not _has_instruments():
 with st.container(border=True):
     st.markdown("#### :material/cloud_download: Aktualizacja")
     st.caption(
-        "Do Yahoo i NBP trafiają wyłącznie tickery, kody walut i daty, nic o Twoich rachunkach. "
+        "Do Yahoo i NBP trafiają wyłącznie tickery, kody walut i daty; z GUS pobierany jest publiczny plik "
+        "z inflacją. Nic o Twoich rachunkach. "
         "Pobierane są tylko brakujące dni; reszta jest już w lokalnej bazie."
     )
     offline = not load_preferences(settings).online
@@ -69,9 +72,10 @@ with st.container(border=True):
     report = st.session_state.pop("market_report", None)
     if report is not None:
         prices, fx = sum(report.prices.fetched.values()), sum(report.fx.fetched.values())
+        cpi_note = f" oraz {report.cpi.fetched} miesięcy inflacji (GUS)" if report.cpi.fetched else ""
         st.success(
             f"Zapisano {prices} notowań dla {len(report.prices.fetched)} instrumentów "
-            f"i {fx} kursów dla {len(report.fx.fetched)} walut.",
+            f"i {fx} kursów dla {len(report.fx.fetched)} walut{cpi_note}.",
             icon=":material/check_circle:",
         )
         for key, message in report.errors.items():
@@ -101,6 +105,27 @@ else:
         labels={"currency": "Waluta", "first": "Od", "last": "Do", "days": "Notowania", "latest": "Ostatni kurs",
                 "error": "Ostatni błąd"},
         helps={"days": G["quotes"], "latest": G["nbp_rate"], "error": G["last_error"]},
+    )
+
+cpi = reports.cpi_monthly(settings.db_path)
+section("Inflacja GUS (CPI)", "Miesięczny wskaźnik cen towarów i usług konsumpcyjnych dla Polski, od 1982 roku.",
+        help=G["cpi"])
+if cpi.empty:
+    st.caption("Brak danych o inflacji. Użyj przycisku „Pobierz brakujące dane” w trybie online.")
+else:
+    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
+    missing_months = inflation.estimated_months(levels, pd.Timestamp.today())
+    table(
+        pd.DataFrame([{
+            "first": f"{levels.index[0]:%m.%Y}", "last": f"{levels.index[-1]:%m.%Y}", "months": len(levels),
+            "last_yoy": float(cpi["yoy"].iloc[-1]) / 100 - 1 if pd.notna(cpi["yoy"].iloc[-1]) else None,
+            "estimated": missing_months,
+        }]),
+        numbers={"months": 0, "estimated": 0},
+        percents=["last_yoy"],
+        labels={"first": "Od", "last": "Ostatni opublikowany miesiąc", "months": "Miesięcy",
+                "last_yoy": "Inflacja r/r w tym miesiącu", "estimated": "Miesiące szacowane"},
+        helps={"last_yoy": G["inflation"], "estimated": G["cpi_estimated"]},
     )
 
 priced = coverage[coverage["days"] > 0]

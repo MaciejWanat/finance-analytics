@@ -118,6 +118,19 @@ def fx_coverage(db_path: Path) -> pd.DataFrame:
     )
 
 
+def cpi_monthly(db_path: Path) -> pd.DataFrame:
+    """Published CPI by month (index points): columns `month` (first day, Timestamp), `mom`, `yoy`.
+
+    Empty when the table does not exist yet (database not migrated) or nothing was fetched.
+    """
+    try:
+        df = _query(db_path, "SELECT year, month, mom, yoy FROM cpi_monthly WHERE mom IS NOT NULL ORDER BY year, month")
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        df = pd.DataFrame(columns=["year", "month", "mom", "yoy"])
+    months = pd.to_datetime(dict(year=df["year"], month=df["month"], day=1))
+    return pd.DataFrame({"month": months, "mom": df["mom"], "yoy": df["yoy"]})
+
+
 def price_series(db_path: Path, ticker: str) -> pd.Series:
     df = _query(db_path, "SELECT date, close FROM prices WHERE ticker = ? ORDER BY date", (ticker,))
     return pd.Series(df["close"].to_numpy(), index=pd.to_datetime(df["date"]), name=ticker)

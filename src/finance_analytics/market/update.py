@@ -9,6 +9,7 @@ from datetime import date
 
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
+from finance_analytics.market.gus import CpiFetch, CpiReport, fetch_cpi, update_cpi
 from finance_analytics.market.nbp import Fetch, FxReport, fetch_rates, update_fx
 from finance_analytics.market.network import require_online
 from finance_analytics.market.yahoo import PriceClient, PriceReport, update_prices
@@ -19,10 +20,14 @@ class MarketReport:
     prices: PriceReport
     fx: FxReport
     unresolved: list[str] = field(default_factory=list)  # broker symbols without a Yahoo ticker
+    cpi: CpiReport = field(default_factory=CpiReport)
 
     @property
     def errors(self) -> dict[str, str]:
-        return {**self.prices.errors, **self.fx.errors}
+        errors = {**self.prices.errors, **self.fx.errors}
+        if self.cpi.error:
+            errors["GUS CPI"] = self.cpi.error
+        return errors
 
 
 def needed_tickers(conn: sqlite3.Connection) -> tuple[dict[str, date], list[str]]:
@@ -74,6 +79,7 @@ def update_market(
     today: date | None = None,
     price_client: PriceClient | None = None,
     fx_fetch: Fetch = fetch_rates,
+    cpi_fetch: CpiFetch = fetch_cpi,
 ) -> MarketReport:
     require_online(settings)  # offline mode: no network call, ever (D-021)
     today = today or date.today()
@@ -83,4 +89,5 @@ def update_market(
         prices = update_prices(conn, tickers, today, client=price_client)
         # Price currencies are known only after the first price download.
         fx = update_fx(conn, needed_currencies(conn, tickers), today, fetch=fx_fetch)
-    return MarketReport(prices=prices, fx=fx, unresolved=unresolved)
+        cpi = update_cpi(conn, today, fetch=cpi_fetch)  # monthly data, fetched at most once a day (D-025)
+    return MarketReport(prices=prices, fx=fx, unresolved=unresolved, cpi=cpi)

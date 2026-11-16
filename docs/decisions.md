@@ -271,6 +271,29 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - On PLN accounts the amount was converted by the broker at its own rate, not NBP D-1. Exact tax figures for those payments should be checked against the broker's yearly statement.
   - yfinance dividends (in the market cache) are not used for received amounts.
 
+### D-025 Inflation-adjusted returns from GUS CPI
+- **Date:** 2026-11-16 · **Status:** Accepted (R-004)
+- **Decision:**
+  - **Source:** `market/gus.py` scrapes the GUS page "Miesięczne wskaźniki cen towarów i usług konsumpcyjnych od 1982 roku" for the `.csv` link (the file name changes with every release) and downloads it. Checked against the real file (2026-11):
+    - `;` separator, decimal comma, **cp1250** (UTF-8 is tried first), a trailing `;;` on every line;
+    - columns `Nazwa zmiennej;Jednostka terytorialna;Sposób prezentacji;Rok;Miesiąc;Wartość;Flaga`;
+    - a single variable (the all-items CPI) and a single territory (Polska), in five presentations; we keep "Poprzedni miesiąc = 100" (m/m) and "Analogiczny miesiąc poprzedniego roku = 100" (y/y);
+    - months not published yet are present with an empty value and are skipped.
+  - **Storage:** `cpi_monthly(year, month, mom, yoy)` (migration 0005), index points as published. It is market cache: persistent, not a projection table.
+  - **Network:** the fetch sits behind `require_online` inside `update_market`, so the "Pobierz brakujące dane" button, `fa update-market` and the online auto-refresh all pick it up. It runs at most once a day (`fetch_log`, source `gus`, key `CPI`); a failure is recorded, reported as `GUS CPI` and retried on the next update.
+  - **Maths** (`portfolio/inflation.py`):
+    - price level chained from m/m, 100 at the first month (a gap in the months would break the chain, so only the latest unbroken run is used);
+    - the level is a monthly step: all days of a month share its level;
+    - months after the last published one carry the last known level, which means zero inflation is assumed for them, and are flagged as estimated;
+    - window inflation `π = level(end) / level(start) − 1`, real return `(1 + nominal) / (1 + π) − 1`, annualized (only from a year, like TWR);
+    - value in today's złoty `value_t × level_latest / level_t`.
+  - **UI:** "Po inflacji" on "Zwroty" (inflation, nominal and real TWR, and a chart of the three cumulative curves); a toggle "W dzisiejszych złotych" on "Portfel"; CPI coverage on "Dane rynkowe". Without CPI the pages say so and link to the settings (offline) or to the market data page (online).
+- **Consequences:**
+  - Chaining m/m values rounded to 0.1 point drifts slightly from the published y/y index (about 0.05 point over a year), and more over decades. Windows of a few years, the normal case here, are unaffected in practice.
+  - GUS publishes a month around the 15th of the next one, so the newest weeks are always estimated; the UI says so.
+  - The flash estimate and the revisions of earlier months are picked up by the daily refetch (`INSERT OR REPLACE`).
+  - Bonds (R-008) will reuse this table for their indexation (y/y).
+
 ---
 
 ## Open questions

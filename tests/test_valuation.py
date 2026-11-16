@@ -126,7 +126,8 @@ def test_end_to_end_on_mock_export(tmp_path):
     sync(settings)
     go_online(settings)
     update_market(settings, today=TODAY, price_client=FakePriceClient(),
-                  fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])))
+                  fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])),
+                  cpi_fetch=lambda: [(2026, 1, 100.0, 103.0)])
 
     v = value_portfolio(load_inputs(settings.db_path), TODAY)
     assert not v.daily["value_pln"].isna().any() and not v.warnings

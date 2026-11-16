@@ -185,6 +185,7 @@ def test_update_market_on_imported_mock_export(tmp_path):
     report = update_market(
         settings, today=TODAY, price_client=Client(),
         fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])),
+        cpi_fetch=lambda: [(2026, 1, 100.0, 103.0)],
     )
     assert not report.errors and not report.unresolved
     assert set(report.prices.fetched) == {"NVDA", "TSLA", "AMD", "MSFT", "AAPL", "GOOGL", "AMZN", "META",

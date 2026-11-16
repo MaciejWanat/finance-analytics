@@ -112,6 +112,27 @@ G: dict[str, str] = {
         "rocznie dostajesz w gotówce."
     ),
     "dividend_payments": "Liczba wypłat dywidendy (jedna wypłata na rachunek i dzień).",
+    # --- inflation ------------------------------------------------------------------------------
+    "cpi": (
+        "CPI to wskaźnik cen towarów i usług konsumpcyjnych, który co miesiąc publikuje GUS. Pokazuje, o ile "
+        "wzrosły ceny koszyka zakupów przeciętnego gospodarstwa domowego."
+    ),
+    "inflation": (
+        "Inflacja w okresie: o ile procent wzrosły ceny między początkiem a końcem okresu (z indeksu CPI "
+        "GUS). Tyle musi zarobić portfel, żeby jego siła nabywcza została taka sama."
+    ),
+    "real_return": (
+        "Zwrot realny to zwrot nominalny po odjęciu inflacji: (1 + zwrot nominalny) / (1 + inflacja) − 1. "
+        "Mówi, o ile więcej rzeczy możesz kupić za wynik portfela niż na początku."
+    ),
+    "todays_pln": (
+        "Wartości z przeszłości przeliczone na dzisiejszą siłę nabywczą złotego: wartość × poziom cen dziś / "
+        "poziom cen wtedy. Dzięki temu widać, czy portfel rósł realnie, a nie tylko nominalnie."
+    ),
+    "cpi_estimated": (
+        "GUS publikuje inflację za dany miesiąc w połowie następnego. Dla nowszych miesięcy aplikacja zakłada "
+        "brak zmiany cen (ostatni znany poziom), więc wynik realny jest wtedy przybliżony."
+    ),
     # --- network --------------------------------------------------------------------------------
     "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
     "online": (

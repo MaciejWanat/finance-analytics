@@ -51,7 +51,7 @@ python scripts/check_no_private_data.py [--all]
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
-fa update-market       # download missing prices (Yahoo) and FX rates (NBP) into the cache
+fa update-market       # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the cache
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
 fa demo                # data-demo/ from a synthetic export, then the UI on it
 ```
@@ -73,6 +73,7 @@ report, never from memory.
   - `mock/`: synthetic data generators.
   - `market/`: **the only package allowed to use the network**; a test enforces this. Contents:
     - `nbp.py` for FX rates;
+    - `gus.py` for the CPI (D-025);
     - `yahoo.py` for prices, splits and dividends;
     - `cache.py` for the covered ranges;
     - `update.py` to work out what the portfolio needs.
@@ -84,7 +85,8 @@ report, never from memory.
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
-    - Next: inflation, bonds.
+    - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
+    - Next: bonds.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.

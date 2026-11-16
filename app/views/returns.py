@@ -5,13 +5,16 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, drawdown_chart, line_chart, returns_heatmap, show
-from ui.components import Kpi, kpi_row, page_header, section, table
+from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
 from ui.data import RANGES, load_valuation, period_start, require_valued_data
 from ui.fmt import fmt_date, fmt_pct
 from ui.glossary import G
 from ui.theme import color_map
 
+from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.market.network import is_online
+from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import attribute
 from finance_analytics.portfolio.returns import monthly_returns, returns_for
 
@@ -84,6 +87,49 @@ for account, result in per_account.items():
     lines[account] = result.index - 1
 colors = color_map([PORTFOLIO, *per_account], mode)
 show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.1%}", y_tickformat=".0%"), key="twr")
+
+# ------------------------------------------------------------------------------ after inflation
+section("Po inflacji", "Zwrot nominalny (TWR) i realny, czyli po odjęciu wzrostu cen według CPI z GUS.",
+        help=G["real_return"])
+cpi = reports.cpi_monthly(settings.db_path)
+if cpi.empty:
+    online = is_online(settings)
+    empty_state(
+        "Brak danych o inflacji",
+        "Do zwrotu realnego potrzebny jest indeks CPI z GUS. "
+        + ("Pobierz go razem z cenami na stronie Dane rynkowe." if online else
+           "Aplikacja jest w trybie offline, więc go nie pobiera. Włącz tryb online w Ustawieniach."),
+        icon=":material/trending_up:",
+    )
+    if online:
+        st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
+    else:
+        st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
+else:
+    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
+    daily_cpi = inflation.daily_levels(levels, total.index)
+    period_inflation = inflation.window_inflation(daily_cpi, start, end)
+    if period_inflation is None:
+        st.caption(f"CPI zaczyna się od {fmt_date(levels.index[0])}, więc dla tego okresu nie ma inflacji.")
+    else:
+        real = inflation.real_return(portfolio.twr, period_inflation)
+        real_annual = inflation.real_annual(real, days)
+        annual_note = f" ({fmt_pct(real_annual)} rocznie)" if real_annual is not None else ""
+        st.markdown(
+            f"Inflacja w okresie **{fmt_pct(period_inflation)}**, zwrot nominalny (TWR) "
+            f"**{fmt_pct(portfolio.twr)}**, zwrot realny **{fmt_pct(real)}**{annual_note}.",
+            help=G["real_return"],
+        )
+        cumulative_cpi = inflation.cumulative_inflation(daily_cpi, start)
+        nominal = (portfolio.index - 1).reindex(cumulative_cpi.index).dropna()
+        cumulative_cpi = cumulative_cpi.reindex(nominal.index)
+        real_line = (1 + nominal) / (1 + cumulative_cpi) - 1
+        compare = pd.DataFrame({"Nominalnie (TWR)": nominal, "Realnie (po inflacji)": real_line,
+                                "Inflacja (CPI)": cumulative_cpi})
+        show(line_chart(compare, mode=mode, height=320, hover="%{y:.1%}", y_tickformat=".0%"), key="real")
+        if daily_cpi["estimated"].iloc[-1]:
+            st.caption(f"Ostatni opublikowany miesiąc CPI: {levels.index[-1]:%m.%Y}. Dla nowszych miesięcy "
+                       "zakładamy brak zmiany cen, więc wynik realny jest przybliżony.", help=G["cpi_estimated"])
 
 # ---------------------------------------------------------------------------- stocks vs currency
 attribution = attribute(v, start, end)

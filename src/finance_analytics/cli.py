@@ -125,6 +125,10 @@ def update_market_command() -> None:
         f"Prices: {sum(report.prices.fetched.values())} rows for {len(report.prices.fetched)} ticker(s); "
         f"FX: {sum(report.fx.fetched.values())} rows for {len(report.fx.fetched)} currency(ies)."
     )
+    if report.cpi.skipped:
+        click.echo("CPI (GUS): already fetched today.")
+    elif not report.cpi.error:
+        click.echo(f"CPI (GUS): {report.cpi.fetched} monthly rows.")
     for symbol in report.unresolved:
         click.secho(f"  no Yahoo ticker for {symbol} (add a mapping rule)", fg="yellow")
     for key, message in report.errors.items():

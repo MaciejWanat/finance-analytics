@@ -11,7 +11,9 @@ from ui.fmt import fmt_money, fmt_money_compact, fmt_pct
 from ui.glossary import G
 from ui.theme import OTHER_LABEL, color_map
 
+from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.returns import period_return, twr_index
 
 BREAKDOWNS = {"Rachunek": "account", "Klasa aktywów": "asset_class", "Instrument": "symbol", "Waluta": "currency"}
@@ -74,7 +76,21 @@ mode = current_mode()
 live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else ""
 section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}",
         help=G["portfolio_value"])
-show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
+cpi = reports.cpi_monthly(settings.db_path)
+real_view = st.toggle(
+    "W dzisiejszych złotych", value=False, key="todays_pln", help=G["todays_pln"], disabled=cpi.empty,
+)
+shown = window
+if cpi.empty:
+    st.caption("Brak danych o inflacji (CPI z GUS): pobierz je w trybie online na stronie Dane rynkowe.")
+elif real_view:
+    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
+    daily_cpi = inflation.daily_levels(levels, total.index)
+    shown = inflation.todays_zloty(window, daily_cpi)
+    estimated = " (miesiąc bez opublikowanego CPI: ostatni znany poziom cen)" if daily_cpi["estimated"].iloc[-1] else ""
+    st.caption(f"Wartości w złotych z {end:%m.%Y}, czyli po uwzględnieniu wzrostu cen od danego dnia{estimated}.",
+               help=G["cpi_estimated"] if estimated else None)
+show(area_total(shown, name="Portfel", mode=mode, height=340), key="total")
 
 # ---------------------------------------------------------------------------- composition and parts
 # The breakdown filter sits right above the charts it changes.
