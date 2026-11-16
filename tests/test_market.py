@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 import pytest
+from conftest import go_online
 
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
@@ -174,6 +175,7 @@ def test_update_market_on_imported_mock_export(tmp_path):
     write_mock_export(export)
     import_xtb(export, settings)
     sync(settings)
+    go_online(settings)
 
     class Client(FakePriceClient):
         def history(self, ticker, start, end):

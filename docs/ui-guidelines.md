@@ -99,6 +99,7 @@ Load the `dataviz` skill before designing a new chart form.
 | Long user action | two-run button: the click sets a flag; the next run redraws the button disabled with `icon="spinner"`, does the work, clears the flag in `finally`, then `st.rerun()`; the result shows below as `st.success`/`st.warning` |
 | Recoverable problem | `st.warning` with what to do; detailed lists in an expander |
 | Error that blocks a feature | `st.error` naming the file or item and the fix |
+| Offline mode (D-021) | features that need the network are disabled, with an `st.info` explaining why and a `page_link` to *Ustawienia*; everything else keeps working on cached data |
 
 ## 7. Performance
 

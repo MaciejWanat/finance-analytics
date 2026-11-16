@@ -7,6 +7,7 @@ or deleted but marked `Superseded by D-xxx` and a new entry is added.
 - **R-xxx**: requirement (what the tool must do or respect)
 - **D-xxx**: decision (date, status, context, decision, consequences)
 - **Q-xxx**: open question (resolved questions point to the decision that closed them)
+- **I-xxx**: idea for later; not planned yet, revisit once the prototype works
 
 Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 
@@ -226,6 +227,17 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
 | Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
 | Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
+
+---
+
+## Ideas for later
+
+Not part of the current plan. Pick them up after a working prototype exists, with a
+`/grill-me` session and a proper decision entry.
+
+| ID | Idea | Notes | Added |
+|---|---|---|---|
+| I-001 | **Customisable home page from modules.** The user builds their own start page from tiles placed on a grid, e.g. KPI, value chart, allocation, dividends or holdings, and arranges them as they like. The result is a personal dashboard with exactly what they want to see. | Every existing view would need to be packaged as a self-contained module with its own settings. The layout would be stored locally (e.g. `data/config/dashboard.yaml`), in line with D-002 and R-015. Streamlit has no built-in drag-and-drop grid: a vetted component or a custom one would be needed, and it must not load anything from the internet (D-011). | 2026-11-16 |
 
 ---
 

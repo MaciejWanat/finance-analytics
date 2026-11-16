@@ -135,7 +135,19 @@ def _adjust_for_splits(lots: pd.DataFrame, inputs: Inputs, warnings: list[str]) 
     return lots
 
 
-def value_portfolio(inputs: Inputs, end: date) -> Valuation:
+def value_portfolio(
+    inputs: Inputs,
+    end: date,
+    *,
+    live_prices: dict[str, float] | None = None,
+    live_fx: dict[str, float] | None = None,
+) -> Valuation:
+    """Value every day up to `end`.
+
+    `live_prices` (ticker -> price) and `live_fx` (currency -> PLN per unit) come from
+    online mode (D-021) and replace the last day's price and rate for the *value* only.
+    Costs and flows keep using NBP rates.
+    """
     warnings: list[str] = []
     accounts = inputs.accounts.set_index("account_id")
     starts = [frame[column].min() for frame, column in ((inputs.lots, "open_date"), (inputs.ledger, "date"))
@@ -181,11 +193,13 @@ def value_portfolio(inputs: Inputs, end: date) -> Valuation:
 
     prices = inputs.prices.pivot_table(index="date", columns="ticker", values="close", aggfunc="last")
     prices = prices.reindex(prices.index.union(calendar)).sort_index().ffill().reindex(calendar)
+    for ticker, price in (live_prices or {}).items():
+        prices.loc[calendar[-1], ticker] = price
     prices.index.name = "date"
     price_long = prices.stack().rename("price").reset_index()
     price_long.columns = ["date", "ticker", "price"]
     held = held.merge(price_long, on=["date", "ticker"], how="left")
-    held["currency"] = held["ticker"].map(inputs.currencies)
+    held["currency"] = held["ticker"].map(inputs.currencies).astype(object)  # may stay all-empty
 
     # Fallback for instruments without prices: value at cost (account currency).
     unit_cost = lots.groupby(["account_id", "instrument_id"]).apply(
@@ -200,8 +214,11 @@ def value_portfolio(inputs: Inputs, end: date) -> Valuation:
         held.loc[missing, "currency"] = held.loc[missing, "account_id"].map(accounts["currency"])
     held["priced"] = ~missing
 
-    fx.index.name = "date"
-    fx_long = fx.stack().rename("fx").reset_index()
+    fx_value = fx.copy()  # rates used for values; today's may be a live market rate
+    for currency, mid in (live_fx or {}).items():
+        fx_value.loc[calendar[-1], currency] = mid
+    fx_value.index.name = "date"
+    fx_long = fx_value.stack().rename("fx").reset_index()
     fx_long.columns = ["date", "currency", "fx"]
     held = held.merge(fx_long, on=["date", "currency"], how="left")
     held["value_local"] = held["qty"] * held["price"]
@@ -217,7 +234,8 @@ def value_portfolio(inputs: Inputs, end: date) -> Valuation:
             currency = accounts.loc[account_id, "currency"]
             frame = pd.DataFrame({
                 "date": calendar, "account_id": account_id, "qty": balances[account_id].to_numpy(),
-                "price": 1.0, "currency": currency, "fx": rate(currency).to_numpy(),
+                "price": 1.0, "currency": currency,
+                "fx": fx_value[currency].to_numpy() if currency in fx_value.columns else rate(currency).to_numpy(),
             })
             frame["value_local"] = frame["qty"]
             frame["value_pln"] = frame["value_local"] * frame["fx"]

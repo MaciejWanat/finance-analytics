@@ -25,3 +25,20 @@ def test_init_creates_data_dir_db_and_accounts_template(tmp_path, monkeypatch):
     again = CliRunner().invoke(cli.main, ["init"])
     assert again.exit_code == 0
     assert "0 migration(s) applied" in again.output
+
+
+def test_settings_command_switches_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "data"))
+    runner = CliRunner()
+    shown = runner.invoke(cli.main, ["settings"])
+    assert "Network mode: offline" in shown.output
+    changed = runner.invoke(cli.main, ["settings", "--online", "--refresh", "10"])
+    assert "Network mode: online" in changed.output and "every 10 min" in changed.output
+    back = runner.invoke(cli.main, ["settings", "--offline"])
+    assert "Network mode: offline" in back.output
+
+
+def test_update_market_refuses_offline(tmp_path, monkeypatch):
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "data"))
+    result = CliRunner().invoke(cli.main, ["update-market"])
+    assert result.exit_code != 0 and "offline mode" in result.output

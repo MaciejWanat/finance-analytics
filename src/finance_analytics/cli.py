@@ -82,14 +82,45 @@ def rebuild() -> None:
     _report_sync(run_sync(settings, force=True))
 
 
+@main.command("settings")
+@click.option("--online/--offline", "online", default=None, help="Switch the network mode (default: offline).")
+@click.option("--refresh", type=click.IntRange(1, 60), default=None, help="Live price refresh, minutes.")
+def settings_command(online: bool | None, refresh: int | None) -> None:
+    """Show or change preferences: network mode and live refresh interval (D-021)."""
+    from finance_analytics.preferences import load_preferences, save_preferences
+
+    settings = get_settings()
+    preferences = load_preferences(settings)
+    if online is not None or refresh is not None:
+        changes = {}
+        if online is not None:
+            changes["network"] = "online" if online else "offline"
+        if refresh is not None:
+            changes["refresh_minutes"] = refresh
+        preferences = preferences.model_copy(update=changes)
+        save_preferences(settings, preferences)
+    click.echo(f"Network mode: {preferences.network}")
+    click.echo(f"Live refresh: every {preferences.refresh_minutes} min (online mode only)")
+    if preferences.online:
+        click.echo("Online: tickers, currency codes and dates are sent to Yahoo Finance and NBP; nothing else.")
+    else:
+        click.echo("Offline: no network calls; the app works on cached data only.")
+
+
 @main.command("update-market")
 def update_market_command() -> None:
-    """Download missing prices (Yahoo) and FX rates (NBP) into the local cache."""
+    """Download missing prices (Yahoo) and FX rates (NBP) into the local cache. Online mode only."""
+    from finance_analytics.market.network import OfflineError
     from finance_analytics.market.update import update_market
 
     settings = get_settings()
     _prepare(settings)
-    report = update_market(settings)
+    try:
+        report = update_market(settings)
+    except OfflineError as exc:
+        raise click.ClickException(
+            "offline mode: no network calls. Switch with `fa settings --online` to fetch market data."
+        ) from exc
     click.echo(
         f"Prices: {sum(report.prices.fetched.values())} rows for {len(report.prices.fetched)} ticker(s); "
         f"FX: {sum(report.fx.fetched.values())} rows for {len(report.fx.fetched)} currency(ies)."
@@ -144,9 +175,10 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     # Start from fresh demo files so repeated runs don't stack copies, but keep the
     # database: its market cache (prices, FX) saves re-downloading on every demo run.
     export = settings.data_dir / "xtb_export"
-    for folder in (export, settings.raw_dir, settings.config_dir):
+    for folder in (export, settings.raw_dir):
         if folder.exists():
             shutil.rmtree(folder)
+    settings.accounts_file.unlink(missing_ok=True)  # settings.yaml (network mode) is kept
     write_mock_export(export)
     _prepare(settings)
     import_xtb(export, settings)

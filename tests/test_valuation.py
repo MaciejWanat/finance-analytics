@@ -110,6 +110,7 @@ def test_empty_portfolio():
 
 
 def test_end_to_end_on_mock_export(tmp_path):
+    from conftest import go_online
     from test_market import TODAY, FakePriceClient, fake_nbp_get
 
     from finance_analytics.config import Settings
@@ -123,6 +124,7 @@ def test_end_to_end_on_mock_export(tmp_path):
     write_mock_export(tmp_path / "export")
     import_xtb(tmp_path / "export", settings)
     sync(settings)
+    go_online(settings)
     update_market(settings, today=TODAY, price_client=FakePriceClient(),
                   fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])))
 

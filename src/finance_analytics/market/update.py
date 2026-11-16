@@ -10,6 +10,7 @@ from datetime import date
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
 from finance_analytics.market.nbp import Fetch, FxReport, fetch_rates, update_fx
+from finance_analytics.market.network import require_online
 from finance_analytics.market.yahoo import PriceClient, PriceReport, update_prices
 
 
@@ -74,6 +75,7 @@ def update_market(
     price_client: PriceClient | None = None,
     fx_fetch: Fetch = fetch_rates,
 ) -> MarketReport:
+    require_online(settings)  # offline mode: no network call, ever (D-021)
     today = today or date.today()
     with closing(connect(settings.db_path)) as conn:
         migrate(conn)

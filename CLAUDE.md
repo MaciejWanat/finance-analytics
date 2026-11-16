@@ -52,6 +52,7 @@ fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_expor
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
 fa update-market       # download missing prices (Yahoo) and FX rates (NBP) into the cache
+fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
 fa demo                # data-demo/ from a synthetic export, then the UI on it
 ```
 
@@ -75,6 +76,9 @@ report, never from memory.
     - `yahoo.py` for prices, splits and dividends;
     - `cache.py` for the covered ranges;
     - `update.py` to work out what the portfolio needs.
+    - `network.py`: the online/offline gate. Every network entry point calls `require_online` first.
+    - `live.py`: live quotes in online mode.
+    - `auto.py`: the daily auto-update schedule.
   - `portfolio/`: pandas maths. `valuation.py` covers daily holdings and PLN value (D-019); returns, dividends and bonds come next.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
@@ -114,6 +118,7 @@ two kinds of tables:
 The single place for requirements (`R-xxx`), decisions (`D-xxx`) and open questions
 (`Q-xxx`).
 - Read it before planning work.
+- Ideas for later (`I-xxx`) live in their own section. They are not planned work; do not build them unless the user asks.
 - Every new requirement, decision or resolved question gets the next free ID, a date and a status.
 - The log is append-only. A changed decision is marked `Superseded by D-xxx` and a new entry is added; nothing is deleted.
 - Keep it in sync when work changes a decision, and add research findings to the *Integrations research* section.

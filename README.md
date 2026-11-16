@@ -15,9 +15,12 @@ your whole portfolio is worth, day by day, and where the return came from:
 ## Privacy first
 
 Privacy is the point of this project. It can run **100% on your machine**: no account, no
-server, no cloud processing, no telemetry. With the planned offline mode it makes no network
-calls at all and works on the data it already has. In online mode it only downloads public
-market data, and you decide when.
+server, no cloud processing, no telemetry.
+
+- **Offline mode (the default)** makes no network calls at all; the app works on the data it already has.
+- **Online mode** is switched on by you, on the *Ustawienia* page or with `fa settings --online`. It keeps
+  prices live (polled every few minutes on weekdays) and downloads NBP rates daily. Only tickers,
+  currency codes and dates are sent, never balances, quantities or account numbers.
 
 - Your data stays on your machine. Everything lives in a local `data/` folder: one SQLite file plus your export files.
 - The only outbound requests are public market data: prices (Yahoo Finance via `yfinance`), FX rates (NBP API) and inflation (GUS). They contain tickers and dates, nothing about your accounts.
@@ -51,6 +54,7 @@ Import an XTB export (the folder xStation produces) and open the UI:
 
 ```bash
 fa import xtb <export folder>
+fa settings --online   # allow market data downloads (offline by default)
 fa update-market
 fa ui
 ```

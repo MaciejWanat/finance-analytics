@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +15,9 @@ from ui.theme import OTHER_LABEL, color_map
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.market.live import read_live
 from finance_analytics.portfolio.valuation import Valuation, data_version, load_inputs, value_portfolio
+from finance_analytics.preferences import load_preferences
 
 RANGES = ["1M", "3M", "YTD", "1R", "3L", "Maks."]
 BREAKDOWNS = {"Rachunek": "account", "Klasa aktywów": "asset_class", "Instrument": "symbol", "Waluta": "currency"}
@@ -51,23 +53,35 @@ if reports.accounts_overview(settings.db_path).empty:
 with closing(sqlite3.connect(settings.db_path)) as conn:
     has_prices = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] > 0
 if not has_prices:
+    online = load_preferences(settings).online
     empty_state(
         "Brakuje cen i kursów walut",
-        "Do wyceny w PLN potrzebne są notowania instrumentów i kursy NBP. Pobierz je jednym kliknięciem.",
+        "Do wyceny w PLN potrzebne są notowania instrumentów i kursy NBP. "
+        + ("Pobierz je jednym kliknięciem." if online else
+           "Aplikacja jest w trybie offline, więc ich nie pobiera. Włącz tryb online w Ustawieniach."),
         icon=":material/candlestick_chart:",
     )
-    st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
+    if online:
+        st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
+    else:
+        st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
     st.stop()
 
 
 @st.cache_data(show_spinner="Liczę wycenę portfela…")
-def valuation(db_path: str, version: tuple, today: date) -> Valuation:
+def valuation(db_path: str, version: tuple, today: date, live: tuple) -> Valuation:
     from pathlib import Path
 
-    return value_portfolio(load_inputs(Path(db_path)), today)
+    live_prices, live_fx = (dict(part) for part in live)
+    return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
 
-v = valuation(str(settings.db_path), data_version(settings.db_path), date.today())
+# Online mode: today's value uses the latest live quotes (D-021); offline: cached closes only.
+live_prices, live_fx, live_at = {}, {}, None
+if load_preferences(settings).online:
+    live_prices, live_fx, live_at = read_live(settings.db_path, timedelta(hours=12))
+live_key = (tuple(sorted(live_prices.items())), tuple(sorted(live_fx.items())))
+v = valuation(str(settings.db_path), data_version(settings.db_path), date.today(), live_key)
 daily, total = v.daily, v.total
 if total.empty:
     st.info("Brak pozycji i operacji do wyceny.")
@@ -125,7 +139,8 @@ kpi_row(
 mode = current_mode()
 
 # -------------------------------------------------------------------------------- value over time
-section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.")
+live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else ""
+section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}")
 show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
 
 # ---------------------------------------------------------------------------- composition and parts

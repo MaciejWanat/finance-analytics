@@ -47,6 +47,11 @@ class Settings:
     def accounts_file(self) -> Path:
         return self.config_dir / "accounts.yaml"
 
+    @property
+    def preferences_file(self) -> Path:
+        """Network mode and refresh interval (D-021)."""
+        return self.config_dir / "settings.yaml"
+
     def all_dirs(self) -> list[Path]:
         return [self.data_dir, self.raw_dir, self.manual_dir, self.config_dir, self.samples_dir]
 
