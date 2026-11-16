@@ -8,10 +8,16 @@ your whole portfolio is worth, day by day, and where the return came from:
 - dividends after tax;
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
-> **Status:** early development. XTB exports can be imported and browsed, and prices and
-> FX rates are cached locally. The daily PLN valuation is next.
+> **Status:** early development. XTB exports are imported, prices and FX rates cached locally,
+> and the portfolio is valued daily in PLN. Returns (TWR, XIRR), dividends, inflation, bonds
+> and cash come next.
 
-## Privacy
+## Privacy first
+
+Privacy is the point of this project. It can run **100% on your machine**: no account, no
+server, no cloud processing, no telemetry. With the planned offline mode it makes no network
+calls at all and works on the data it already has. In online mode it only downloads public
+market data, and you decide when.
 
 - Your data stays on your machine. Everything lives in a local `data/` folder: one SQLite file plus your export files.
 - The only outbound requests are public market data: prices (Yahoo Finance via `yfinance`), FX rates (NBP API) and inflation (GUS). They contain tickers and dates, nothing about your accounts.

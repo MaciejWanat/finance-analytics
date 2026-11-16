@@ -30,6 +30,8 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | R-012 | Market data is cached locally so APIs are not queried on every start. | 2026-11-16 |
 | R-013 | Real financial data is never committed to the repository; only synthetic mock data. | 2026-11-16 |
 | R-014 | Some XTB holdings are priced in USD and EUR (also on the PLN account), so FX rates are needed for valuation. | 2026-11-16 |
+| R-015 | **Privacy-first is the product's main promise.** The app must be able to run 100% locally: no server-side processing, no telemetry, no outbound calls at all when the user chooses so. Any network use is limited to public market data, is visible to the user and can be switched off. | 2026-11-16 |
+| R-016 | Online/offline mode, switchable in the app settings. **Online:** live prices, FX rates and all other external data kept up to date automatically. **Offline:** the app works only on already fetched data and makes no network calls. | 2026-11-16 |
 
 ---
 
@@ -171,6 +173,30 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Date:** 2026-11-16 · **Status:** Accepted
 - **Decision:** `fa ui --dev` and `fa demo` start Streamlit with `server.runOnSave = true` (with `watchdog` in the dev extras). Saving a source file reruns the open page automatically; session state survives. Plain `fa ui` does not watch files.
 
+### D-019 Daily valuation rules
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Decision:** `portfolio/valuation.py` values every calendar day from the first event to today.
+  - **Quantity:** +volume on the day a lot opens, −volume on the day it closes. A lot closed on day d is not held at the end of d.
+  - **Price:** Yahoo close (split-adjusted), carried forward over days without trading.
+  - **FX:** the last NBP rate published on or before the day; PLN = 1.
+  - **Cash:** running sum of the cash ledger per account, converted at the same rate.
+  - **Instruments without prices** are valued at purchase cost and flagged (`priced = False`, warning).
+  - **Splits (Q-001):** when a split happened after a lot was opened, the lot volume is multiplied by the ratio only if its open price is within 25% of ratio × the adjusted close on the opening day. That case means the broker kept the pre-split volume. Every such case is reported.
+  - **Cost in PLN** uses the rate of the opening day. External flows (deposits, withdrawals) use the rate of their day.
+  - **"Wynik w okresie"** on the Portfel page is a simple approximation: value change minus net flows, divided by the start value plus inflows. TWR and XIRR come with the returns step.
+- **Consequences:**
+  - Valuation is a pure function of the inputs, tested on hand-computed examples.
+  - The UI caches it per data version (`data_version`).
+  - About 0.5 s for the demo portfolio (5 accounts, 2 years).
+
+### D-020 UI guidelines as a document plus a skill
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** Anthropic recommends packaging design guidance as a skill that loads only for UI work, rather than growing CLAUDE.md. Its generic frontend-aesthetics advice (distinctive web fonts, gradients, load animations) targets marketing pages. It conflicts with D-011 (no external fonts) and with a data-dense dashboard.
+- **Decision:**
+  - `docs/ui-guidelines.md` is the design system: principles, page anatomy, building blocks, charts, Polish copy, states, checklist.
+  - `.claude/skills/ui-page/SKILL.md` is a short skill that loads it for UI tasks and requires a browser check.
+  - CLAUDE.md keeps a one-line pointer.
+
 ---
 
 ## Open questions
@@ -182,6 +208,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open |
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
+| Q-007 | Online mode: how to keep prices live. Options are periodic polling (refresh every N minutes while a page is open) or Yahoo's streaming WebSocket (push during market hours). Also: where the setting lives, and how offline mode is enforced in code. | Open: design proposal pending |
 | Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
 
 ---

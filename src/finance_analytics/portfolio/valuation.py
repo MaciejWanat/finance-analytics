@@ -1,0 +1,242 @@
+"""Daily holdings and their value in PLN (D-004, D-008, D-009, D-019).
+
+Pipeline, all on a calendar-day index from the first event to `end`:
+1. quantity per (account, instrument): +volume on the day a lot opens, -volume on
+   the day it closes (a lot closed on day d is not held at the end of d);
+2. price per instrument: Yahoo close (split-adjusted), carried forward over days
+   without trading;
+3. FX: NBP mid rate, the last one published on or before the day (D-008);
+4. cash per account: running sum of the cash ledger, in the account currency.
+
+`load_inputs` reads SQLite; `value_portfolio` is a pure function of the inputs.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from contextlib import closing
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
+
+
+@dataclass
+class Inputs:
+    lots: pd.DataFrame  # account_id, instrument_id, symbol, name, asset_class, ticker, volume, open_date,
+    #                     close_date, open_price, purchase_value
+    ledger: pd.DataFrame  # account_id, date, type, amount
+    accounts: pd.DataFrame  # account_id, alias, currency, tax_wrapper
+    prices: pd.DataFrame  # ticker, date, close
+    currencies: dict[str, str]  # ticker -> price currency
+    fx: pd.DataFrame  # currency, date, mid
+    splits: pd.DataFrame  # ticker, date, ratio
+
+
+@dataclass
+class Valuation:
+    daily: pd.DataFrame  # long: date, account_id, account, kind, symbol, name, asset_class, currency,
+    #                      qty, price, fx, value_local, value_pln, priced
+    flows: pd.DataFrame  # external cash flows: date, account_id, amount, amount_pln
+    lots: pd.DataFrame  # lots with cost_pln (FX on the opening day) and adjusted volume
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def total(self) -> pd.Series:
+        return self.daily.groupby("date")["value_pln"].sum()
+
+
+# ------------------------------------------------------------------------- load
+
+
+def load_inputs(db_path: Path) -> Inputs:
+    with closing(sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)) as conn:
+        def q(sql: str) -> pd.DataFrame:
+            return pd.read_sql_query(sql, conn)
+
+        lots = q(
+            """
+            SELECT p.account_id, p.instrument_id, i.xtb_symbol AS symbol, i.name, i.asset_class,
+                   i.yahoo_ticker AS ticker, p.volume, substr(p.open_time, 1, 10) AS open_date,
+                   substr(p.close_time, 1, 10) AS close_date, p.open_price, p.purchase_value
+            FROM positions p JOIN instruments i ON i.id = p.instrument_id
+            """
+        )
+        ledger = q("SELECT account_id, substr(ts, 1, 10) AS date, type, amount FROM cash_ledger")
+        accounts = q("SELECT id AS account_id, alias, currency, tax_wrapper FROM accounts")
+        prices = q("SELECT ticker, date, close FROM prices")
+        currencies = dict(conn.execute("SELECT ticker, currency FROM ticker_info").fetchall())
+        fx = q("SELECT currency, date, mid FROM fx_rates")
+        splits = q("SELECT ticker, date, value AS ratio FROM corporate_actions WHERE kind = 'SPLIT'")
+    for frame, columns in ((lots, ["open_date", "close_date"]), (ledger, ["date"]), (prices, ["date"]),
+                           (fx, ["date"]), (splits, ["date"])):
+        for column in columns:
+            frame[column] = pd.to_datetime(frame[column])
+    return Inputs(lots, ledger, accounts, prices, currencies, fx, splits)
+
+
+def data_version(db_path: Path) -> tuple:
+    """Cheap fingerprint of everything the valuation reads, for UI caching."""
+    with closing(sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)) as conn:
+        return conn.execute(
+            """
+            SELECT (SELECT MAX(imported_at) FROM source_files), (SELECT COUNT(*) FROM cash_ledger),
+                   (SELECT COUNT(*) FROM positions), (SELECT COUNT(*) || MAX(date) FROM prices),
+                   (SELECT COUNT(*) || MAX(date) FROM fx_rates), (SELECT MAX(fetched_at) FROM fetch_log),
+                   (SELECT group_concat(alias) FROM accounts)
+            """
+        ).fetchone()
+
+
+# ---------------------------------------------------------------------- compute
+
+
+def _fx_table(fx: pd.DataFrame, calendar: pd.DatetimeIndex) -> pd.DataFrame:
+    """PLN per unit, by day and currency; last published rate carried forward."""
+    wide = fx.pivot_table(index="date", columns="currency", values="mid", aggfunc="last")
+    full = wide.reindex(wide.index.union(calendar)).sort_index().ffill()
+    table = full.reindex(calendar).bfill()  # only fills days before the very first rate
+    table["PLN"] = 1.0
+    return table
+
+
+def _adjust_for_splits(lots: pd.DataFrame, inputs: Inputs, warnings: list[str]) -> pd.DataFrame:
+    """Express lot volumes in today's share count when a split happened after opening (Q-001).
+
+    Yahoo prices are split-adjusted backwards. If the broker kept the pre-split volume
+    (open price ~ split ratio x adjusted close on the opening day), multiply the volume
+    by the ratio; if it already adjusted the lot, leave it.
+    """
+    lots = lots.copy()
+    lots["volume_adj"] = lots["volume"]
+    if inputs.splits.empty:
+        return lots
+    for index, lot in lots.iterrows():
+        later = inputs.splits[(inputs.splits["ticker"] == lot["ticker"]) & (inputs.splits["date"] > lot["open_date"])]
+        if later.empty:
+            continue
+        ratio = float(np.prod(later["ratio"]))
+        series = inputs.prices[inputs.prices["ticker"] == lot["ticker"]].set_index("date")["close"].sort_index()
+        before = series[series.index <= lot["open_date"]]
+        if before.empty:
+            warnings.append(f"{lot['symbol']}: split after opening a position, but no price to check it against")
+            continue
+        observed = lot["open_price"] / before.iloc[-1]
+        if abs(observed / ratio - 1) <= SPLIT_TOLERANCE:
+            lots.at[index, "volume_adj"] = lot["volume"] * ratio
+            warnings.append(
+                f"{lot['symbol']}: {lot['volume']:g} shares bought before a {ratio:g}:1 split counted as "
+                f"{lot['volume'] * ratio:g} (Q-001)"
+            )
+    return lots
+
+
+def value_portfolio(inputs: Inputs, end: date) -> Valuation:
+    warnings: list[str] = []
+    accounts = inputs.accounts.set_index("account_id")
+    starts = [frame[column].min() for frame, column in ((inputs.lots, "open_date"), (inputs.ledger, "date"))
+              if not frame.empty]
+    if not starts:
+        empty = pd.DataFrame(columns=["date", "account_id", "value_pln"])
+        return Valuation(daily=empty, flows=empty, lots=inputs.lots, warnings=warnings)
+    calendar = pd.date_range(min(starts), pd.Timestamp(end), freq="D")
+    fx = _fx_table(inputs.fx, calendar)
+
+    def rate(currency: str) -> pd.Series:
+        if currency not in fx.columns:
+            warnings.append(f"no NBP rates for {currency}; values in {currency} are missing")
+            return pd.Series(np.nan, index=calendar)
+        return fx[currency]
+
+    # --- positions -----------------------------------------------------------------------------------
+    lots = _adjust_for_splits(inputs.lots, inputs, warnings)
+    lots["account_currency"] = lots["account_id"].map(accounts["currency"])
+    lots["cost_pln"] = [
+        value * rate(ccy).asof(day) if pd.notna(value) else np.nan
+        for value, ccy, day in zip(lots["purchase_value"], lots["account_currency"], lots["open_date"], strict=True)
+    ]
+    opening = lots[["open_date", "account_id", "instrument_id", "volume_adj"]].rename(columns={"open_date": "date"})
+    closing_ = lots.dropna(subset=["close_date"])[["close_date", "account_id", "instrument_id", "volume_adj"]]
+    closing_ = closing_.rename(columns={"close_date": "date"}).assign(volume_adj=lambda d: -d["volume_adj"])
+    deltas = pd.concat([opening, closing_])
+    qty = (
+        deltas.pivot_table(index="date", columns=["account_id", "instrument_id"], values="volume_adj", aggfunc="sum")
+        .reindex(calendar, fill_value=0.0)
+        .fillna(0.0)
+        .cumsum()
+        .round(8)
+    )
+    qty.index.name = "date"
+    held = qty.stack(["account_id", "instrument_id"]).rename("qty").reset_index()
+    held = held[held["qty"] > 0]
+
+    info = lots.drop_duplicates("instrument_id").set_index("instrument_id")[
+        ["symbol", "name", "asset_class", "ticker"]
+    ]
+    held = held.join(info, on="instrument_id")
+
+    prices = inputs.prices.pivot_table(index="date", columns="ticker", values="close", aggfunc="last")
+    prices = prices.reindex(prices.index.union(calendar)).sort_index().ffill().reindex(calendar)
+    prices.index.name = "date"
+    price_long = prices.stack().rename("price").reset_index()
+    price_long.columns = ["date", "ticker", "price"]
+    held = held.merge(price_long, on=["date", "ticker"], how="left")
+    held["currency"] = held["ticker"].map(inputs.currencies)
+
+    # Fallback for instruments without prices: value at cost (account currency).
+    unit_cost = lots.groupby(["account_id", "instrument_id"]).apply(
+        lambda g: g["purchase_value"].sum() / g["volume_adj"].sum(), include_groups=False
+    )
+    missing = held["price"].isna() | held["currency"].isna()
+    if missing.any():
+        for symbol in sorted(held.loc[missing, "symbol"].unique()):
+            warnings.append(f"{symbol}: no market price for some days; valued at purchase cost there")
+        keys = list(zip(held.loc[missing, "account_id"], held.loc[missing, "instrument_id"], strict=True))
+        held.loc[missing, "price"] = [unit_cost.get(k, np.nan) for k in keys]
+        held.loc[missing, "currency"] = held.loc[missing, "account_id"].map(accounts["currency"])
+    held["priced"] = ~missing
+
+    fx.index.name = "date"
+    fx_long = fx.stack().rename("fx").reset_index()
+    fx_long.columns = ["date", "currency", "fx"]
+    held = held.merge(fx_long, on=["date", "currency"], how="left")
+    held["value_local"] = held["qty"] * held["price"]
+    held["value_pln"] = held["value_local"] * held["fx"]
+    held["kind"] = "position"
+
+    # --- cash ----------------------------------------------------------------------------------------
+    cash_frames = []
+    if not inputs.ledger.empty:
+        per_day = inputs.ledger.pivot_table(index="date", columns="account_id", values="amount", aggfunc="sum")
+        balances = per_day.reindex(calendar, fill_value=0.0).fillna(0.0).cumsum().round(2)
+        for account_id in balances.columns:
+            currency = accounts.loc[account_id, "currency"]
+            frame = pd.DataFrame({
+                "date": calendar, "account_id": account_id, "qty": balances[account_id].to_numpy(),
+                "price": 1.0, "currency": currency, "fx": rate(currency).to_numpy(),
+            })
+            frame["value_local"] = frame["qty"]
+            frame["value_pln"] = frame["value_local"] * frame["fx"]
+            cash_frames.append(frame)
+    cash = pd.concat(cash_frames) if cash_frames else pd.DataFrame()
+    if not cash.empty:
+        cash = cash.assign(kind="cash", symbol="Gotówka", name="Gotówka", asset_class="cash", priced=True)
+
+    daily = pd.concat([held, cash], ignore_index=True)
+    daily["account"] = daily["account_id"].map(accounts["alias"])
+    daily = daily[["date", "account_id", "account", "kind", "symbol", "name", "asset_class", "currency", "qty",
+                   "price", "fx", "value_local", "value_pln", "priced"]].sort_values(["date", "account", "symbol"])
+
+    # --- external flows (deposits and withdrawals), in PLN at the day's NBP rate ----------------------
+    flows = inputs.ledger[inputs.ledger["type"].isin(["DEPOSIT", "WITHDRAWAL"])].copy()
+    flows["currency"] = flows["account_id"].map(accounts["currency"])
+    flows["amount_pln"] = [
+        amount * rate(ccy).asof(day) for amount, ccy, day in zip(flows["amount"], flows["currency"], flows["date"],
+                                                               strict=True)
+    ]
+    return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
+                     warnings=sorted(set(warnings)))

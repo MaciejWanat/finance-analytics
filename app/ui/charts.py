@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from ui.fmt import fmt_pct
 from ui.theme import PLOTLY_CONFIG, TOKENS, Mode, color_map, template
 
 HOVER_PLN = "%{y:,.2f} zł"
@@ -129,6 +130,48 @@ def stacked_bars(
         )
     fig.update_xaxes(showspikes=False)
     fig.update_layout(barmode="stack", barcornerradius=4, showlegend=len(df.columns) > 1)
+    return fig
+
+
+_DARK_TEXT_ON = {"#eda100", "#c98500"}  # yellow slots carry near-black labels
+
+
+def segmented_bar(
+    values: pd.Series,
+    *,
+    mode: Mode,
+    colors: dict[str, str] | None = None,
+    hover_unit: str = "zł",
+) -> go.Figure:
+    """One whole split into parts (allocation), as a single tall bar.
+
+    Each part shows its share inside when it is wide enough; name, amount and share
+    are in the legend and the tooltip.
+    """
+    tokens = TOKENS[mode]
+    values = values[values > 0]
+    colors = colors or color_map(list(values.index), mode)
+    total = float(values.sum()) or 1.0
+    fig = go.Figure(layout={"template": template(mode), "height": 110})
+    for label, value in values.items():
+        share = value / total
+        color = colors[label]
+        fig.add_trace(
+            go.Bar(
+                x=[value], y=[""], orientation="h", name=str(label),
+                marker={"color": color, "line": {"color": tokens.surface, "width": 2}},
+                text=[fmt_pct(share, 0, signed=False) if share >= 0.06 else ""],
+                textposition="inside", insidetextanchor="start",
+                textfont={"color": "#0b0b0b" if color in _DARK_TEXT_ON else "#ffffff", "size": 13},
+                customdata=[[share * 100]],
+                hovertemplate=f"<b>%{{x:,.0f}} {hover_unit}</b> · %{{customdata[0]:.1f}}%<extra>{label}</extra>",
+            )
+        )
+    fig.update_layout(
+        barmode="stack", barcornerradius=4, bargap=0, hovermode="closest",
+        margin={"l": 0, "r": 0, "t": 30, "b": 0},
+        xaxis={"visible": False, "range": [0, total]}, yaxis={"visible": False},
+    )
     return fig
 
 

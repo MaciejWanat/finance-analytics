@@ -16,6 +16,14 @@ data is generated in code (`tests/fixtures/`) or lives in `*.example.*` files wi
 fake values. Treat the user's real files as private: work from the masked inspector
 reports, not from raw exports.
 
+## Product principle: privacy first (R-015)
+
+The main promise of the app is that it can run 100% locally. Every feature must keep
+working without network access, on cached data. Network use is limited to public market
+data, lives only in `market/`, and must respect the online/offline setting (R-016).
+Never add a dependency or feature that sends data to a server: no telemetry, no hosted
+APIs for processing, no cloud sync.
+
 ## What this is
 
 A self-hosted, privacy-first portfolio tracker for a Polish investor:
@@ -67,7 +75,7 @@ report, never from memory.
     - `yahoo.py` for prices, splits and dividends;
     - `cache.py` for the covered ranges;
     - `update.py` to work out what the portfolio needs.
-  - `portfolio/` (planned): holdings, valuation, returns, dividends, bonds (pandas).
+  - `portfolio/`: pandas maths. `valuation.py` covers daily holdings and PLN value (D-019); returns, dividends and bonds come next.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.
@@ -91,6 +99,7 @@ two kinds of tables:
   - never two y-axes;
   - load the `dataviz` skill before designing a new chart.
 - No external fonts, CDNs or telemetry in the UI (D-011).
+- UI work follows `docs/ui-guidelines.md` (page anatomy, building blocks, chart and copy rules, checklist). The `/ui-page` skill loads it for UI tasks.
 - Do not name commercial portfolio trackers as inspiration in docs, code or commits.
 - Tests never touch the network or real data. Fixtures are synthetic and generated in code.
 
@@ -111,4 +120,5 @@ The single place for requirements (`R-xxx`), decisions (`D-xxx`) and open questi
 
 ## Skills
 
+- `/ui-page`: design rules for building or changing pages in `app/`. It points to `docs/ui-guidelines.md` and ends with a browser check in light and dark mode.
 - `/grill-me [topic]`: interviews the user one question at a time, with a recommended answer for each, until a plan or design is fully resolved. Then it offers to record the outcome in `docs/decisions.md`. Use it before starting a new view or integration.
