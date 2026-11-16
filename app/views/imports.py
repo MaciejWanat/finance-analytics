@@ -8,6 +8,7 @@ import streamlit as st
 from ui.components import empty_state, page_header, section, table
 from ui.fmt import fmt_date, fmt_money
 from ui.glossary import G
+from ui.manual_data import manual_data_section
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
@@ -21,7 +22,7 @@ LEDGER_LABELS = {
 }
 ACCOUNT_KIND = {"IKE": "IKE", "IKZE": "IKZE", None: "zwykły"}
 
-page_header("Importy", "Eksporty historii konta z XTB i to, co z nich trafiło do lokalnej bazy.")
+page_header("Importy", "Eksporty z XTB, pliki CSV z ręcznymi danymi i to, co z nich trafiło do lokalnej bazy.")
 settings = get_settings()
 
 if not settings.db_path.exists():
@@ -65,6 +66,8 @@ with st.container(border=True):
         st.session_state["last_stored"] = stored
     if right.button("Przebuduj bazę z plików", icon=":material/sync:", help="fa rebuild"):
         st.session_state["last_sync"] = sync(settings, force=True)
+
+manual_data_section(settings)
 
 if "last_sync" in st.session_state:
     _report_sync(st.session_state.pop("last_sync"))

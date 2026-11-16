@@ -341,6 +341,26 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Coupons on an IKE are counted as withdrawals too, although they stay on the IKE register (see Q-003).
   - The shipped files need refreshing with each app release (new series, new official rates). Until then, newer periods are computed and labelled "wyliczona", and a new series needs a YAML entry.
 
+### D-027 Cash at banks, entered by hand (R-007, R-011)
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** bank cash must count in the portfolio value, but there is no bank API (D-010) and no confirmed statement format yet. The user enters balances; all manual data (bonds too) must also be editable as CSV (R-011).
+- **Decision:**
+  - **Accounts:** bank accounts are entries in `data/config/accounts.yaml` with `kind: bank` (fields as for any account). The "Gotówka" page adds one (name, currency from PLN/EUR/USD/GBP/CHF, optional institution). The id is `bank-<slug of the alias>` (Polish letters folded, made unique with a number), the alias must be unique, existing entries are left as they are.
+  - **Balances (source of truth, D-002):** `data/manual/cash_balances.csv`, columns `account_id,date,balance,note`; the balance is in the account's currency and may be negative. Dates `RRRR-MM-DD` (also `DD.MM.RRRR`), `,` or `;` separators, decimal comma accepted. Every row is validated: the account exists and is a bank account, the date is real and not in the future, the balance is a finite number, and there is one balance per account and day (a later duplicate is rejected). Bad rows become `import_issues` errors, never a crash. The form on the page appends a row and runs the sync; a row can be deleted there (with a confirmation).
+  - **Storage:** projection table `cash_snapshots` (migration 0008), rebuilt by `fa sync`; the file is in the sync fingerprint (`source_files.kind = manual_cash`).
+  - **Valuation (D-019):** `Inputs.cash_snapshots`; `value_portfolio` stays pure. A balance is a step function: a snapshot holds until the next one, and before the first snapshot the account does not exist (no rows). Every calendar day up to `end` gets a row `kind = cash`, `asset_class = cash`, `symbol = Gotówka`, account = alias, `value_pln` = balance × NBP rate (PLN = 1; carried over days without a rate, live rate on the last day in online mode like XTB cash). Snapshots after `end` are ignored. `MODEL_VERSION` = 4.
+  - **Flows (D-022):** every change of a bank balance, the first snapshot included, is an external flow (`type = BANK`): positive when money enters, negative when it leaves (salary in, spending out), converted at the NBP rate of the snapshot day. Bank cash therefore never shows a return from deposits or spending, and TWR/XIRR measure only the invested part.
+  - **UI:** page "Gotówka" (group "Analiza", after "Obligacje"): KPIs (cash total in PLN, number of accounts, last update), the value over time, a table per account (balance, value in PLN, balance date, status "nieaktualne" when the last balance is older than 30 days, with a warning), forms "Dodaj konto bankowe" and "Zapisz saldo", the list of saved balances with deletion. Glossary tooltips for saldo, konto bankowe, snapshot salda. Bank cash appears in "Portfel" automatically (asset class "Gotówka").
+  - **CSV import/export of all manual data:** a section on "Importy" (`ui/manual_data.py`) for `cash_balances.csv` and `bonds.csv`: download of the current file, download of an empty template (header only), and upload. An uploaded file is validated and previewed first: valid rows are listed, rejected rows are shown with their row number and reason; only after a click are the valid rows appended to the existing file. Nothing is overwritten: a balance for an account and day that already exists and a bond purchase identical to a saved one are skipped and reported, so uploading a file twice changes nothing. Downloads are served by the local app; no network.
+  - **Demo:** `fa demo` adds the accounts "Bank PLN" (PLN) and "Konto EUR" (EUR) with a few balances from 2024–2026 to `data-demo/` only.
+- **Consequences:**
+  - Interest on a savings account is not counted as a return: it is a change of balance, hence a flow. Likewise a salary or spending is a flow, not a gain or a loss.
+  - A transfer from a bank account to XTB cancels out (the bank side is a withdrawal, the XTB deposit a deposit), so TWR is unaffected. Until the next balance is entered the bank value stays flat, so the total value counts that money twice for a while; entering the balance soon after a transfer keeps this short.
+  - Foreign-currency bank balances do show a return: the FX part (R-002), because only the balance, not the rate, is entered. It lands in the "currencies" part of the split (D-023).
+  - Accuracy depends on how often balances are entered: between two snapshots the value is flat, and a salary or an expense is dated to the snapshot day.
+  - A balance in a currency without NBP rates in the cache cannot be valued; the page says so.
+  - No bank importer was written, and no bank export format was assumed (see the research notes).
+
 ---
 
 ## Open questions
@@ -379,6 +399,7 @@ Can banks, brokers and the bond registry be connected without sending data throu
 | Erste Bank Polska (formerly Santander Bank Polska) | None | Importer for the account history CSV export. |
 | Wise | Personal API tokens cannot read statements for EU customers | Importer for the CSV statement. |
 | PSD2 aggregators | An individual has no direct PSD2 access | Rejected (D-010). |
+| Statement importers (Revolut, Erste, Trade Republic, Wise) | See above | **Deferred (2026-11-16, D-027).** Cash is entered by hand until the user provides masked inspector reports of real exports. No importer is written and no export format guessed before then; the formats above come from public descriptions only. |
 | Treasury bonds (PKO BP registry) | No API; no CSV/XLS export found | Manual entry (3 fields) with automatic valuation. Series parameters come from the public issue letters ("list emisyjny") and the Ministry of Finance rate file. |
 
 Public data sources:

@@ -5,6 +5,8 @@ Broker accounts are added automatically on import; the user edits aliases there.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from pathlib import Path
 from typing import Literal
 
@@ -15,7 +17,7 @@ HEADER = """\
 # Accounts known to finance-analytics. This file is private: data/ is git-ignored.
 # XTB accounts are added here automatically when an export is imported, and a bonds
 # account when data/manual/bonds.csv names one that is missing (set tax_wrapper: IKE
-# yourself for bonds held in an IKE).
+# yourself for bonds held in an IKE). Bank accounts are added on the "Gotówka" page.
 # Change `alias` (the name the UI shows) whenever you like; keep `id` stable.
 #
 # Fields: id, institution, kind (broker | bank | bonds), currency, alias,
@@ -91,6 +93,39 @@ def register_bond_accounts(path: Path, account_ids: list[str]) -> list[AccountCo
     if added:
         save_accounts(path, accounts)
     return added
+
+
+def slug(text: str) -> str:
+    """'Konto oszczędnościowe' -> 'konto-oszczednosciowe' (Polish letters folded to ASCII)."""
+    folded = text.strip().lower().replace("ł", "l")
+    folded = unicodedata.normalize("NFKD", folded).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", folded).strip("-")
+
+
+def add_bank_account(path: Path, alias: str, currency: str, institution: str = "") -> AccountConfig:
+    """Append a bank account; the id is `bank-<alias slug>`, made unique with a number.
+
+    Existing entries are kept as they are. Raises ValueError for an empty or taken alias or a bad currency.
+    """
+    alias = alias.strip()
+    currency = currency.strip().upper()
+    if not alias:
+        raise ValueError("nazwa konta nie może być pusta")
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        raise ValueError(f"waluta {currency!r} nie jest kodem ISO (np. PLN, EUR)")
+    accounts = load_accounts(path)
+    if alias.lower() in {a.alias.lower() for a in accounts}:
+        raise ValueError(f"konto o nazwie {alias!r} już istnieje")
+    name = slug(alias) or "konto"
+    base = name if name.startswith("bank-") else f"bank-{name}"
+    known = {a.id for a in accounts}
+    account_id, n = base, 2
+    while account_id in known:
+        account_id, n = f"{base}-{n}", n + 1
+    account = AccountConfig(id=account_id, institution=institution.strip() or "bank", kind="bank",
+                            currency=currency, alias=alias)
+    save_accounts(path, [*accounts, account])
+    return account
 
 
 def register_xtb_accounts(path: Path, found: list[tuple[str, str, str, str | None]]) -> list[AccountConfig]:

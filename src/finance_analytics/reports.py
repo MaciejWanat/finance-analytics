@@ -194,3 +194,41 @@ def bond_issues(db_path: Path) -> pd.DataFrame:
         ORDER BY i.id
         """,
     )
+
+
+# -------------------------------------------------------------------------- cash at banks (D-027)
+
+
+def account_kinds(db_path: Path) -> dict[str, str]:
+    """Account id -> kind, for validating uploaded CSV files."""
+    df = _query(db_path, "SELECT id, kind FROM accounts")
+    return dict(zip(df["id"], df["kind"], strict=True))
+
+
+def bank_accounts(db_path: Path) -> pd.DataFrame:
+    return _query(db_path, "SELECT id, alias, institution, currency FROM accounts WHERE kind = 'bank' ORDER BY alias")
+
+
+def cash_snapshots(db_path: Path) -> pd.DataFrame:
+    """Every saved balance with its account, oldest first."""
+    df = _query(
+        db_path,
+        """
+        SELECT s.row_no, s.account_id, a.alias AS account, a.currency, s.date, s.balance, s.note
+        FROM cash_snapshots s JOIN accounts a ON a.id = s.account_id
+        ORDER BY s.date, a.alias
+        """,
+    )
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+def cash_issues(db_path: Path) -> pd.DataFrame:
+    """Problems found in cash_balances.csv."""
+    return _query(
+        db_path,
+        """
+        SELECT i.severity, i.message FROM import_issues i JOIN source_files f ON f.id = i.source_file_id
+        WHERE f.kind = 'manual_cash' ORDER BY i.id
+        """,
+    )

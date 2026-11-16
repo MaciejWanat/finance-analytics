@@ -26,6 +26,8 @@ from pathlib import Path
 import yaml
 
 from finance_analytics.portfolio.bonds import TYPES, maturity, series_maturity_month
+from finance_analytics.sources.manual_csv import append_row, dialect
+from finance_analytics.sources.manual_csv import delete_row as _delete_row
 
 BONDS_PARSER_VERSION = 1
 LOT_COLUMNS = ["account_id", "series", "purchase_date", "quantity", "note"]
@@ -157,14 +159,18 @@ class LotsResult:
     errors: list[str] = field(default_factory=list)
 
 
-def _parse_date(text: str) -> date:
+def parse_date(text: str, what: str = "data") -> date:
     text = text.strip()
     for pattern in ("%Y-%m-%d", "%d.%m.%Y"):
         try:
             return datetime.strptime(text, pattern).date()
         except ValueError:
             continue
-    raise ValueError(f"data zakupu {text!r} nie jest w formacie RRRR-MM-DD")
+    raise ValueError(f"{what} {text!r} nie jest w formacie RRRR-MM-DD")
+
+
+def _parse_date(text: str) -> date:
+    return parse_date(text, "data zakupu")
 
 
 def check_purchase(series: str, purchase: date, known: set[str] | dict, today: date | None = None) -> str | None:
@@ -184,27 +190,26 @@ def check_purchase(series: str, purchase: date, known: set[str] | dict, today: d
     return None
 
 
-def _dialect(text: str) -> str:
-    header = text.splitlines()[0] if text else ""
-    return ";" if header.count(";") > header.count(",") else ","
-
-
 def read_lots(path: Path, known_series: set[str] | dict, today: date | None = None) -> LotsResult:
     """Parse bonds.csv. Bad rows are reported with their row number and skipped."""
-    result = LotsResult()
     if not path.exists():
-        return result
-    text = path.read_text(encoding="utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text), delimiter=_dialect(text))
+        return LotsResult()
+    return parse_lots(path.read_text(encoding="utf-8-sig"), path.name, known_series, today)
+
+
+def parse_lots(text: str, name: str, known_series: set[str] | dict, today: date | None = None) -> LotsResult:
+    """Parse the text of a bonds CSV (the file, or an upload to be previewed)."""
+    result = LotsResult()
+    reader = csv.DictReader(io.StringIO(text), delimiter=dialect(text))
     missing = [c for c in LOT_COLUMNS[:4] if c not in (reader.fieldnames or [])]
     if missing:
-        result.errors.append(f"{path.name}: brak kolumn {missing}; oczekiwane: {','.join(LOT_COLUMNS)}")
+        result.errors.append(f"{name}: brak kolumn {missing}; oczekiwane: {','.join(LOT_COLUMNS)}")
         return result
     for number, raw in enumerate(reader, start=1):
         row = {k: (v or "").strip() for k, v in raw.items() if k}
         if not any(row.values()):
             continue
-        where = f"{path.name}, wiersz {number}"
+        where = f"{name}, wiersz {number}"
         try:
             account_id = row["account_id"]
             if not account_id:
@@ -227,41 +232,36 @@ def read_lots(path: Path, known_series: set[str] | dict, today: date | None = No
     return result
 
 
+def merge_upload(path: Path, text: str, name: str, known_series: set[str] | dict, kinds: dict[str, str],
+                 today: date | None = None) -> tuple[LotsResult, list[BondLot]]:
+    """Validate an uploaded bonds CSV against the file it would be appended to.
+
+    Returns the parse result and the rows that can be appended. A row identical to one already saved
+    is skipped and reported, so uploading a file twice does not double the holdings; a row on an
+    account that is not a bonds account is rejected. `kinds` maps account id -> kind; an unknown
+    account id is fine (the sync registers it). The existing file is never overwritten.
+    """
+    result = parse_lots(text, name, known_series, today)
+    saved = {(lot.account_id, lot.series, lot.purchase_date, lot.quantity, lot.note)
+             for lot in read_lots(path, known_series, None).lots}
+    fresh = []
+    for lot in result.lots:
+        if kinds.get(lot.account_id, "bonds") != "bonds":
+            result.errors.append(f"{name}, wiersz {lot.row}: rachunek {lot.account_id} nie jest rachunkiem "
+                                 "obligacji (kind: bonds w accounts.yaml). Wiersz pominięto.")
+        elif (lot.account_id, lot.series, lot.purchase_date, lot.quantity, lot.note) in saved:
+            result.errors.append(f"{name}, wiersz {lot.row}: taki sam zakup {lot.series} z "
+                                 f"{lot.purchase_date:%d.%m.%Y} już jest w pliku. Wiersz pominięto.")
+        else:
+            fresh.append(lot)
+    return result, fresh
+
+
 def append_lot(path: Path, account_id: str, series: str, purchase: date, quantity: int, note: str = "") -> None:
     """Add one purchase at the end of bonds.csv (created with a header when missing)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    new = not path.exists() or not path.read_text(encoding="utf-8-sig").strip()
-    if not new:
-        text = path.read_text(encoding="utf-8-sig")
-        delimiter = _dialect(text)
-        prefix = "" if text.endswith("\n") else "\n"
-    else:
-        delimiter, prefix = ",", ""
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, delimiter=delimiter, lineterminator="\n")
-    if new:
-        writer.writerow(LOT_COLUMNS)
-    writer.writerow([account_id, series, purchase.isoformat(), quantity, note])
-    with path.open("w" if new else "a", encoding="utf-8", newline="") as handle:
-        handle.write(prefix + buffer.getvalue())
+    append_row(path, LOT_COLUMNS, [account_id, series, purchase.isoformat(), quantity, note])
 
 
 def delete_row(path: Path, row: int) -> bool:
     """Remove data row `row` (as numbered by read_lots) from bonds.csv. Returns whether it existed."""
-    if not path.exists():
-        return False
-    text = path.read_text(encoding="utf-8-sig")
-    delimiter = _dialect(text)
-    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
-    if not rows or row < 1 or row >= len(rows):
-        return False
-    # Number rows exactly as csv.DictReader does in read_lots: after the header, empty lines skipped.
-    data_index = [i for i, r in enumerate(rows) if i > 0 and r]
-    numbered = {n: i for n, i in enumerate(data_index, start=1)}
-    if row not in numbered:
-        return False
-    del rows[numbered[row]]
-    buffer = io.StringIO()
-    csv.writer(buffer, delimiter=delimiter, lineterminator="\n").writerows(rows)
-    path.write_text(buffer.getvalue(), encoding="utf-8")
-    return True
+    return _delete_row(path, row)

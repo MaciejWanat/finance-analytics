@@ -18,6 +18,7 @@ from pathlib import Path
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
 from finance_analytics.sources import bonds as bond_files
+from finance_analytics.sources import cash as cash_files
 from finance_analytics.sources.accounts import (
     load_accounts,
     register_bond_accounts,
@@ -35,7 +36,7 @@ from finance_analytics.sources.xtb.parser import (
 )
 
 PROJECTION_TABLES = (
-    "bond_lots", "bond_rates", "bond_series", "bond_reference_rate",
+    "cash_snapshots", "bond_lots", "bond_rates", "bond_series", "bond_reference_rate",
     "import_issues", "cash_ledger", "positions", "instruments", "accounts", "source_files",
 )
 YAHOO_SUFFIX = {".US": "", ".UK": ".L"}  # XTB suffix -> Yahoo suffix; only suffixes seen so far
@@ -122,6 +123,10 @@ def _source_state(settings: Settings) -> dict[str, tuple[str, int]]:
         )
     for path in _bond_sources(settings):
         state[path.relative_to(settings.data_dir).as_posix()] = (_sha256(path), bond_files.BONDS_PARSER_VERSION)
+    cash_path = cash_files.cash_file(settings.manual_dir)
+    if cash_path.exists():
+        state[cash_path.relative_to(settings.data_dir).as_posix()] = (_sha256(cash_path),
+                                                                      cash_files.CASH_PARSER_VERSION)
     for name in bond_files.RESOURCE_FILES:  # shipped with the app: a new version re-syncs
         state[f"{RESOURCE_PREFIX}{name}"] = (hashlib.sha256(bond_files.resource_bytes(name)).hexdigest(),
                                              bond_files.BONDS_PARSER_VERSION)
@@ -170,6 +175,7 @@ def sync(settings: Settings, *, force: bool = False) -> SyncResult:
                 conn.execute(f"DELETE FROM {table}")
             _write(conn, settings, accounts, parsed, result)
             _write_bonds(conn, settings, accounts, series, lots, result)
+            _write_cash(conn, settings, accounts, result)
     return result
 
 
@@ -241,6 +247,33 @@ def _write_bonds(conn, settings: Settings, accounts, series: bond_files.SeriesTa
             (lot.account_id, lot.series, lot.purchase_date.isoformat(), lot.quantity, lot.note or None, lot.row,
              csv_id),
         )
+
+
+def _write_cash(conn, settings: Settings, accounts, result: SyncResult) -> None:
+    """Balance snapshots of the bank accounts from cash_balances.csv (D-027)."""
+    path = cash_files.cash_file(settings.manual_dir)
+    if not path.exists():
+        return
+    now = datetime.now(UTC).replace(microsecond=0).isoformat()
+    parsed = cash_files.read_snapshots(path, {a.id: a.kind for a in accounts}, date.today())
+    file_id = conn.execute(
+        "INSERT INTO source_files (kind, path, sha256, parser_version, imported_at, rows_json) "
+        "VALUES ('manual_cash', ?, ?, ?, ?, ?)",
+        (path.relative_to(settings.data_dir).as_posix(), _sha256(path), cash_files.CASH_PARSER_VERSION, now,
+         json.dumps({"cash_snapshots": len(parsed.snapshots)})),
+    ).lastrowid
+    for message in parsed.errors:
+        conn.execute(
+            "INSERT INTO import_issues (source_file_id, account_id, severity, message) VALUES (?, NULL, 'error', ?)",
+            (file_id, message),
+        )
+        result.errors.append(message)
+    conn.executemany(
+        "INSERT INTO cash_snapshots (account_id, date, balance, note, row_no, source_file_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [(s.account_id, s.day.isoformat(), float(s.balance), s.note or None, s.row, file_id)
+         for s in parsed.snapshots],
+    )
 
 
 def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> None:

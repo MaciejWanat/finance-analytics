@@ -53,7 +53,7 @@ fa import xtb <folder>  # archive an export into data/raw/xtb and sync the datab
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
 fa update-market       # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the cache
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
-fa demo                # data-demo/ from a synthetic export and mock bond purchases, then the UI on it
+fa demo                # data-demo/ from a synthetic export, mock bond purchases and mock bank balances, then the UI on it
 ```
 
 The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
@@ -69,9 +69,11 @@ report, never from memory.
     - `xtb/schema.py` and `xtb/parser.py` for the export;
     - `accounts.py` for `accounts.yaml`;
     - `bonds.py` for `manual/bonds.csv`, `config/bond_series.yaml` and the shipped series files (D-026);
+    - `cash.py` for `manual/cash_balances.csv` (bank balances) and `accounts.add_bank_account` (D-027);
+    - `manual_csv.py`: shared helpers for the hand-edited CSV files (separator, append, delete, templates);
     - `sync.py` for import, rebuild and reconciliation.
   - `reports.py`: read-only queries for the UI.
-  - `mock/`: synthetic data generators (XTB export, demo bond purchases).
+  - `mock/`: synthetic data generators (XTB export, demo bond purchases, demo bank balances).
   - `resources/`: public data shipped with the app (bond series parameters, official bond rates, NBP
     reference rate history), built from official sources (D-026). The only CSVs allowed in the repo.
   - `market/`: **the only package allowed to use the network**; a test enforces this. Contents:
@@ -90,11 +92,12 @@ report, never from memory.
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
     - `bonds.py`: treasury bonds: interest periods, rates, daily value, coupons, early redemption (D-026).
-    - Next: cash at banks.
+    - Bank cash (D-027) is valued inside `valuation.py`: a balance holds until the next snapshot, every change is an external flow.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.
   - `ui/data.py`: shared guard states and the cached valuation for analysis pages.
+  - `ui/manual_data.py`: CSV download, template and validated upload for the manual files (on "Importy").
   - `ui/`: the design layer. Pages build charts and tiles only through `ui/charts.py` and `ui/components.py`, and format numbers only through `ui/fmt.py`.
 - `scripts/`: standalone tools (inspector, privacy check). Standard library plus openpyxl only.
 - `data/` (git-ignored): `finance.db`, `raw/` (archived exports), `manual/` (CSV), `config/` (YAML), `samples/` (masked reports).

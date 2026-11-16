@@ -9,8 +9,8 @@ your whole portfolio is worth, day by day, and where the return came from:
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
 > **Status:** early development.
-> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, the split of returns into prices and currencies, dividends with a PIT-38 estimate, inflation-adjusted returns from GUS CPI, and Polish retail treasury bonds (EDO, COI, ROS, ROD, TOS, OTS, ROR, DOR) valued from the issue-letter rules.
-> - Next: cash at banks.
+> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, the split of returns into prices and currencies, dividends with a PIT-38 estimate, inflation-adjusted returns from GUS CPI, Polish retail treasury bonds (EDO, COI, ROS, ROD, TOS, OTS, ROR, DOR) valued from the issue-letter rules, and cash at banks entered by hand (balances on dates, valued in PLN) with CSV import and export of all manual data.
+> - Next: statement importers for banks (see the decision log, Integrations research).
 
 ## Privacy first
 
@@ -59,11 +59,15 @@ fa update-market
 fa ui
 ```
 
-To try it without your own data, run `fa demo`. It builds a `data-demo/` directory from a synthetic export and a few mock bond purchases, and opens the UI on it.
+To try it without your own data, run `fa demo`. It builds a `data-demo/` directory from a synthetic export, a few mock bond purchases and two mock bank accounts, and opens the UI on it.
 
 Treasury bonds are entered on the *Obligacje* page (series, purchase date, quantity) or in
 `data/manual/bonds.csv` (`account_id,series,purchase_date,quantity,note`). The parameters of every series
 sold since 2019 ship with the app; a newer series can be added in `data/config/bond_series.yaml`.
+
+Cash at banks is entered on the *Gotówka* page (add a bank account, then save its balance on a date) or in
+`data/manual/cash_balances.csv` (`account_id,date,balance,note`). A balance holds until the next one. The *Importy* page
+downloads, and validates before appending, the CSV files of both bonds and balances.
 
 ## Project layout
 

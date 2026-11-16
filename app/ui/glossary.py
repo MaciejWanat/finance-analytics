@@ -198,6 +198,35 @@ G: dict[str, str] = {
         "Zakup obligacji to wpłata do portfela, a wypłacone odsetki i wykup to wypłaty z niego, bo trafiają "
         "na konto w banku. Odsetki widać więc w zwrotach w części „pozostałe”."
     ),
+    # --- cash at banks --------------------------------------------------------------------------
+    "bank_account": (
+        "Konto bankowe to konto, na którym trzymasz gotówkę (np. osobiste, oszczędnościowe, walutowe). "
+        "Aplikacja nie łączy się z bankiem: saldo wpisujesz sam."
+    ),
+    "balance": "Saldo to kwota na koncie w jego walucie, w dniu, który wpisałeś. Obowiązuje do kolejnego wpisu.",
+    "balance_snapshot": (
+        "Snapshot salda to zapisane saldo konta na konkretny dzień. Aplikacja zakłada, że saldo trwa bez zmian "
+        "do kolejnego snapshotu, a przed pierwszym konto jeszcze nie istnieje. Im częściej wpisujesz salda, "
+        "tym dokładniejszy wykres."
+    ),
+    "balance_date": (
+        "Dzień ostatniego zapisanego salda. Starsze niż 30 dni oznaczamy, bo wartość może już nie być aktualna."
+    ),
+    "balance_stale": "Ostatnie saldo jest starsze niż 30 dni. Dopisz nowe, żeby gotówka w portfelu była aktualna.",
+    "cash_total": "Suma sald wszystkich kont bankowych przeliczonych na PLN po ostatnim kursie NBP.",
+    "cash_flows": (
+        "Każda zmiana salda między zapisami (wypłata, przelew, odsetki) jest liczona jako wpłata do portfela "
+        "albo wypłata z niego. Dzięki temu gotówka nie pokazuje zwrotu, a odsetki z konta oszczędnościowego "
+        "nie wchodzą do wyniku. Zmienia się tylko wartość sald w obcych walutach, przez kurs."
+    ),
+    "csv_export": (
+        "Pliki CSV to Twoje dane w prostym formacie, który otworzysz w Excelu. Pobranie zapisuje plik tylko "
+        "na tym komputerze. Pusty szablon pokazuje, jak wypełnić plik."
+    ),
+    "csv_import": (
+        "Wgrany plik jest najpierw sprawdzany i pokazany. Poprawne wiersze są dopisywane na koniec Twojego "
+        "pliku; nic nie jest nadpisywane, a wiersze z błędami są pomijane."
+    ),
     # --- network --------------------------------------------------------------------------------
     "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
     "online": (

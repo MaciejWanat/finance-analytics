@@ -170,10 +170,12 @@ def ui(port: int, dev: bool, open_browser: bool) -> None:
 @click.option("--open/--no-open", "open_browser", default=True, show_default=True, help="Open a browser tab.")
 @click.option("--no-ui", is_flag=True, help="Only prepare the demo data.")
 def demo(port: int, open_browser: bool, no_ui: bool) -> None:
-    """Build a demo data directory (data-demo/) from a synthetic XTB export and open the UI on it."""
+    """Build data-demo/ from a synthetic XTB export, mock bonds and bank balances, then open the UI on it."""
     from finance_analytics.mock.bonds import write_mock_bonds
+    from finance_analytics.mock.cash import write_mock_cash
     from finance_analytics.mock.xtb_export import write_mock_export
     from finance_analytics.sources.bonds import bonds_file
+    from finance_analytics.sources.cash import cash_file
     from finance_analytics.sources.sync import import_xtb
     from finance_analytics.sources.sync import sync as run_sync
 
@@ -188,6 +190,7 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     write_mock_export(export)
     _prepare(settings)
     write_mock_bonds(bonds_file(settings.manual_dir))  # synthetic purchases, only ever in data-demo/
+    write_mock_cash(settings.accounts_file, cash_file(settings.manual_dir))  # two mock bank accounts
     import_xtb(export, settings)
     _report_sync(run_sync(settings, force=True))
     click.echo(f"Demo data directory: {settings.data_dir} (synthetic, git-ignored)")
