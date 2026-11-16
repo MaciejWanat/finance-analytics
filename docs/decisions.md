@@ -256,6 +256,21 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A currency's gain can have the opposite sign to its rate change over the window, because it depends on how much was held when the rate moved. The UI explains this.
   - The valuation now exposes its price and rate tables (`Valuation.prices`, `.fx`). The UI cache is keyed by `MODEL_VERSION`.
 
+### D-024 Dividends and the PIT-38 estimate
+- **Date:** 2026-11-16 · **Status:** Accepted (R-003)
+- **Decision:** `portfolio/dividends.py`.
+  - **Source:** the broker's cash operations. DIVIDEND and WHT rows are grouped into one payment per (account, instrument, day), with gross, withheld tax and net in the account currency.
+  - **PLN conversion:** the NBP mid rate of the last business day before the payment day (D-1, D-008), as the Polish tax rules require. PLN accounts are taken as credited (rate 1).
+  - **Estimated tax due in Poland:** `max(0, 19% × gross PLN − WHT PLN)` on regular accounts and 0 on IKE/IKZE. It is labelled as an estimate, not tax advice.
+  - **"Dywidendy" page:**
+    - KPIs: net, withholding tax with its rate, tax due, and the last 12 months with the yield on today's portfolio value;
+    - monthly net dividends stacked by company;
+    - a per-company table and a per-tax-year table;
+    - a list of all payments with the D-1 rate used.
+- **Consequences:**
+  - On PLN accounts the amount was converted by the broker at its own rate, not NBP D-1. Exact tax figures for those payments should be checked against the broker's yearly statement.
+  - yfinance dividends (in the market cache) are not used for received amounts.
+
 ---
 
 ## Open questions

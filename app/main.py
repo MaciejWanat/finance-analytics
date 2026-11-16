@@ -24,6 +24,7 @@ pages = {
     "Analiza": [
         st.Page("views/portfolio.py", title="Portfel", icon=":material/monitoring:", default=True),
         st.Page("views/returns.py", title="Zwroty", icon=":material/trending_up:"),
+        st.Page("views/dividends.py", title="Dywidendy", icon=":material/payments:"),
     ],
     "Dane": [
         st.Page("views/imports.py", title="Importy", icon=":material/upload_file:"),

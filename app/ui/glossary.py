@@ -94,6 +94,24 @@ G: dict[str, str] = {
         "formularzu W-8BEN."
     ),
     "position": "Pojedynczy zakup instrumentu. Kilka zakupów tej samej spółki to kilka pozycji.",
+    # --- dividends ----------------------------------------------------------------------------
+    "dividend_gross": "Dywidenda przed jakimkolwiek podatkiem: tyle spółka wypłaciła na Twoje akcje.",
+    "dividend_net": "Dywidenda, która faktycznie wpłynęła na rachunek, po potrąceniu podatku u źródła.",
+    "dividend_rate": (
+        "Kurs NBP z ostatniego dnia roboczego przed dniem wypłaty (tzw. D-1). Tak przelicza się dywidendy "
+        "w zeznaniu podatkowym. Rachunek w PLN dostaje już złotówki, więc tam kurs wynosi 1."
+    ),
+    "tax_due": (
+        "Szacunek podatku do dopłaty w Polsce (zeznanie PIT-38): 19% dywidendy brutto minus podatek "
+        "pobrany za granicą, nie mniej niż zero. Na IKE i IKZE nie płacisz go wcale. To szacunek, nie porada "
+        "podatkowa."
+    ),
+    "wht_rate": "Jaka część dywidendy brutto została pobrana jako podatek u źródła.",
+    "dividend_yield": (
+        "Dywidendy netto z ostatnich 12 miesięcy w relacji do dzisiejszej wartości portfela: ile procent "
+        "rocznie dostajesz w gotówce."
+    ),
+    "dividend_payments": "Liczba wypłat dywidendy (jedna wypłata na rachunek i dzień).",
     # --- network --------------------------------------------------------------------------------
     "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
     "online": (

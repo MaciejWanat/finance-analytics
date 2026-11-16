@@ -83,7 +83,8 @@ report, never from memory.
     - `valuation.py`: daily holdings and PLN value (D-019).
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
-    - Next: dividends, bonds.
+    - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
+    - Next: inflation, bonds.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.

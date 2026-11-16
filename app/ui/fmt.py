@@ -63,3 +63,14 @@ def fmt_date(value: date | datetime | None) -> str:
     if value is None:
         return "–"
     return value.strftime("%d.%m.%Y")
+
+
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Polish plural: 1 wypłata, 2-4 wypłaty (also 22-24, 32-34...), 5+ wypłat; with the number."""
+    if count == 1:
+        word = one
+    elif count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        word = few
+    else:
+        word = many
+    return f"{count}{NBSP}{word}"

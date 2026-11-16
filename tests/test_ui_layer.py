@@ -71,3 +71,12 @@ def test_every_glossary_key_used_by_pages_exists():
         used |= set(re.findall(r'G\["([a-z0-9_]+)"\]', path.read_text(encoding="utf-8")))
     assert used, "pages should use the glossary"
     assert used <= set(G), sorted(used - set(G))
+
+
+def test_polish_plural():
+    from ui.fmt import plural
+
+    words = ("wypłata", "wypłaty", "wypłat")
+    assert [plural(n, *words).split(NBSP)[1] for n in (1, 2, 4, 5, 12, 13, 22, 33, 100)] == [
+        "wypłata", "wypłaty", "wypłaty", "wypłat", "wypłat", "wypłat", "wypłaty", "wypłaty", "wypłat",
+    ]

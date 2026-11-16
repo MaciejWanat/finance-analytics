@@ -9,8 +9,8 @@ your whole portfolio is worth, day by day, and where the return came from:
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
 > **Status:** early development.
-> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, and the split of returns into prices and currencies.
-> - Next: dividends, inflation-adjusted returns, bonds and cash.
+> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, the split of returns into prices and currencies, and dividends with a PIT-38 estimate.
+> - Next: inflation-adjusted returns, bonds and cash.
 
 ## Privacy first
 
