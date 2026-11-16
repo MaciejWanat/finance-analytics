@@ -199,3 +199,14 @@ def test_update_market_on_imported_mock_export(tmp_path):
     sync(settings, force=True)
     with closing(sqlite3.connect(settings.db_path)) as c:
         assert c.execute("SELECT COUNT(*) FROM prices").fetchone()[0] > 0
+
+
+def test_bank_balance_currency_needs_nbp_rates(conn):
+    # Regression (D-029): a EUR bank account with no broker operations must still get EUR rates.
+    from finance_analytics.market.update import needed_currencies
+
+    conn.execute("INSERT INTO accounts (id, alias, institution, kind, currency) "
+                 "VALUES ('bank-eur', 'Konto EUR', 'bank', 'bank', 'EUR')")
+    conn.execute("INSERT INTO cash_snapshots (account_id, date, balance, row_no) "
+                 "VALUES ('bank-eur', '2025-03-01', 1, 1)")
+    assert needed_currencies(conn, {}) == {"EUR": date(2025, 3, 1)}

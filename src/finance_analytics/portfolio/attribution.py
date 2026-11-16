@@ -119,6 +119,7 @@ def attribute(v: Valuation, start: pd.Timestamp, end: pd.Timestamp) -> Attributi
     by_currency = pd.DataFrame({
         "currency": fx_by_currency.index,
         "pnl_fx": fx_by_currency.to_numpy(),
-        "fx_change": [v.fx[c].asof(end) / v.fx[c].asof(start) - 1 for c in fx_by_currency.index],
+        "fx_change": [v.fx[c].asof(end) / v.fx[c].asof(start) - 1 if c in v.fx.columns else None
+                      for c in fx_by_currency.index],  # None: no NBP rates for that currency yet
     })
     return Attribution(daily=daily, cumulative=cumulative, by_instrument=by_instrument, by_currency=by_currency)

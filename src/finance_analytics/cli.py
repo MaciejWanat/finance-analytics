@@ -102,14 +102,15 @@ def settings_command(online: bool | None, refresh: int | None) -> None:
     click.echo(f"Network mode: {preferences.network}")
     click.echo(f"Live refresh: every {preferences.refresh_minutes} min (online mode only)")
     if preferences.online:
-        click.echo("Online: tickers, currency codes and dates are sent to Yahoo Finance and NBP; nothing else.")
+        click.echo("Online: tickers, currency codes and dates are sent to Yahoo Finance and NBP, and the public CPI "
+                   "file is downloaded from GUS; nothing else.")
     else:
         click.echo("Offline: no network calls; the app works on cached data only.")
 
 
 @main.command("update-market")
 def update_market_command() -> None:
-    """Download missing prices (Yahoo) and FX rates (NBP) into the local cache. Online mode only."""
+    """Download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the local cache. Online mode only."""
     from finance_analytics.market.network import OfflineError
     from finance_analytics.market.update import update_market
 
@@ -228,7 +229,12 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
 def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> None:
     if not APP_MAIN.exists():
         raise click.ClickException(f"UI entry point not found: {APP_MAIN}")
-    _prepare(settings)  # schema up to date before any page reads it
+    if _prepare(settings):  # schema up to date before any page reads it
+        # A migration may add or reshape projection tables (e.g. 0007 empties bond_series); refill them now,
+        # so an upgraded database is never read half-built. A no-op when no source file changed.
+        from finance_analytics.sources.sync import sync as run_sync
+
+        _report_sync(run_sync(settings))
     env = {**os.environ, DATA_DIR_ENV: str(settings.data_dir)}
     if dev:
         env["FA_DEV"] = "1"

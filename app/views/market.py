@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, line_chart, show
 from ui.components import empty_state, page_header, section, table
+from ui.data import require_database
 from ui.glossary import G
 
 from finance_analytics import reports
@@ -19,19 +20,23 @@ from finance_analytics.preferences import load_preferences
 
 page_header("Dane rynkowe", "Ceny instrumentów z Yahoo, kursy walut NBP i inflacja GUS, zapisane w lokalnej bazie.")
 settings = get_settings()
+require_database(settings)
 
 
-def _has_instruments() -> bool:
-    if not settings.db_path.exists():
-        return False
+def _has_data() -> bool:
+    """Anything that needs market data: instruments (prices, FX), bank balances (FX) or bonds (CPI)."""
     with closing(sqlite3.connect(settings.db_path)) as conn:
-        return conn.execute("SELECT COUNT(*) FROM instruments").fetchone()[0] > 0
+        return conn.execute(
+            "SELECT (SELECT COUNT(*) FROM instruments) + (SELECT COUNT(*) FROM cash_snapshots) "
+            "+ (SELECT COUNT(*) FROM bond_lots)"
+        ).fetchone()[0] > 0
 
 
-if not _has_instruments():
+if not _has_data():
     empty_state(
-        "Najpierw zaimportuj eksport",
-        "Aplikacja pobiera ceny tylko dla instrumentów, które masz w zaimportowanych rachunkach.",
+        "Najpierw dodaj dane",
+        "Aplikacja pobiera ceny i kursy tylko dla tego, co masz: instrumentów z zaimportowanych rachunków, "
+        "walut kont bankowych i obligacji indeksowanych inflacją.",
         icon=":material/upload_file:",
     )
     st.page_link("views/imports.py", label="Przejdź do importu", icon=":material/arrow_forward:")
@@ -83,16 +88,19 @@ with st.container(border=True):
 
 coverage = reports.price_coverage(settings.db_path)
 section("Instrumenty", "Ticker w Yahoo powstaje z tickera XTB (.US → bez sufiksu, .UK → .L).")
-table(
-    coverage[["symbol", "ticker", "name", "currency", "exchange", "first", "last", "days", "splits", "error"]],
-    numbers={"days": 0, "splits": 0},
-    labels={
-        "symbol": "XTB", "ticker": "Yahoo", "name": "Instrument", "currency": "Waluta", "exchange": "Giełda",
-        "first": "Od", "last": "Do", "days": "Notowania", "splits": "Splity", "error": "Ostatni błąd",
-    },
-    helps={"symbol": G["ticker"], "ticker": G["yahoo_ticker"], "days": G["quotes"], "splits": G["split"],
-           "error": G["last_error"]},
-)
+if coverage.empty:
+    st.caption("Brak instrumentów: nie masz jeszcze zaimportowanych rachunków maklerskich.")
+else:
+    table(
+        coverage[["symbol", "ticker", "name", "currency", "exchange", "first", "last", "days", "splits", "error"]],
+        numbers={"days": 0, "splits": 0},
+        labels={
+            "symbol": "XTB", "ticker": "Yahoo", "name": "Instrument", "currency": "Waluta", "exchange": "Giełda",
+            "first": "Od", "last": "Do", "days": "Notowania", "splits": "Splity", "error": "Ostatni błąd",
+        },
+        helps={"symbol": G["ticker"], "ticker": G["yahoo_ticker"], "days": G["quotes"], "splits": G["split"],
+               "error": G["last_error"]},
+    )
 
 fx = reports.fx_coverage(settings.db_path)
 section("Kursy walut NBP", "Kurs średni (tabela A): ile złotych za jednostkę waluty.", help=G["nbp_rate"])

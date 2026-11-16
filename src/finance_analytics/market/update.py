@@ -55,7 +55,7 @@ def needed_tickers(conn: sqlite3.Connection) -> tuple[dict[str, date], list[str]
 
 
 def needed_currencies(conn: sqlite3.Connection, tickers: dict[str, date]) -> dict[str, date]:
-    """Currency -> first day it is needed: account currencies and instrument price currencies."""
+    """Currency -> first day it is needed: currencies of accounts with operations or bank balances, and of prices."""
     needed: dict[str, date] = {}
 
     def need(currency: str | None, day: date) -> None:
@@ -64,6 +64,9 @@ def needed_currencies(conn: sqlite3.Connection, tickers: dict[str, date]) -> dic
 
     for currency, first in conn.execute(
         "SELECT a.currency, MIN(substr(c.ts, 1, 10)) FROM accounts a JOIN cash_ledger c ON c.account_id = a.id "
+        "GROUP BY a.currency "
+        "UNION ALL "  # bank balances (D-027) are valued at NBP rates too
+        "SELECT a.currency, MIN(s.date) FROM accounts a JOIN cash_snapshots s ON s.account_id = a.id "
         "GROUP BY a.currency"
     ):
         need(currency, date.fromisoformat(first))

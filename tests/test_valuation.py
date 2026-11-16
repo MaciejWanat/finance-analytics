@@ -85,7 +85,7 @@ def test_missing_price_falls_back_to_cost_with_warning():
     v = value_portfolio(make_inputs(lots=[lot(ticker="XYZ")], fx=FX, currencies={}), date(2026, 1, 6))
     row = positions_on(v, "2026-01-06")
     assert row["value_pln"].item() == pytest.approx(1000 * 4.1) and not row["priced"].item()
-    assert any("XYZ.US: no market price" in w for w in v.warnings)
+    assert any("XYZ.US: brak ceny rynkowej" in w for w in v.warnings)
 
 
 def test_split_after_purchase():
@@ -139,3 +139,27 @@ def test_end_to_end_on_mock_export(tmp_path):
     held = last[last["kind"] == "position"].groupby(["account_id", "symbol"])["qty"].sum()
     expected = open_lots.groupby(["account_id", "symbol"])["volume_adj"].sum()
     pd.testing.assert_series_equal(held.sort_index(), expected.sort_index(), check_names=False, atol=1e-6)
+
+
+# --------------------------------------------------------------- release review regressions (D-029)
+
+
+def test_only_bank_balances_without_rates_give_an_empty_valuation_not_a_crash():
+    inputs = make_inputs(accounts=pd.DataFrame([("bank-eur", "Konto EUR", "EUR", None)],
+                                               columns=["account_id", "alias", "currency", "tax_wrapper"]))
+    inputs.cash_snapshots = pd.DataFrame({"account_id": ["bank-eur"], "date": [D("2026-01-05")],
+                                          "balance": [100.0]})
+    v = value_portfolio(inputs, date(2026, 1, 8))
+    assert v.total.empty and v.daily[v.daily["kind"] == "cash"].empty  # pages filter an empty frame safely
+    assert v.warnings == ["Brak kursów NBP dla EUR: wartości w tej walucie nie są wyceniane"]
+
+
+def test_end_before_the_first_event_gives_an_empty_valuation():
+    v = value_portfolio(make_inputs(lots=[lot()], prices=PRICES, fx=FX), date(2026, 1, 1))
+    assert v.total.empty
+
+
+def test_flows_after_the_end_day_are_left_out():
+    ledger = [("pln", D("2026-01-05"), "DEPOSIT", 100.0), ("pln", D("2026-02-05"), "DEPOSIT", 50.0)]
+    v = value_portfolio(make_inputs(ledger=ledger), date(2026, 1, 8))
+    assert v.flows["date"].tolist() == [D("2026-01-05")]

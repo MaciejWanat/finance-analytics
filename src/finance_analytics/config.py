@@ -35,7 +35,7 @@ class Settings:
 
     @property
     def config_dir(self) -> Path:
-        """YAML configuration (accounts, instrument overrides)."""
+        """YAML configuration (accounts, preferences, bond series overrides)."""
         return self.data_dir / "config"
 
     @property

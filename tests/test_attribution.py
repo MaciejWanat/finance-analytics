@@ -57,3 +57,10 @@ def test_pln_stock_has_no_currency_effect():
     row = attribute(v, START, END).by_instrument.set_index("symbol").loc["PKN.PL"]
     assert row["pnl_price"] == pytest.approx(60.0) and row["pnl_fx"] == pytest.approx(0.0)
     assert row["fx_change"] == 0.0
+
+
+def test_currency_without_nbp_rates_does_not_break_the_split():
+    # Prices cached but the NBP download for USD failed: values are missing, the split must not raise.
+    v = value_portfolio(make_inputs(lots=[lot()], ledger=LEDGER, prices=PRICES), date(2026, 1, 7))
+    a = attribute(v, START, END)
+    assert a.by_currency["fx_change"].isna().all()

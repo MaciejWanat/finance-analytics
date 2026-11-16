@@ -71,3 +71,27 @@ def test_import_inbox_reports_missing_folder(tmp_path, monkeypatch):
     save_preferences(Settings(data_dir=data_dir), Preferences(inbox_dir=str(tmp_path / "missing")))
     result = CliRunner().invoke(cli.main, ["import", "inbox"])
     assert result.exit_code != 0 and "nie istnieje" in result.output
+
+
+def test_ui_refills_projection_tables_after_a_migration(tmp_path, monkeypatch):
+    # Regression (D-029): migration 0007 empties bond_series; `fa ui` on an upgraded database must sync.
+    from finance_analytics.mock.bonds import write_mock_bonds
+    from finance_analytics.sources.bonds import bonds_file
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir))
+    settings = Settings(data_dir=data_dir)
+    write_mock_bonds(bonds_file(settings.manual_dir))
+    with closing(connect(settings.db_path)) as conn:
+        conn.execute("PRAGMA user_version = 6")  # an old database: 0007 and 0008 still to apply
+        from finance_analytics.db.migrate import available_migrations
+        for _, _, sql in available_migrations()[:6]:
+            conn.executescript(sql)
+    monkeypatch.setattr(cli.subprocess, "call", lambda *a, **k: 0)
+
+    result = CliRunner().invoke(cli.main, ["ui", "--no-open"])
+
+    assert result.exit_code == 0, result.output
+    with closing(connect(settings.db_path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM bond_series").fetchone()[0] > 0
+        assert conn.execute("SELECT COUNT(*) FROM bond_lots").fetchone()[0] > 0

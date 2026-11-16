@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, line_chart, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import load_valuation
+from ui.data import load_valuation, require_database
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact
 from ui.glossary import G
 
@@ -23,14 +23,7 @@ STALE_DAYS = 30
 
 page_header("Gotówka", "Gotówka na kontach bankowych: salda wpisujesz sam, a aplikacja wycenia je w PLN dzień po dniu.")
 settings = get_settings()
-if not settings.db_path.exists():
-    empty_state(
-        "Brak lokalnej bazy danych",
-        f"Aplikacja nie znalazła bazy w katalogu danych `{settings.data_dir}`. Utwórz ją jednym poleceniem:",
-        icon=":material/database:",
-        steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
-    )
-    st.stop()
+require_database(settings)
 csv_path = cash_files.cash_file(settings.manual_dir)
 
 
@@ -126,7 +119,7 @@ if accounts.empty or snapshots.empty:
     st.stop()
 
 # ------------------------------------------------------------------------------------------- values
-v, _ = load_valuation(settings)
+v, _ = load_valuation(settings, stop_if_empty=False)
 bank = v.daily[(v.daily["kind"] == "cash") & v.daily["account_id"].isin(accounts["id"])]
 if bank.empty:
     st.warning("Nie da się wycenić sald: brakuje kursów NBP dla walut kont. Pobierz je na stronie Dane rynkowe "

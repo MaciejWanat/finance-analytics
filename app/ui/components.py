@@ -94,14 +94,16 @@ def table(
     # Rename instead of column_config labels: Streamlit drops Styler display values
     # for columns that have a column_config entry.
     df = df.rename(columns=labels)
-    # Streamlit paints empty text cells as a grey "None"; show a dash instead.
-    text_columns = df.select_dtypes(include=["object", "string"]).columns
-    df[text_columns] = df[text_columns].astype(object).where(df[text_columns].notna(), "–")
     numbers = {labels.get(col, col): d for col, d in (numbers or {}).items()}
     signed = [labels.get(col, col) for col in signed]
     datetimes = [labels.get(col, col) for col in datetimes]
     percents = [labels.get(col, col) for col in percents]
     trends = [labels.get(col, col) for col in trends]
+    # Streamlit paints empty text cells as a grey "None"; show a dash instead. Numeric columns
+    # keep their gaps (na_rep below): a column of only None is object-typed but is not text.
+    formatted = {*numbers, *datetimes, *percents, *trends}
+    text_columns = [col for col in df.select_dtypes(include=["object", "string"]).columns if col not in formatted]
+    df[text_columns] = df[text_columns].astype(object).where(df[text_columns].notna(), "–")
     # One format() call: each call with a dict resets every column it does not name.
     formatters: dict[str, object] = {col: (lambda v, d=d: fmt_number(v, d)) for col, d in numbers.items()}
     formatters |= {col: (lambda v: v.strftime("%Y-%m-%d %H:%M")) for col in datetimes}

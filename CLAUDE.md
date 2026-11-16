@@ -42,20 +42,23 @@ requests are public market data: Yahoo via yfinance, NBP FX rates, GUS CPI.
 python -m venv .venv && .venv/Scripts/activate   # Windows; .venv/bin/activate elsewhere
 pip install -e ".[dev]"
 fa init            # data/ dirs, DB migrations, enables the privacy pre-commit hook
-fa ui              # Streamlit UI on http://localhost:8501
-fa ui --dev        # plus developer pages (style preview on synthetic data)
-pytest             # no network access in tests
-ruff check .
-python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_report.md
-python scripts/check_no_private_data.py [--all]
+fa ui              # Streamlit UI on http://localhost:8501 (applies migrations first, and syncs if any ran)
+fa ui --dev        # plus auto-rerun on save and developer pages (style preview on synthetic data)
+fa demo [--no-ui]  # data-demo/ from a synthetic export, mock bond purchases and mock bank balances, then the UI on it
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
 fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
-fa sync / fa rebuild   # rebuild projection tables when files changed / always
-fa update-market       # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the cache
+fa sync / fa rebuild    # rebuild projection tables when files changed / always
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
-fa demo                # data-demo/ from a synthetic export, mock bond purchases and mock bank balances, then the UI on it
+fa update-market        # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); online mode only
+pytest                  # no network access in tests (.venv/Scripts/python.exe -m pytest -q)
+ruff check .
+python scripts/check_no_private_data.py [--all]   # privacy check; the pre-commit hook runs it on staged files
+python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_report.md
 ```
+
+`FA_DATA_DIR` selects the data directory (default `./data`; the demo uses `data-demo/`, which is
+synthetic and git-ignored).
 
 The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
 `src/finance_analytics/sources/xtb/schema.py`. Update both only from a fresh inspector
@@ -64,43 +67,48 @@ report, never from memory.
 ## Architecture
 
 - `src/finance_analytics/`: all logic. No Streamlit imports here.
+  - `cli.py`: the `fa` command.
   - `config.py`: data directory layout (`FA_DATA_DIR`, default `./data`).
-  - `db/`: plain `sqlite3`. Numbered migrations in `db/migrations/NNNN_name.sql`, version in `PRAGMA user_version`.
+  - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`).
+  - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0008_*.sql`, version in `PRAGMA user_version`.
   - `sources/`: files → projection tables. Contents:
     - `xtb/schema.py` and `xtb/parser.py` for the export;
-    - `accounts.py` for `accounts.yaml`;
+    - `accounts.py` for `accounts.yaml` (XTB, bonds and bank accounts);
     - `bonds.py` for `manual/bonds.csv`, `config/bond_series.yaml` and the shipped series files (D-026);
-    - `cash.py` for `manual/cash_balances.csv` (bank balances) and `accounts.add_bank_account` (D-027);
+    - `cash.py` for `manual/cash_balances.csv` (bank balances, D-027);
     - `manual_csv.py`: shared helpers for the hand-edited CSV files (separator, append, delete, templates);
-    - `sync.py` for import, rebuild and reconciliation.
+    - `inbox.py`: the XTB inbox folder (D-028);
+    - `sync.py` for import, rebuild (fingerprint of every source file) and reconciliation.
   - `reports.py`: read-only queries for the UI.
   - `mock/`: synthetic data generators (XTB export, demo bond purchases, demo bank balances).
   - `resources/`: public data shipped with the app (bond series parameters, official bond rates, NBP
     reference rate history), built from official sources (D-026). The only CSVs allowed in the repo.
   - `market/`: **the only package allowed to use the network**; a test enforces this. Contents:
-    - `nbp.py` for FX rates;
-    - `gus.py` for the CPI (D-025);
-    - `yahoo.py` for prices, splits and dividends;
-    - `cache.py` for the covered ranges;
-    - `update.py` to work out what the portfolio needs.
-    - `network.py`: the online/offline gate. Every network entry point calls `require_online` first.
-    - `live.py`: live quotes in online mode.
-    - `auto.py`: the daily auto-update schedule.
-  - `portfolio/`: pandas maths.
-    - `valuation.py`: daily holdings and PLN value (D-019).
+    - `network.py`: the online/offline gate. Every network entry point calls `require_online` first;
+    - `update.py`: works out what the portfolio needs (tickers, currencies of accounts, bank balances and prices) and runs the incremental update;
+    - `yahoo.py` for prices, splits and dividends; `nbp.py` for FX rates; `gus.py` for the CPI (D-025);
+    - `cache.py` for the covered ranges (`fetch_log`);
+    - `live.py`: live quotes in online mode; `auto.py`: the daily auto-update schedule.
+  - `portfolio/`: pandas maths, pure functions of their inputs.
+    - `valuation.py`: daily holdings and PLN value of positions, broker cash, bonds and bank cash (D-019, D-026, D-027); `MODEL_VERSION` keys the UI cache.
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
     - `bonds.py`: treasury bonds: interest periods, rates, daily value, coupons, early redemption (D-026).
-    - Bank cash (D-027) is valued inside `valuation.py`: a balance holds until the next snapshot, every change is an external flow.
 - `app/`: thin Streamlit UI, in Polish.
-  - `main.py`: navigation.
+  - `main.py`: navigation (Analiza: Portfel, Zwroty, Dywidendy, Obligacje, Gotówka; Dane: Importy, Dane rynkowe;
+    Aplikacja: Ustawienia; Deweloper with `--dev`) and the sidebar fragment (inbox check, online refresh, mode badge).
   - `views/`: one page per file.
-  - `ui/data.py`: shared guard states and the cached valuation for analysis pages.
-  - `ui/manual_data.py`: CSV download, template and validated upload for the manual files (on "Importy").
-  - `ui/`: the design layer. Pages build charts and tiles only through `ui/charts.py` and `ui/components.py`, and format numbers only through `ui/fmt.py`.
+  - `ui/`: the design layer. Pages build everything through it:
+    - `components.py` (page header, section, KPI row, table, empty state), `charts.py` (chart builders, `show`),
+      `theme.py` (palette, light/dark tokens), `fmt.py` (Polish number, money and date formatting),
+      `glossary.py` (tooltip texts, `G[...]`);
+    - `data.py`: shared guard states (`require_database`, `require_valued_data`), periods and the cached valuation;
+    - `manual_data.py`: CSV download, template and validated upload for the manual files (on "Importy").
 - `scripts/`: standalone tools (inspector, privacy check). Standard library plus openpyxl only.
+- `.githooks/pre-commit`: runs the privacy check; enabled by `fa init`.
+- `tests/`: pytest, synthetic data generated in code, fake network clients; Streamlit AppTest smoke tests for pages.
 - `data/` (git-ignored): `finance.db`, `raw/` (archived exports), `manual/` (CSV), `config/` (YAML), `samples/` (masked reports).
 
 Data model principle (D-002): files in `data/` are the source of truth. SQLite holds

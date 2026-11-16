@@ -6,7 +6,8 @@ from datetime import date
 
 import streamlit as st
 from ui.components import empty_state, page_header, section, table
-from ui.fmt import fmt_date, fmt_money
+from ui.data import require_database
+from ui.fmt import fmt_date, fmt_money, plural
 from ui.glossary import G
 from ui.manual_data import manual_data_section
 
@@ -27,14 +28,7 @@ ACCOUNT_KIND = {"IKE": "IKE", "IKZE": "IKZE", None: "zwykły"}
 page_header("Importy", "Eksporty z XTB, pliki CSV z ręcznymi danymi i to, co z nich trafiło do lokalnej bazy.")
 settings = get_settings()
 
-if not settings.db_path.exists():
-    empty_state(
-        "Brak lokalnej bazy danych",
-        f"Nie znaleziono bazy w `{settings.data_dir}`.",
-        icon=":material/database:",
-        steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
-    )
-    st.stop()
+require_database(settings)
 
 
 def _report_inbox(result: InboxResult | None) -> None:
@@ -43,10 +37,12 @@ def _report_inbox(result: InboxResult | None) -> None:
     if result.error:
         st.warning(result.error, icon=":material/warning:")
         return
+    copied = plural(len(result.copied), "nowy plik", "nowe pliki", "nowych plików")
     if result.sync is not None and result.sync.errors:
-        st.warning(f"Skopiowano {len(result.copied)} plik(ów), ale z błędami: {len(result.sync.errors)}.")
+        st.warning(f"Zaimportowano {copied}, ale są błędy ({len(result.sync.errors)}); szczegóły niżej.",
+                   icon=":material/warning:")
     elif result.copied:
-        st.success(f"Zaimportowano nowych plików: {len(result.copied)}.", icon=":material/check_circle:")
+        st.success(f"Zaimportowano {copied}.", icon=":material/check_circle:")
     else:
         st.success("Brak nowych plików w folderze skrzynki.", icon=":material/check_circle:")
     for path, reason in result.skipped:

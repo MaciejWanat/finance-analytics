@@ -15,6 +15,7 @@ from finance_analytics.config import Settings
 from finance_analytics.market.live import read_live
 from finance_analytics.portfolio.valuation import (
     MODEL_VERSION,
+    NO_RATES,
     Valuation,
     data_version,
     load_inputs,
@@ -39,8 +40,8 @@ def period_start(period: str, first: pd.Timestamp, end: pd.Timestamp) -> pd.Time
     return max(start, first)
 
 
-def require_valued_data(settings: Settings, purpose: str) -> None:
-    """Show the right empty state and stop the page if there is nothing to value yet."""
+def require_database(settings: Settings) -> None:
+    """Stop the page with instructions when the local database does not exist yet."""
     if not settings.db_path.exists():
         empty_state(
             "Brak lokalnej bazy danych",
@@ -49,6 +50,11 @@ def require_valued_data(settings: Settings, purpose: str) -> None:
             steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
         )
         st.stop()
+
+
+def require_valued_data(settings: Settings, purpose: str) -> None:
+    """Show the right empty state and stop the page if there is nothing to value yet."""
+    require_database(settings)
     if reports.accounts_overview(settings.db_path).empty:
         empty_state(
             "Nie ma jeszcze danych do pokazania",
@@ -88,8 +94,11 @@ def _valuation(db_path: str, version: tuple, today: date, live: tuple, model: in
     return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
 
-def load_valuation(settings: Settings) -> tuple[Valuation, datetime | None]:
-    """The daily valuation (cached per data version), with live quotes in online mode (D-021)."""
+def load_valuation(settings: Settings, *, stop_if_empty: bool = True) -> tuple[Valuation, datetime | None]:
+    """The daily valuation (cached per data version), with live quotes in online mode (D-021).
+
+    An empty valuation stops the page with a note, unless the page handles it (`stop_if_empty=False`).
+    """
     live_prices, live_fx, live_at = {}, {}, None
     if load_preferences(settings).online:
         live_prices, live_fx, live_at = read_live(settings.db_path, timedelta(hours=12))
@@ -97,7 +106,11 @@ def load_valuation(settings: Settings) -> tuple[Valuation, datetime | None]:
     valuation = _valuation(
         str(settings.db_path), data_version(settings.db_path), date.today(), live_key, MODEL_VERSION
     )
-    if valuation.total.empty:
-        st.info("Brak pozycji i operacji do wyceny.")
+    if valuation.total.empty and stop_if_empty:
+        if any(w.startswith(NO_RATES) for w in valuation.warnings):
+            st.info("Nie da się jeszcze nic wycenić: brakuje kursów NBP dla walut Twoich kont. Pobierz je na "
+                    "stronie Dane rynkowe (tryb online).", icon=":material/currency_exchange:")
+        else:
+            st.info("Brak pozycji i operacji do wyceny.")
         st.stop()
     return valuation, live_at

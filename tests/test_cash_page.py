@@ -77,3 +77,13 @@ def test_importy_page_offers_csv_export_and_import(settings):
     at = AppTest.from_file(str(Path(PAGE).with_name("imports.py")), default_timeout=60).run()
     assert not at.exception
     assert any("Dane wpisywane ręcznie" in m.value for m in at.markdown)
+
+
+def test_foreign_balance_without_nbp_rates_shows_a_warning_not_an_error(settings):
+    # Regression (D-029): the only account is in EUR and no rate is cached; the page used to crash.
+    account = add_bank_account(settings.accounts_file, "Konto EUR", "EUR")
+    append_snapshot(cash_file(settings.manual_dir), account.id, date.today() - timedelta(days=3), Decimal("10"))
+    sync(settings)
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    assert not at.exception
+    assert any("brakuje kursów NBP" in w.value for w in at.warning)

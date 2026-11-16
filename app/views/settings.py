@@ -41,7 +41,7 @@ with right, st.container(border=True, height="stretch"):
     st.markdown("#### :material/cloud_sync: Online")
     st.markdown(
         "- Ceny posiadanych instrumentów odświeżane co kilka minut w dni robocze (Yahoo Finance).\n"
-        "- Kursy NBP dociągane codziennie po publikacji tabeli (ok. 12:15).\n"
+        "- Kursy NBP dociągane codziennie po publikacji tabeli (ok. 12:15), inflacja z GUS raz dziennie.\n"
         "- Wysyłane są **wyłącznie** tickery (np. `NVDA`), kody walut i daty. "
         "Nigdy salda, ilości, kwoty ani numery rachunków."
     )

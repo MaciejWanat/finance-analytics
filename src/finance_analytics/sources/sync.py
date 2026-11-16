@@ -366,7 +366,8 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             (symbol, info["name"], category, CATEGORY_TO_ASSET_CLASS.get(category or "", "other"), ticker),
         ).lastrowid
         if ticker is None:
-            issue(None, None, "warning", f"{symbol}: no rule maps this ticker to Yahoo yet; add it to instruments.yaml")
+            issue(None, None, "warning", f"{symbol}: no rule maps this ticker to Yahoo yet (YAHOO_SUFFIX in "
+                  "sources/sync.py), so it has no market price and is valued at purchase cost")
 
     buys = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "BUY"}
     sells = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "SELL"}

@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
+from ui.data import require_database
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct, plural
 from ui.glossary import G
 
@@ -27,14 +28,7 @@ RATE_SOURCE = {
 page_header("Obligacje", "Obligacje skarbowe: wartość z odsetkami, bieżące oprocentowanie i kwota przy wcześniejszym "
             "wykupie.")
 settings = get_settings()
-if not settings.db_path.exists():
-    empty_state(
-        "Brak lokalnej bazy danych",
-        f"Aplikacja nie znalazła bazy w katalogu danych `{settings.data_dir}`. Utwórz ją jednym poleceniem:",
-        icon=":material/database:",
-        steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
-    )
-    st.stop()
+require_database(settings)
 csv_path = bond_files.bonds_file(settings.manual_dir)
 
 

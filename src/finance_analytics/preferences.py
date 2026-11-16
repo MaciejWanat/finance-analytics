@@ -16,8 +16,9 @@ from finance_analytics.config import Settings
 HEADER = """\
 # finance-analytics preferences. Private: data/ is git-ignored.
 # network: offline (default) - the app makes no network calls and uses cached data only.
-#          online - prices and FX rates are fetched from Yahoo and NBP and kept up to date.
-#          Only tickers, currency codes and dates are sent; nothing about your accounts.
+#          online - prices and FX rates are fetched from Yahoo and NBP and kept up to date, and the
+#          public CPI file from GUS once a day. Only tickers, currency codes and dates are sent;
+#          nothing about your accounts.
 # refresh_minutes: how often live prices are refreshed in online mode (1-60).
 # inbox_dir: folder where xStation exports are saved; new ones are imported automatically
 #            (read only, D-028). Empty = off.

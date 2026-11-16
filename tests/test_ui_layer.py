@@ -80,3 +80,19 @@ def test_polish_plural():
     assert [plural(n, *words).split(NBSP)[1] for n in (1, 2, 4, 5, 12, 13, 22, 33, 100)] == [
         "wypłata", "wypłaty", "wypłaty", "wypłat", "wypłat", "wypłat", "wypłaty", "wypłaty", "wypłat",
     ]
+
+
+def test_table_renders_numeric_columns_that_are_all_empty():
+    # Regression (D-029): a percent column of only None (e.g. XIRR for windows under a year) is
+    # object-typed; it used to be turned into "–" text and then crash the percent formatter.
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import pandas as pd
+        from ui.components import table
+
+        table(pd.DataFrame({"account": ["A"], "twr": [0.1], "xirr": [None], "when": [None]}),
+              percents=["twr", "xirr"], datetimes=["when"])
+
+    at = AppTest.from_function(page, default_timeout=30).run()
+    assert not at.exception

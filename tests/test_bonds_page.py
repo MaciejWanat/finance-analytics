@@ -49,3 +49,13 @@ def test_page_with_demo_bonds(settings):
     assert [m.label for m in at.metric] == ["Wartość brutto", "Odsetki naliczone", "Do wypłaty dziś",
                                             "Średnie oprocentowanie"]
     assert "Twoje obligacje" in [s.value for s in at.subheader]
+
+
+def test_market_page_offers_the_update_with_bonds_only(settings):
+    # Regression (D-029): bonds need the CPI, so "Dane rynkowe" must not ask for a broker export first.
+    write_mock_bonds(bonds_file(settings.manual_dir))
+    sync(settings)
+    at = AppTest.from_file(str(Path(PAGE).parents[1] / "main.py"), default_timeout=60).run()
+    at.switch_page("views/market.py").run()  # through navigation: the page links to other pages
+    assert not at.exception
+    assert any(b.label == "Pobierz brakujące dane" for b in at.button)

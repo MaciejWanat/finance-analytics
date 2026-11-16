@@ -375,6 +375,19 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A file that is still open in Excel may fail to copy; it is picked up on a later check.
   - The whole folder is read on every check (about once a minute): fine for an export folder, not for a very large one.
 
+### D-029 Release review
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** the features were built one after another; a final pass checked the money maths, data flow, edge cases (empty database, only bonds, only bank cash, a currency without NBP rates, a single day) and page consistency. No new features.
+- **Decision:** fixed, each with a regression test:
+  - **Valuation:** nothing that could be valued up to the end day (e.g. only a bank balance in a currency without NBP rates, or only unknown bond series) returned a crash instead of an empty valuation; deposits and withdrawals dated after the end day were kept in the flows. The empty valuation now has all columns, and the pages say why nothing is valued (missing NBP rates) instead of failing. `MODEL_VERSION` = 5.
+  - **Market data:** the currencies of bank accounts (D-027) were not in the list of NBP rates to fetch, so a EUR bank account without a EUR broker account could never be valued. "Dane rynkowe" asked for a broker export first, so with only bonds or only bank cash the update (CPI, FX) could not be started from the UI.
+  - **Attribution:** a currency with prices but no NBP rates raised in the per-currency table; its rate change is now shown as missing.
+  - **Tables:** a numeric column with only empty values (e.g. XIRR for a window under a year on every row) crashed the table helper; numeric columns keep their gaps, shown as "–".
+  - **Upgrades:** `fa ui` applies migrations and, when any ran, syncs right away. Migration 0007 empties `bond_series`, so an upgraded database used to show bonds without parameters until the next sync.
+  - **Consistency:** one shared `require_database` guard (`ui/data.py`) instead of three copies; valuation warnings in Polish like the bond ones; Polish plurals for inbox imports; the sync warning for an unmapped ticker no longer points to a nonexistent `instruments.yaml`; the settings page, `fa settings` and the preferences header now mention GUS among online sources.
+  - **Docs:** README rewritten for a finished app; CLAUDE.md commands and architecture brought up to date.
+- **Consequences:** import and sync messages from the XTB parser and reconciliation are still in English on the "Importy" page; translating them is left for a later change.
+
 ---
 
 ## Open questions

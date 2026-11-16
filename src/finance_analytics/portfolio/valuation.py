@@ -26,8 +26,9 @@ import pandas as pd
 
 from finance_analytics.portfolio import bonds as bond_math
 
-MODEL_VERSION = 4  # bump when Valuation's fields or rules change, so UI caches are not reused
+MODEL_VERSION = 5  # bump when Valuation's fields or rules change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
+NO_RATES = "Brak kursów NBP dla"  # start of the warning for a currency without rates (the UI checks for it)
 
 
 @dataclass
@@ -191,14 +192,14 @@ def _adjust_for_splits(lots: pd.DataFrame, inputs: Inputs, warnings: list[str]) 
         series = inputs.prices[inputs.prices["ticker"] == lot["ticker"]].set_index("date")["close"].sort_index()
         before = series[series.index <= lot["open_date"]]
         if before.empty:
-            warnings.append(f"{lot['symbol']}: split after opening a position, but no price to check it against")
+            warnings.append(f"{lot['symbol']}: split po otwarciu pozycji, ale brak ceny, żeby go sprawdzić")
             continue
         observed = lot["open_price"] / before.iloc[-1]
         if abs(observed / ratio - 1) <= SPLIT_TOLERANCE:
             lots.at[index, "volume_adj"] = lot["volume"] * ratio
             warnings.append(
-                f"{lot['symbol']}: {lot['volume']:g} shares bought before a {ratio:g}:1 split counted as "
-                f"{lot['volume'] * ratio:g} (Q-001)"
+                f"{lot['symbol']}: {lot['volume']:g} szt. kupione przed splitem {ratio:g}:1 liczone jako "
+                f"{lot['volume'] * ratio:g} szt. (Q-001)"
             )
     return lots
 
@@ -243,7 +244,7 @@ def _bank_rows(snapshots: pd.DataFrame, accounts: pd.DataFrame, calendar: pd.Dat
             continue
         currency = accounts.loc[account_id, "currency"]
         if currency not in fx.columns:
-            warnings.append(f"no NBP rates for {currency}; values in {currency} are missing")
+            warnings.append(f"{NO_RATES} {currency}: wartości w tej walucie nie są wyceniane")
             continue
         steps = group.drop_duplicates("date", keep="last").set_index("date")["balance"].sort_index()
         balance = steps.reindex(steps.index.union(calendar)).ffill().reindex(calendar)
@@ -268,6 +269,17 @@ def _bank_rows(snapshots: pd.DataFrame, accounts: pd.DataFrame, calendar: pd.Dat
     return rows, pd.concat(flow_frames, ignore_index=True)
 
 
+DAILY_COLUMNS = ["date", "account_id", "account", "kind", "symbol", "name", "asset_class", "currency", "qty",
+                 "price", "fx", "value_local", "value_pln", "priced"]
+
+
+def _empty_valuation(lots: pd.DataFrame, warnings: list[str]) -> Valuation:
+    """Nothing to value up to `end` (no data yet, or nothing that can be valued): pages show a note."""
+    return Valuation(daily=pd.DataFrame(columns=DAILY_COLUMNS),
+                     flows=pd.DataFrame(columns=["date", "account_id", "type", "amount", "currency", "amount_pln"]),
+                     lots=lots, warnings=sorted(set(warnings)))
+
+
 def value_portfolio(
     inputs: Inputs,
     end: date,
@@ -288,15 +300,14 @@ def value_portfolio(
     starts = [frame[column].min() for frame, column in ((inputs.lots, "open_date"), (inputs.ledger, "date"),
                                                         (bond_lots, "purchase_date"), (snapshots, "date"))
               if not frame.empty]
-    if not starts:
-        empty = pd.DataFrame(columns=["date", "account_id", "value_pln"])
-        return Valuation(daily=empty, flows=empty, lots=inputs.lots, warnings=warnings)
+    if not starts or min(starts) > pd.Timestamp(end):
+        return _empty_valuation(inputs.lots, warnings)
     calendar = pd.date_range(min(starts), pd.Timestamp(end), freq="D")
     fx = _fx_table(inputs.fx, calendar)
 
     def rate(currency: str) -> pd.Series:
         if currency not in fx.columns:
-            warnings.append(f"no NBP rates for {currency}; values in {currency} are missing")
+            warnings.append(f"{NO_RATES} {currency}: wartości w tej walucie nie są wyceniane")
             return pd.Series(np.nan, index=calendar)
         return fx[currency]
 
@@ -344,7 +355,7 @@ def value_portfolio(
     missing = held["price"].isna() | held["currency"].isna()
     if missing.any():
         for symbol in sorted(held.loc[missing, "symbol"].unique()):
-            warnings.append(f"{symbol}: no market price for some days; valued at purchase cost there")
+            warnings.append(f"{symbol}: brak ceny rynkowej w części dni; w te dni wyceniony po koszcie zakupu")
         keys = list(zip(held.loc[missing, "account_id"], held.loc[missing, "instrument_id"], strict=True))
         held.loc[missing, "price"] = [unit_cost.get(k, np.nan) for k in keys]
         held.loc[missing, "currency"] = held.loc[missing, "account_id"].map(accounts["currency"])
@@ -386,14 +397,16 @@ def value_portfolio(
     # --- cash at banks (D-027) -------------------------------------------------------------------------
     bank_rows, bank_flows = _bank_rows(snapshots, accounts, calendar, fx_value, fx, warnings)
 
-    daily = pd.concat([frame for frame in (held, cash, bond_rows, bank_rows) if not frame.empty],
-                      ignore_index=True)
+    parts = [frame for frame in (held, cash, bond_rows, bank_rows) if not frame.empty]
+    if not parts:  # e.g. only balances in a currency without NBP rates, or only unknown bond series
+        return _empty_valuation(lots, warnings)
+    daily = pd.concat(parts, ignore_index=True)
     daily["account"] = daily["account_id"].map(accounts["alias"])
-    daily = daily[["date", "account_id", "account", "kind", "symbol", "name", "asset_class", "currency", "qty",
-                   "price", "fx", "value_local", "value_pln", "priced"]].sort_values(["date", "account", "symbol"])
+    daily = daily[DAILY_COLUMNS].sort_values(["date", "account", "symbol"])
 
     # --- external flows (deposits and withdrawals), in PLN at the day's NBP rate ----------------------
-    flows = inputs.ledger[inputs.ledger["type"].isin(["DEPOSIT", "WITHDRAWAL"])].copy()
+    ledger_flows = inputs.ledger["type"].isin(["DEPOSIT", "WITHDRAWAL"]) & (inputs.ledger["date"] <= pd.Timestamp(end))
+    flows = inputs.ledger[ledger_flows].copy()
     flows["currency"] = flows["account_id"].map(accounts["currency"])
     flows["amount_pln"] = [
         amount * rate(ccy).asof(day) for amount, ccy, day in zip(flows["amount"], flows["currency"], flows["date"],
