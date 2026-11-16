@@ -197,6 +197,22 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - `.claude/skills/ui-page/SKILL.md` is a short skill that loads it for UI tasks and requires a browser check.
   - CLAUDE.md keeps a one-line pointer.
 
+### D-021 Online/offline mode (R-015, R-016)
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Decision:**
+  - **Setting:** `data/config/settings.yaml` holds `network: offline | online` and `refresh_minutes`. It can be changed on the "Ustawienia" page or with `fa settings`.
+  - **Default is offline**: a fresh install makes no network calls until the user switches online, after a clear explanation of what is sent.
+  - **Offline:** every network entry point (`market.update.update_market`, `market.live.update_live`, the auto-refresh) checks the setting first through `market.network.require_online` and refuses with `OfflineError`. The app works only on cached data. Tests check that no socket is opened in offline mode.
+  - **Online, prices:** while the app is open, polling every `refresh_minutes` (default 5, weekdays only) fetches the latest quote of every held ticker in one pass and stores it in `live_quotes`. A Streamlit fragment polls and reruns the page only when something changed. This was chosen over Yahoo's streaming WebSocket: simpler and robust to rate limits, and seconds do not matter for long-term savings.
+  - **Online, FX:**
+    - History, cost and tax use NBP table A (D-008). Today's NBP table is fetched by a daily refresh after 12:15 on business days.
+    - Today's live value uses the market rate from Yahoo (`USDPLN=X`, …), polled together with prices.
+    - Today's NBP rate is never overwritten in the database; the live rate only feeds the valuation of the current day.
+  - **Online, daily data:** the incremental market update (D-017) runs automatically at most every 6 hours, and again after the NBP publication window.
+- **Consequences:**
+  - Offline is a hard guarantee in code, not a convention.
+  - Live values are labelled with the time of the quote.
+
 ---
 
 ## Open questions
@@ -208,7 +224,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open |
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
-| Q-007 | Online mode: how to keep prices live. Options are periodic polling (refresh every N minutes while a page is open) or Yahoo's streaming WebSocket (push during market hours). Also: where the setting lives, and how offline mode is enforced in code. | Open: design proposal pending |
+| Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
 | Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
 
 ---
