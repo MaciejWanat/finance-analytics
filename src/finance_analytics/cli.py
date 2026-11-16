@@ -82,6 +82,24 @@ def rebuild() -> None:
     _report_sync(run_sync(settings, force=True))
 
 
+@main.command("update-market")
+def update_market_command() -> None:
+    """Download missing prices (Yahoo) and FX rates (NBP) into the local cache."""
+    from finance_analytics.market.update import update_market
+
+    settings = get_settings()
+    _prepare(settings)
+    report = update_market(settings)
+    click.echo(
+        f"Prices: {sum(report.prices.fetched.values())} rows for {len(report.prices.fetched)} ticker(s); "
+        f"FX: {sum(report.fx.fetched.values())} rows for {len(report.fx.fetched)} currency(ies)."
+    )
+    for symbol in report.unresolved:
+        click.secho(f"  no Yahoo ticker for {symbol} (add a mapping rule)", fg="yellow")
+    for key, message in report.errors.items():
+        click.secho(f"  ERROR {key}: {message}", fg="red")
+
+
 @main.group("import")
 def import_() -> None:
     """Import broker exports into the data directory."""
@@ -123,14 +141,16 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     from finance_analytics.sources.sync import sync as run_sync
 
     settings = Settings(data_dir=Path("data-demo").resolve())
-    # The demo directory is disposable: start clean so repeated runs don't stack copies.
-    if settings.data_dir.exists():
-        shutil.rmtree(settings.data_dir)
+    # Start from fresh demo files so repeated runs don't stack copies, but keep the
+    # database: its market cache (prices, FX) saves re-downloading on every demo run.
     export = settings.data_dir / "xtb_export"
+    for folder in (export, settings.raw_dir, settings.config_dir):
+        if folder.exists():
+            shutil.rmtree(folder)
     write_mock_export(export)
     _prepare(settings)
     import_xtb(export, settings)
-    _report_sync(run_sync(settings))
+    _report_sync(run_sync(settings, force=True))
     click.echo(f"Demo data directory: {settings.data_dir} (synthetic, git-ignored)")
     if not no_ui:
         _launch_ui(settings, port, dev=True, open_browser=open_browser)
@@ -139,6 +159,7 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
 def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> None:
     if not APP_MAIN.exists():
         raise click.ClickException(f"UI entry point not found: {APP_MAIN}")
+    _prepare(settings)  # schema up to date before any page reads it
     env = {**os.environ, DATA_DIR_ENV: str(settings.data_dir)}
     if dev:
         env["FA_DEV"] = "1"
@@ -151,6 +172,8 @@ def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> 
         "--browser.gatherUsageStats", "false",
         # Headless skips Streamlit's first-run e-mail prompt; we open the tab ourselves.
         "--server.headless", "true",
+        # Dev mode: rerun the app automatically when a source file is saved.
+        "--server.runOnSave", "true" if dev else "false",
     ]
     url = f"http://localhost:{port}"
     click.echo(f"Starting the UI at {url} (Ctrl+C to stop)")

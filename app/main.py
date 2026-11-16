@@ -20,6 +20,7 @@ pages = {
     ],
     "Dane": [
         st.Page("views/imports.py", title="Importy", icon=":material/upload_file:"),
+        st.Page("views/market.py", title="Dane rynkowe", icon=":material/candlestick_chart:"),
     ],
 }
 if os.environ.get("FA_DEV") == "1":

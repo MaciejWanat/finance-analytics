@@ -85,6 +85,49 @@ def holdings(db_path: Path) -> pd.DataFrame:
     )
 
 
+def price_coverage(db_path: Path) -> pd.DataFrame:
+    """Per instrument: Yahoo ticker, currency, cached range and the last download error."""
+    return _query(
+        db_path,
+        """
+        SELECT i.xtb_symbol AS symbol, i.yahoo_ticker AS ticker, i.name, t.currency, t.exchange,
+               (SELECT MIN(date) FROM prices p WHERE p.ticker = i.yahoo_ticker) AS first,
+               (SELECT MAX(date) FROM prices p WHERE p.ticker = i.yahoo_ticker) AS last,
+               (SELECT COUNT(*) FROM prices p WHERE p.ticker = i.yahoo_ticker) AS days,
+               (SELECT COUNT(*) FROM corporate_actions a WHERE a.ticker = i.yahoo_ticker AND a.kind = 'SPLIT')
+                   AS splits,
+               f.last_error AS error
+        FROM instruments i
+        LEFT JOIN ticker_info t ON t.ticker = i.yahoo_ticker
+        LEFT JOIN fetch_log f ON f.source = 'yahoo' AND f.key = i.yahoo_ticker
+        ORDER BY i.xtb_symbol
+        """,
+    )
+
+
+def fx_coverage(db_path: Path) -> pd.DataFrame:
+    return _query(
+        db_path,
+        """
+        SELECT r.currency, MIN(r.date) AS first, MAX(r.date) AS last, COUNT(*) AS days,
+               (SELECT mid FROM fx_rates x WHERE x.currency = r.currency ORDER BY date DESC LIMIT 1) AS latest,
+               f.last_error AS error
+        FROM fx_rates r LEFT JOIN fetch_log f ON f.source = 'nbp' AND f.key = r.currency
+        GROUP BY r.currency ORDER BY r.currency
+        """,
+    )
+
+
+def price_series(db_path: Path, ticker: str) -> pd.Series:
+    df = _query(db_path, "SELECT date, close FROM prices WHERE ticker = ? ORDER BY date", (ticker,))
+    return pd.Series(df["close"].to_numpy(), index=pd.to_datetime(df["date"]), name=ticker)
+
+
+def fx_series(db_path: Path, currency: str) -> pd.Series:
+    df = _query(db_path, "SELECT date, mid FROM fx_rates WHERE currency = ? ORDER BY date", (currency,))
+    return pd.Series(df["mid"].to_numpy(), index=pd.to_datetime(df["date"]), name=currency)
+
+
 def issues(db_path: Path) -> pd.DataFrame:
     return _query(db_path, "SELECT severity, account_id, message FROM import_issues ORDER BY severity, id")
 

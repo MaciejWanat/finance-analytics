@@ -150,6 +150,27 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Daily holdings come from lots, independent of the cash range.
   - The cash balance comes from the ledger, so it needs exports covering the whole history.
 
+### D-017 Market data cache and incremental updates
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Decision:**
+  - Market data lives in persistent tables (`prices`, `corporate_actions`, `ticker_info`, `fx_rates`, `fetch_log`) that `fa sync`/`fa rebuild` never drop.
+  - `fa update-market` (or the button on "Dane rynkowe") fetches only what is missing:
+    - **what is needed:** each ticker from 7 days before its first trade or cash event; each currency from the first operation in that currency (account currency or instrument price currency);
+    - **which days are final:** today is never marked final, so the next run asks for it again;
+    - **Yahoo corrections:** the last 5 days are re-read every time to pick up late fixes;
+    - **NBP:** at most 93 days per request; 404 means no quotes in the range.
+  - Network access only in `market/`. Requests carry tickers, currency codes and dates, and a generic User-Agent.
+  - XTB → Yahoo ticker rules: `.US` → no suffix, `.UK` → `.L`. Anything else stays unresolved (warning) until a rule is added.
+  - Quotes in minor units (GBp/GBX) are converted.
+  - `fa demo` rebuilds its files but keeps its database, so the market cache is not downloaded again.
+- **Consequences:**
+  - Re-running the update takes seconds.
+  - Tests use fake clients and never touch the network.
+
+### D-018 Developer auto-rerun
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Decision:** `fa ui --dev` and `fa demo` start Streamlit with `server.runOnSave = true` (with `watchdog` in the dev extras). Saving a source file reruns the open page automatically; session state survives. Plain `fa ui` does not watch files.
+
 ---
 
 ## Open questions

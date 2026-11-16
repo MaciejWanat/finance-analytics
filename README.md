@@ -8,8 +8,8 @@ your whole portfolio is worth, day by day, and where the return came from:
 - dividends after tax;
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
-> **Status:** early development. XTB exports can be imported and browsed; market data and
-> the PLN valuation are next.
+> **Status:** early development. XTB exports can be imported and browsed, and prices and
+> FX rates are cached locally. The daily PLN valuation is next.
 
 ## Privacy
 
@@ -45,6 +45,7 @@ Import an XTB export (the folder xStation produces) and open the UI:
 
 ```bash
 fa import xtb <export folder>
+fa update-market
 fa ui
 ```
 

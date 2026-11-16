@@ -43,6 +43,7 @@ python scripts/check_no_private_data.py [--all]
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
+fa update-market       # download missing prices (Yahoo) and FX rates (NBP) into the cache
 fa demo                # data-demo/ from a synthetic export, then the UI on it
 ```
 
@@ -61,7 +62,11 @@ report, never from memory.
     - `sync.py` for import, rebuild and reconciliation.
   - `reports.py`: read-only queries for the UI.
   - `mock/`: synthetic data generators.
-  - `market/` (planned): **the only package allowed to use the network** (NBP, Yahoo, GUS); a test enforces this.
+  - `market/`: **the only package allowed to use the network**; a test enforces this. Contents:
+    - `nbp.py` for FX rates;
+    - `yahoo.py` for prices, splits and dividends;
+    - `cache.py` for the covered ranges;
+    - `update.py` to work out what the portfolio needs.
   - `portfolio/` (planned): holdings, valuation, returns, dividends, bonds (pandas).
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.

@@ -25,6 +25,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "watchdog>=4.0",  # fast file watching for `fa ui --dev` auto-rerun
 ]
 
 [project.scripts]
