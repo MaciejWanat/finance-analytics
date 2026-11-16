@@ -7,6 +7,7 @@ from datetime import date
 import streamlit as st
 from ui.components import empty_state, page_header, section, table
 from ui.fmt import fmt_date, fmt_money
+from ui.glossary import G
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
@@ -105,6 +106,8 @@ table(
         "files": "Pliki", "operations": "Operacje", "open_positions": "Pozycje otwarte",
         "closed_positions": "Zamknięte", "gotowka": "Gotówka",
     },
+    helps={"rodzaj": f'{G["account_kind"]} {G["ike"]} {G["ikze"]}', "gotowka": G["account_cash"],
+           "open_positions": G["position"]},
 )
 
 section("Szczegóły rachunku")
@@ -120,6 +123,7 @@ with ops_tab:
         sorted(ledger["type"].unique(), key=list(LEDGER_LABELS).index),
         format_func=LEDGER_LABELS.get,
         placeholder="Wszystkie typy",
+        help=f'Filtruj operacje po typie. {G["wht"]}',
     )
     shown = ledger[ledger["type"].isin(kinds)] if kinds else ledger
     table(
@@ -131,6 +135,7 @@ with ops_tab:
             "ts": "Czas (UTC)", "typ": "Typ", "symbol": "Ticker", "name": "Instrument",
             "amount": f"Kwota ({currency})", "comment": "Komentarz",
         },
+        helps={"symbol": G["ticker"], "amount": "Wpływ (+) lub wypływ (−) gotówki w walucie rachunku."},
     )
 
 position_labels = {
@@ -145,6 +150,7 @@ with open_tab:
         numbers={"volume": 4, "open_price": 2, "purchase_value": 2},
         datetimes=["open_time"],
         labels=position_labels,
+        helps={"symbol": G["ticker"], "purchase_value": "Ile zapłaciłeś, w walucie rachunku (z przewalutowaniem)."},
     )
 with closed_tab:
     closed = reports.positions(settings.db_path, account_id, open_only=False)

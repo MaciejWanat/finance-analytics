@@ -44,8 +44,9 @@ def page_header(title: str, caption: str | None = None) -> None:
         st.caption(caption)
 
 
-def section(title: str, caption: str | None = None) -> None:
-    st.subheader(title)
+def section(title: str, caption: str | None = None, *, help: str | None = None) -> None:
+    """Section heading; `help` adds a "?" tooltip (use texts from ui/glossary.py)."""
+    st.subheader(title, help=help)
     if caption:
         st.caption(caption)
 
@@ -78,13 +79,15 @@ def table(
     percents: Sequence[str] = (),
     trends: Sequence[str] = (),
     labels: dict[str, str] | None = None,
+    helps: dict[str, str] | None = None,
 ) -> None:
     """A dataframe with Polish number formatting that still sorts numerically.
 
     numbers: column -> decimals; signed: columns coloured green/red by sign;
     datetimes: columns shown as YYYY-MM-DD HH:MM; percents: fractions shown as +3,4%;
     trends: columns holding lists of numbers, drawn as sparklines;
-    labels: column -> header text. Empty cells show as "–" instead of None/NaN.
+    labels: column -> header text; helps: column -> tooltip on the header (texts from
+    ui/glossary.py). Empty cells show as "–" instead of None/NaN.
     """
     tokens = TOKENS[current_mode()]
     labels = labels or {}
@@ -113,8 +116,11 @@ def table(
 
     if signed:
         styler = styler.map(sign_color, subset=list(signed))
-    # Sparkline columns are the one place column_config is used (it overrides the Styler there).
-    config = {col: st.column_config.LineChartColumn(col, width="small") for col in trends}
+    # Header tooltips: a help-only Column keeps the Styler's formatted values.
+    tooltip = {labels.get(col, col): text for col, text in (helps or {}).items()}
+    config: dict[str, object] = {col: st.column_config.Column(help=text) for col, text in tooltip.items()}
+    for col in trends:  # sparkline columns are the one place column_config shapes the display
+        config[col] = st.column_config.LineChartColumn(col, width="small", help=tooltip.get(col))
     st.dataframe(styler, hide_index=True, width="stretch", column_config=config)
 
 

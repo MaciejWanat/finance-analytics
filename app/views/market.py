@@ -8,6 +8,7 @@ from contextlib import closing
 import streamlit as st
 from ui.charts import current_mode, line_chart, show
 from ui.components import empty_state, page_header, section, table
+from ui.glossary import G
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
@@ -85,10 +86,12 @@ table(
         "symbol": "XTB", "ticker": "Yahoo", "name": "Instrument", "currency": "Waluta", "exchange": "Giełda",
         "first": "Od", "last": "Do", "days": "Notowania", "splits": "Splity", "error": "Ostatni błąd",
     },
+    helps={"symbol": G["ticker"], "ticker": G["yahoo_ticker"], "days": G["quotes"], "splits": G["split"],
+           "error": G["last_error"]},
 )
 
 fx = reports.fx_coverage(settings.db_path)
-section("Kursy walut NBP", "Kurs średni (tabela A): ile złotych za jednostkę waluty.")
+section("Kursy walut NBP", "Kurs średni (tabela A): ile złotych za jednostkę waluty.", help=G["nbp_rate"])
 if fx.empty:
     st.caption("Brak kursów. Użyj przycisku „Pobierz brakujące dane”.")
 else:
@@ -97,6 +100,7 @@ else:
         numbers={"days": 0, "latest": 4},
         labels={"currency": "Waluta", "first": "Od", "last": "Do", "days": "Notowania", "latest": "Ostatni kurs",
                 "error": "Ostatni błąd"},
+        helps={"days": G["quotes"], "latest": G["nbp_rate"], "error": G["last_error"]},
     )
 
 priced = coverage[coverage["days"] > 0]

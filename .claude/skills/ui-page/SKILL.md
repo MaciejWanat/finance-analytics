@@ -32,6 +32,7 @@ Prevent that.
 - **Placement:** a filter sits right above what it changes. A page-wide filter goes at the top; a block filter goes above its block.
 - **KPI tiles:** at most 4; every tile has a `trend` so heights match; a percentage only when its base is meaningful.
 - **Colour:** it follows the entity in a stable order, never rank or position; past 8 parts, fold into "Inne"; never two y-axes; a legend from 2 series.
+- **Tooltips:** every non-obvious term (TWR, XIRR, drawdown, cost, NBP rate, IKE…) gets a tooltip from `ui/glossary.py`. It goes on KPIs, sections, filters, and table headers through `helps=`.
 - **Text:** UI text in Polish, code and comments in English. Numbers like `12 345,67 zł` and `+3,4%`; show "–" for missing values, never `None`/`NaN`/0.
 - **Long actions:** use a two-run spinner button (pattern in the guidelines, §6).
 - **Privacy:** no external fonts, CDNs, images or links; account numbers masked (`…123`).

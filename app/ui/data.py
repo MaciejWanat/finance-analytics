@@ -13,7 +13,13 @@ import streamlit as st
 from finance_analytics import reports
 from finance_analytics.config import Settings
 from finance_analytics.market.live import read_live
-from finance_analytics.portfolio.valuation import Valuation, data_version, load_inputs, value_portfolio
+from finance_analytics.portfolio.valuation import (
+    MODEL_VERSION,
+    Valuation,
+    data_version,
+    load_inputs,
+    value_portfolio,
+)
 from finance_analytics.preferences import load_preferences
 from ui.components import empty_state
 
@@ -74,7 +80,7 @@ def require_valued_data(settings: Settings, purpose: str) -> None:
 
 
 @st.cache_data(show_spinner="Liczę wycenę portfela…")
-def _valuation(db_path: str, version: tuple, today: date, live: tuple) -> Valuation:
+def _valuation(db_path: str, version: tuple, today: date, live: tuple, model: int) -> Valuation:
     live_prices, live_fx = (dict(part) for part in live)
     return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
@@ -85,7 +91,9 @@ def load_valuation(settings: Settings) -> tuple[Valuation, datetime | None]:
     if load_preferences(settings).online:
         live_prices, live_fx, live_at = read_live(settings.db_path, timedelta(hours=12))
     live_key = (tuple(sorted(live_prices.items())), tuple(sorted(live_fx.items())))
-    valuation = _valuation(str(settings.db_path), data_version(settings.db_path), date.today(), live_key)
+    valuation = _valuation(
+        str(settings.db_path), data_version(settings.db_path), date.today(), live_key, MODEL_VERSION
+    )
     if valuation.total.empty:
         st.info("Brak pozycji i operacji do wyceny.")
         st.stop()

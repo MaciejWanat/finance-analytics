@@ -8,9 +8,11 @@ from ui.charts import current_mode, drawdown_chart, line_chart, returns_heatmap,
 from ui.components import Kpi, kpi_row, page_header, section, table
 from ui.data import RANGES, load_valuation, period_start, require_valued_data
 from ui.fmt import fmt_date, fmt_pct
+from ui.glossary import G
 from ui.theme import color_map
 
 from finance_analytics.config import get_settings
+from finance_analytics.portfolio.attribution import attribute
 from finance_analytics.portfolio.returns import monthly_returns, returns_for
 
 PORTFOLIO = "Cały portfel"
@@ -21,7 +23,9 @@ require_valued_data(settings, "stopy zwrotu (TWR, XIRR), spadki od szczytu i zwr
 v, _ = load_valuation(settings)
 total = v.total
 
-period = st.segmented_control("Okres", RANGES, default="Maks.", key="returns_period", required=True)
+period = st.segmented_control(
+    "Okres", RANGES, default="Maks.", key="returns_period", required=True, help=G["periods"]
+)
 end = total.index[-1]
 start = period_start(period, total.index[0], end)
 days = (end - start).days
@@ -48,23 +52,21 @@ kpi_row(
     [
         Kpi("TWR w okresie", fmt_pct(portfolio.twr),
             delta=f"{fmt_pct(portfolio.twr_annual)} rocznie" if portfolio.twr_annual is not None else None,
-            help="Stopa zwrotu ważona czasem: wynik samych inwestycji, bez wpływu momentów wpłat i wypłat. "
-                 "Wersję roczną pokazujemy dla okresów od roku.",
+            help=G["twr"],
             trend=(portfolio.index - 1).resample("W-FRI").last().round(4).tolist()),
         Kpi("XIRR (rocznie)", fmt_pct(portfolio.xirr) if portfolio.xirr is not None else "–",
             delta_color="off",
             delta=None if portfolio.xirr is not None else "dla okresów od roku",
-            help="Stopa zwrotu ważona kapitałem: Twój roczny zysk z uwzględnieniem tego, kiedy i ile wpłacałeś. "
-                 "Wyższa od TWR, gdy więcej pieniędzy pracowało w dobrych okresach.",
+            help=G["xirr"],
             trend=total[total.index >= start].resample("W-FRI").last().round(0).tolist()),
         Kpi("Największy spadek", fmt_pct(dd.max_drawdown),
             delta=f"{fmt_date(dd.peak)} → {fmt_date(dd.trough)}" if dd.trough is not None else None,
             delta_color="off",
-            help="Najgłębszy spadek indeksu TWR od poprzedniego szczytu w wybranym okresie. "
+            help=G["drawdown"] + " "
                  + (f"Odrobiony {fmt_date(dd.recovered)}." if dd.recovered is not None else "Jeszcze nieodrobiony."),
             trend=dd.series.resample("W-FRI").min().round(4).tolist()),
         Kpi("Obecnie od szczytu", fmt_pct(dd.current), delta_color="off",
-            help="O ile indeks TWR jest dziś poniżej swojego najwyższego poziomu w okresie.",
+            help=G["drawdown_current"],
             trend=dd.series.resample("W-FRI").last().round(4).tolist()),
     ]
 )
@@ -75,6 +77,7 @@ mode = current_mode()
 section(
     "Stopa zwrotu w czasie (TWR)",
     f"Skumulowana, od {fmt_date(start)} do {fmt_date(end)}. 0% oznacza wynik zerowy.",
+    help=G["twr"],
 )
 lines = pd.DataFrame({PORTFOLIO: portfolio.index - 1})
 for account, result in per_account.items():
@@ -82,7 +85,55 @@ for account, result in per_account.items():
 colors = color_map([PORTFOLIO, *per_account], mode)
 show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.1%}", y_tickformat=".0%"), key="twr")
 
-section("Spadki od szczytu", "Jak daleko cały portfel był pod swoim poprzednim maksimum (indeks TWR).")
+# ---------------------------------------------------------------------------- stocks vs currency
+attribution = attribute(v, start, end)
+final = attribution.cumulative.iloc[-1] if not attribution.cumulative.empty else None
+section("Akcje czy waluty?", "Skąd wziął się wynik w PLN: ze zmian cen instrumentów, z kursów walut czy z reszty.",
+        help=G["attribution"])
+if final is None:
+    st.caption("Za krótki okres, żeby rozbić wynik.")
+else:
+    st.markdown(
+        f"**{fmt_pct(final['total'])}** w PLN (TWR) = ceny instrumentów **{fmt_pct(final['price'])}** "
+        f"× kursy walut **{fmt_pct(final['fx'])}** × pozostałe **{fmt_pct(final['other'])}**",
+        help="(1 + wynik w PLN) = (1 + ceny) × (1 + waluty) × (1 + pozostałe). Ceny: zmiana kursów akcji i ETF "
+             "w ich walucie. Waluty: zmiana kursu NBP waluty notowania oraz gotówki w walutach. Pozostałe: "
+             "dywidendy, odsetki, podatki, opłaty i różnica między ceną zakupu a ceną zamknięcia w dniu zakupu.",
+    )
+    parts = attribution.cumulative.rename(columns={
+        "total": "Razem (TWR)", "price": "Ceny instrumentów", "fx": "Kursy walut", "other": "Pozostałe",
+    })[["Razem (TWR)", "Ceny instrumentów", "Kursy walut", "Pozostałe"]]
+    show(line_chart(parts, mode=mode, height=320, hover="%{y:.1%}", y_tickformat=".0%"), key="attribution")
+
+    st.markdown(
+        "**Waluty**: wynik z kursu na pozycjach i gotówce w danej walucie.",
+        help="Wynik z kursu zależy od tego, ile w danej walucie miałeś w chwili, gdy kurs się zmieniał. "
+             "Może więc mieć inny znak niż zmiana kursu w całym okresie, np. gdy dokupowałeś przy niskim kursie, "
+             "a potem kurs wzrósł.",
+    )
+    table(
+        attribution.by_currency,
+        numbers={"pnl_fx": 2},
+        percents=["fx_change"],
+        signed=["pnl_fx", "fx_change"],
+        labels={"currency": "Waluta", "pnl_fx": "Wynik z kursu (zł)", "fx_change": "Zmiana kursu NBP"},
+        helps={"pnl_fx": G["fx_sign"], "fx_change": G["nbp_rate"]},
+    )
+    st.markdown("**Instrumenty**: zmiany liczone za część okresu, w której instrument był w portfelu.")
+    table(
+        attribution.by_instrument,
+        numbers={"pnl_price": 2, "pnl_fx": 2, "pnl_total": 2},
+        percents=["price_change", "fx_change"],
+        signed=["pnl_price", "pnl_fx", "pnl_total", "price_change", "fx_change"],
+        labels={"symbol": "Ticker", "name": "Instrument", "currency": "Waluta",
+                "pnl_price": "Z ceny (zł)", "pnl_fx": "Z waluty (zł)", "pnl_total": "Razem (zł)",
+                "price_change": "Zmiana ceny", "fx_change": "Zmiana kursu"},
+        helps={"symbol": G["ticker"], "pnl_price": G["part_price"], "pnl_fx": G["part_fx"],
+               "price_change": G["price_change"], "fx_change": G["fx_change"]},
+    )
+
+section("Spadki od szczytu", "Jak daleko cały portfel był pod swoim poprzednim maksimum (indeks TWR).",
+        help=G["drawdown"])
 show(drawdown_chart(dd.series, mode=mode), key="drawdown")
 
 # ------------------------------------------------------------------------------- per account
@@ -101,10 +152,12 @@ table(
     signed=["twr", "twr_annual", "xirr", "max_dd"],
     labels={"account": "Rachunek", "value": "Wartość (zł)", "twr": "TWR", "twr_annual": "TWR rocznie",
             "xirr": "XIRR", "max_dd": "Maks. spadek"},
+    helps={"twr": G["twr"], "twr_annual": G["twr_annual"], "xirr": G["xirr"], "max_dd": G["drawdown"]},
 )
 
 # ---------------------------------------------------------------------------------- monthly grid
-section("Zwroty miesięczne", "TWR całego portfela w każdym miesiącu i roku, od początku historii.")
+section("Zwroty miesięczne", "TWR całego portfela w każdym miesiącu i roku, od początku historii.",
+        help=G["monthly_returns"])
 grid = monthly_returns(returns_for(total, flows, total.index[0], end).index)
 left, right = st.columns([5, 1], gap="medium")
 with left:

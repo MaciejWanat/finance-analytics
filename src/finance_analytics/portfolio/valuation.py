@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+MODEL_VERSION = 2  # bump when Valuation's fields change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
 
 
@@ -44,6 +45,9 @@ class Valuation:
     flows: pd.DataFrame  # external cash flows: date, account_id, amount, amount_pln
     lots: pd.DataFrame  # lots with cost_pln (FX on the opening day) and adjusted volume
     warnings: list[str] = field(default_factory=list)
+    prices: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x ticker, price currency (carried)
+    fx: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x currency, PLN per unit used for values
+    currencies: dict[str, str] = field(default_factory=dict)  # ticker -> price currency
 
     @property
     def total(self) -> pd.Series:
@@ -257,4 +261,4 @@ def value_portfolio(
                                                                strict=True)
     ]
     return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
-                     warnings=sorted(set(warnings)))
+                     warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies))

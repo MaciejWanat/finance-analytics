@@ -53,6 +53,7 @@ Use `layout="wide"` (set once in `main.py`). Sections are separated by `section(
 | Charts | `area_total`, `line_chart`, `stacked_bars`, `segmented_bar`, then `show(fig, key=)` | `px.*` defaults, `st.plotly_chart` directly, `theme="streamlit"` |
 | Colours | `ui/theme.py`: `TOKENS[mode]`, `color_map(keys, mode)` | hex codes in pages |
 | Empty / guard states | `empty_state(title, body, icon=, steps=)` | `st.info` walls of text |
+| Explaining terms | `help=G[...]` from `ui/glossary.py` on KPIs, `section(..., help=)`, filters, and `table(..., helps=)` for column headers | ad-hoc tooltip texts written in a page |
 | Long actions | button with a spinner state (see §6) | plain `st.spinner` under a button |
 
 If a page needs something these do not cover, **add it to `app/ui/` first** (with a test in `tests/test_ui_layer.py`) and then use it. Do not inline it in the page.
@@ -87,7 +88,10 @@ Load the `dataviz` skill before designing a new chart form.
   - write in sentence case and as short statements;
   - address the user as "Ty" only when giving an instruction ("Zaimportuj folder…");
   - keep the precise definition of a metric in its `help` tooltip, not on the page;
-  - avoid jargon or explain it once (TWR, XIRR, NBP).
+  - **every term that may not be obvious gets a "?" tooltip.** This covers TWR, XIRR, drawdown, NBP rate, cost, IKE/IKZE, ticker, split, the "other" part of returns, and similar terms.
+  - The text comes from `ui/glossary.py`, so a word is always explained the same way.
+  - Add new terms there first; a test checks that every `G["…"]` used by a page exists.
+  - Explain in plain Polish, one or two sentences, and say what the number means for the user, not just how it is computed.
 - Material icons (`:material/name:`) for headings of cards, empty states and buttons. Emoji are not used.
 
 ## 6. States
@@ -113,6 +117,7 @@ Load the `dataviz` skill before designing a new chart form.
 - [ ] Page anatomy order kept; every control is right above what it changes.
 - [ ] Checked in the browser on demo data (`fa demo`), in **light and dark** mode, at about 1280 px and at a narrow width.
 - [ ] Numbers formatted in Polish; no `None`/`NaN` visible; tiles in a row are the same height.
+- [ ] Every non-obvious term (KPI, section, filter, column) has a tooltip from `ui/glossary.py`.
 - [ ] New strings are Polish; new code and comments English.
 - [ ] Empty and loading states work (try a fresh `FA_DATA_DIR`).
 - [ ] `pytest` and `ruff check .` pass.

@@ -234,6 +234,28 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Consequences:** tested on hand-computed cases, including the Excel XIRR example and a case where TWR < 0 < XIRR.
   - In the demo, buys at mock prices are valued at real Yahoo prices the same day. That creates artificial jumps, so demo returns are illustrative only.
 
+### D-023 Splitting the PLN return into prices, currencies and the rest
+- **Date:** 2026-11-16 · **Status:** Accepted (R-002)
+- **Decision:** `portfolio/attribution.py`.
+  - **Daily gains per instrument**, with the quantity held overnight q, price P in the instrument's currency and NBP rate X:
+    - price effect `q·(P_t − P_{t−1})·X_{t−1}`;
+    - currency effect `q·P_t·(X_t − X_{t−1})`.
+
+    The two add up exactly to the PLN gain. Foreign cash adds only a currency effect.
+  - **"Other"** is the residual: dividends, interest, taxes, fees, and the gap between a purchase price and that day's close.
+  - **Daily returns:**
+    - `r_price = price gains / base`;
+    - `(1 + r_fx) = (1 + r_price + fx gains / base) / (1 + r_price)`;
+    - `r_other` closes the identity `(1 + r_PLN) = (1 + r_price)(1 + r_fx)(1 + r_other)`, using the same base as TWR (D-022).
+
+    Chained over a window, the three cumulative parts multiply exactly into the window's TWR. Without "other" this is the requested `(1 + r_PLN) = (1 + r_local)(1 + r_FX)`.
+  - **Per-instrument table:** gains in zł from price and from currency, plus the price and NBP rate change over the part of the window the instrument was held.
+  - **Per-currency table:** currency gains on positions and cash.
+  - **UI:** section "Akcje czy waluty?" on "Zwroty", with the identity written out, a cumulative chart of the three parts plus TWR, and both tables.
+- **Consequences:**
+  - A currency's gain can have the opposite sign to its rate change over the window, because it depends on how much was held when the rate moved. The UI explains this.
+  - The valuation now exposes its price and rate tables (`Valuation.prices`, `.fx`). The UI cache is keyed by `MODEL_VERSION`.
+
 ---
 
 ## Open questions

@@ -58,3 +58,16 @@ def test_chart_builders_produce_figures():
     assert len(line_chart(df, mode="dark").data) == 2
     bars = stacked_bars(df, mode="light")
     assert bars.layout.barmode == "stack"
+
+
+def test_every_glossary_key_used_by_pages_exists():
+    import re
+
+    from conftest import ROOT
+    from ui.glossary import G
+
+    used = set()
+    for path in (ROOT / "app").rglob("*.py"):
+        used |= set(re.findall(r'G\["([a-z0-9_]+)"\]', path.read_text(encoding="utf-8")))
+    assert used, "pages should use the glossary"
+    assert used <= set(G), sorted(used - set(G))

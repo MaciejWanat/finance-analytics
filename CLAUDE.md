@@ -82,6 +82,7 @@ report, never from memory.
   - `portfolio/`: pandas maths.
     - `valuation.py`: daily holdings and PLN value (D-019).
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
+    - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - Next: dividends, bonds.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.

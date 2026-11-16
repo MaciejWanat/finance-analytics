@@ -8,6 +8,7 @@ from ui.charts import area_total, current_mode, segmented_bar, show, stacked_bar
 from ui.components import Kpi, kpi_row, page_header, section, table
 from ui.data import RANGES, load_valuation, period_start, require_valued_data
 from ui.fmt import fmt_money, fmt_money_compact, fmt_pct
+from ui.glossary import G
 from ui.theme import OTHER_LABEL, color_map
 
 from finance_analytics.config import get_settings
@@ -24,7 +25,7 @@ v, live_at = load_valuation(settings)
 daily, total = v.daily, v.total
 
 # ------------------------------------------------------------------- period filter (scopes the whole page)
-period = st.segmented_control("Okres", RANGES, default="Maks.", key="period", required=True)
+period = st.segmented_control("Okres", RANGES, default="Maks.", key="period", required=True, help=G["periods"])
 
 end = total.index[-1]
 start = period_start(period, total.index[0], end)
@@ -56,15 +57,14 @@ kpi_row(
                  "małej wartości startowej).", trend=trend(total)),
         Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
             delta=f"{fmt_pct(twr_period)} TWR",
-            help="Zmiana wartości w wybranym okresie minus wpłaty i wypłaty. Procent to stopa zwrotu "
-                 "ważona czasem (TWR), niezależna od tego, kiedy wpłacałeś. Szczegóły na stronie Zwroty.",
+            help=G["result_period"],
             trend=trend(period_result)),
         Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
             delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
-            help="Suma wpłat minus wypłaty, w PLN po kursie NBP z dnia operacji.", trend=trend(cumulative_flows)),
+            help=G["contributed"], trend=trend(cumulative_flows)),
         Kpi("Zysk całkowity", fmt_money_compact(value_now - contributed),
             delta=fmt_pct((value_now - contributed) / contributed) if contributed > 0 else None,
-            help="Wartość portfela minus wpłacony kapitał.", trend=trend(total - cumulative_flows)),
+            help=G["total_gain"], trend=trend(total - cumulative_flows)),
     ]
 )
 
@@ -72,12 +72,15 @@ mode = current_mode()
 
 # -------------------------------------------------------------------------------- value over time
 live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else ""
-section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}")
+section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}",
+        help=G["portfolio_value"])
 show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
 
 # ---------------------------------------------------------------------------- composition and parts
 # The breakdown filter sits right above the charts it changes.
-breakdown = st.segmented_control("Podział", list(BREAKDOWNS), default="Rachunek", key="breakdown", required=True)
+breakdown = st.segmented_control(
+    "Podział", list(BREAKDOWNS), default="Rachunek", key="breakdown", required=True, help=G["breakdown"]
+)
 column = BREAKDOWNS[breakdown]
 labelled = daily.assign(part=daily[column])
 if column == "asset_class":
@@ -97,10 +100,11 @@ bars = wide[wide.index >= start][parts].resample(frequency).last()
 
 left, right = st.columns([3, 2], gap="large")
 with left:
-    section(f"Skład portfela: {breakdown.lower()}", f"Wartość na koniec każdego {frequency_label}, w PLN.")
+    section(f"Skład portfela: {breakdown.lower()}", f"Wartość na koniec każdego {frequency_label}, w PLN.",
+            help=G["composition"])
     show(stacked_bars(bars, mode=mode, colors=colors, height=340), key="composition")
 with right:
-    section("Alokacja dziś", f"{breakdown}: udział w wartości portfela.")
+    section("Alokacja dziś", f"{breakdown}: udział w wartości portfela.", help=G["allocation"])
     today_parts = wide.iloc[-1][parts]
     show(segmented_bar(today_parts.sort_values(ascending=False), mode=mode, colors=colors), key="allocation")
     shares = today_parts.sort_values(ascending=False)
@@ -109,10 +113,12 @@ with right:
         numbers={"value": 0},
         percents=["share"],
         labels={"part": breakdown, "value": "Wartość (zł)", "share": "Udział"},
+        helps={"share": G["share"]},
     )
 
 # ------------------------------------------------------------------------------- current holdings
-section("Bieżące pozycje", "Wartość po ostatnim kursie zamknięcia i kursie NBP; koszt po kursie z dnia zakupu.")
+section("Bieżące pozycje", "Wartość po ostatnim kursie zamknięcia i kursie NBP; koszt po kursie z dnia zakupu.",
+        help=G["position"])
 last_day = daily[(daily["date"] == end) & (daily["kind"] == "position")]
 holdings = last_day.groupby(["account", "symbol", "name", "currency"], as_index=False).agg(
     qty=("qty", "sum"), price=("price", "last"), value=("value_pln", "sum")
@@ -141,6 +147,8 @@ table(
         "currency": "Waluta", "value": "Wartość (zł)", "share": "Udział", "cost": "Koszt (zł)",
         "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "trend": "90 dni",
     },
+    helps={"symbol": G["ticker"], "price": G["last_price"], "cost": G["cost"], "pnl": G["pnl"],
+           "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
 )
 
 if v.warnings:
