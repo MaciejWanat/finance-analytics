@@ -214,6 +214,26 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Offline is a hard guarantee in code, not a convention.
   - Live values are labelled with the time of the quote.
 
+### D-022 Return metrics: TWR, XIRR, drawdown
+- **Date:** 2026-11-16 · **Status:** Accepted (R-005)
+- **Decision:** `portfolio/returns.py`, all in PLN.
+  - **External flows** are deposits (+) and withdrawals (−) only; buys, sells, dividends and taxes are internal. Each account uses its own deposits and withdrawals.
+  - **TWR:**
+    - Daily sub-periods `r_t = V_t / (V_{t-1} + F_t) − 1`, with flows at the start of the day, chained into an index. Days with no capital yet count as 0.
+    - The return of a window runs from the close of its first day; for "Maks." it starts at 1.0.
+    - It is annualized only for windows of a year or more.
+  - **XIRR:**
+    - The annual rate that zeroes the cash flows: start value (money in), deposits (in), withdrawals (out), end value (out).
+    - Solved with Newton's method, falling back to bisection on (−99.99%, 1000%).
+    - Shown only for windows of a year or more, because an annual rate over weeks is meaningless.
+  - **Drawdown:** measured on the TWR index of the window, so deposits cannot hide a fall. It reports the depth, the peak and trough dates, the recovery date and the current distance from the peak.
+  - **Monthly grid:** TWR per calendar month and year, over the whole history.
+  - **UI:**
+    - The "Zwroty" page shows KPIs, cumulative TWR (portfolio and each account), an underwater chart, a per-account table and a monthly heatmap with a diverging blue/red scale capped at ±8%.
+    - "Wynik w okresie" on Portfel now shows TWR instead of the simplified rate from D-019.
+- **Consequences:** tested on hand-computed cases, including the Excel XIRR example and a case where TWR < 0 < XIRR.
+  - In the demo, buys at mock prices are valued at real Yahoo prices the same day. That creates artificial jumps, so demo returns are illustrative only.
+
 ---
 
 ## Open questions

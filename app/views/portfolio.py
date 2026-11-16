@@ -2,101 +2,32 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
-from datetime import date, timedelta
-
 import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, segmented_bar, show, stacked_bars
-from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
+from ui.components import Kpi, kpi_row, page_header, section, table
+from ui.data import RANGES, load_valuation, period_start, require_valued_data
 from ui.fmt import fmt_money, fmt_money_compact, fmt_pct
 from ui.theme import OTHER_LABEL, color_map
 
-from finance_analytics import reports
 from finance_analytics.config import get_settings
-from finance_analytics.market.live import read_live
-from finance_analytics.portfolio.valuation import Valuation, data_version, load_inputs, value_portfolio
-from finance_analytics.preferences import load_preferences
+from finance_analytics.portfolio.returns import period_return, twr_index
 
-RANGES = ["1M", "3M", "YTD", "1R", "3L", "Maks."]
 BREAKDOWNS = {"Rachunek": "account", "Klasa aktywów": "asset_class", "Instrument": "symbol", "Waluta": "currency"}
 ASSET_CLASS_LABELS = {"stock": "Akcje", "etf": "ETF", "bond": "Obligacje", "cash": "Gotówka", "other": "Inne"}
 MAX_PARTS = 8
 
 page_header("Portfel", "Wartość wszystkich rachunków w PLN, dzień po dniu.")
 settings = get_settings()
-
-if not settings.db_path.exists():
-    empty_state(
-        "Brak lokalnej bazy danych",
-        f"Aplikacja nie znalazła bazy w katalogu danych `{settings.data_dir}`. Utwórz ją jednym poleceniem:",
-        icon=":material/database:",
-        steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
-    )
-    st.stop()
-
-if reports.accounts_overview(settings.db_path).empty:
-    empty_state(
-        "Nie ma jeszcze danych do pokazania",
-        "Po zaimportowaniu historii konta z XTB zobaczysz tu wartość portfela w czasie, "
-        "podział na rachunki i klasy aktywów oraz bieżące pozycje.",
-        icon=":material/upload_file:",
-        steps=[
-            "W xStation wyeksportuj historię konta: powstanie folder z podfolderami kont.",
-            "Zaimportuj go na stronie **Importy** albo poleceniem `fa import xtb <folder>`.",
-        ],
-    )
-    st.page_link("views/imports.py", label="Przejdź do importu", icon=":material/arrow_forward:")
-    st.stop()
-
-with closing(sqlite3.connect(settings.db_path)) as conn:
-    has_prices = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] > 0
-if not has_prices:
-    online = load_preferences(settings).online
-    empty_state(
-        "Brakuje cen i kursów walut",
-        "Do wyceny w PLN potrzebne są notowania instrumentów i kursy NBP. "
-        + ("Pobierz je jednym kliknięciem." if online else
-           "Aplikacja jest w trybie offline, więc ich nie pobiera. Włącz tryb online w Ustawieniach."),
-        icon=":material/candlestick_chart:",
-    )
-    if online:
-        st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
-    else:
-        st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
-    st.stop()
-
-
-@st.cache_data(show_spinner="Liczę wycenę portfela…")
-def valuation(db_path: str, version: tuple, today: date, live: tuple) -> Valuation:
-    from pathlib import Path
-
-    live_prices, live_fx = (dict(part) for part in live)
-    return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
-
-
-# Online mode: today's value uses the latest live quotes (D-021); offline: cached closes only.
-live_prices, live_fx, live_at = {}, {}, None
-if load_preferences(settings).online:
-    live_prices, live_fx, live_at = read_live(settings.db_path, timedelta(hours=12))
-live_key = (tuple(sorted(live_prices.items())), tuple(sorted(live_fx.items())))
-v = valuation(str(settings.db_path), data_version(settings.db_path), date.today(), live_key)
+require_valued_data(settings, "wartość portfela w czasie, podział na rachunki i klasy aktywów oraz bieżące pozycje")
+v, live_at = load_valuation(settings)
 daily, total = v.daily, v.total
-if total.empty:
-    st.info("Brak pozycji i operacji do wyceny.")
-    st.stop()
 
 # ------------------------------------------------------------------- period filter (scopes the whole page)
 period = st.segmented_control("Okres", RANGES, default="Maks.", key="period", required=True)
 
 end = total.index[-1]
-start = {
-    "1M": end - pd.DateOffset(months=1), "3M": end - pd.DateOffset(months=3),
-    "YTD": pd.Timestamp(end.year, 1, 1) - pd.Timedelta(days=1), "1R": end - pd.DateOffset(years=1),
-    "3L": end - pd.DateOffset(years=3), "Maks.": total.index[0],
-}[period]
-start = max(start, total.index[0])
+start = period_start(period, total.index[0], end)
 window = total[total.index >= start]
 flows = v.flows.set_index("date")["amount_pln"].sort_index()
 
@@ -104,7 +35,7 @@ flows = v.flows.set_index("date")["amount_pln"].sort_index()
 value_now = total.iloc[-1]
 in_window = flows[(flows.index > start) & (flows.index <= end)].sum()
 result = value_now - window.iloc[0] - in_window
-base = window.iloc[0] + max(in_window, 0)
+twr_period = period_return(twr_index(total, flows), start, end)
 contributed = flows.sum()
 
 # Every tile gets a sparkline over the selected period, so the tiles line up and read alike.
@@ -124,9 +55,10 @@ kpi_row(
             help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
                  "małej wartości startowej).", trend=trend(total)),
         Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
-            delta=fmt_pct(result / base) if base > 0 else None,
-            help="Zmiana wartości w wybranym okresie minus wpłaty i wypłaty. Uproszczona stopa zwrotu; "
-                 "TWR i XIRR dojdą w kolejnym kroku.", trend=trend(period_result)),
+            delta=f"{fmt_pct(twr_period)} TWR",
+            help="Zmiana wartości w wybranym okresie minus wpłaty i wypłaty. Procent to stopa zwrotu "
+                 "ważona czasem (TWR), niezależna od tego, kiedy wpłacałeś. Szczegóły na stronie Zwroty.",
+            trend=trend(period_result)),
         Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
             delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
             help="Suma wpłat minus wypłaty, w PLN po kursie NBP z dnia operacji.", trend=trend(cumulative_flows)),

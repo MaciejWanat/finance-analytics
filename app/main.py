@@ -23,6 +23,7 @@ st.set_page_config(
 pages = {
     "Analiza": [
         st.Page("views/portfolio.py", title="Portfel", icon=":material/monitoring:", default=True),
+        st.Page("views/returns.py", title="Zwroty", icon=":material/trending_up:"),
     ],
     "Dane": [
         st.Page("views/imports.py", title="Importy", icon=":material/upload_file:"),

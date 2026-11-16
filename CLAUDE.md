@@ -79,10 +79,14 @@ report, never from memory.
     - `network.py`: the online/offline gate. Every network entry point calls `require_online` first.
     - `live.py`: live quotes in online mode.
     - `auto.py`: the daily auto-update schedule.
-  - `portfolio/`: pandas maths. `valuation.py` covers daily holdings and PLN value (D-019); returns, dividends and bonds come next.
+  - `portfolio/`: pandas maths.
+    - `valuation.py`: daily holdings and PLN value (D-019).
+    - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
+    - Next: dividends, bonds.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.
+  - `ui/data.py`: shared guard states and the cached valuation for analysis pages.
   - `ui/`: the design layer. Pages build charts and tiles only through `ui/charts.py` and `ui/components.py`, and format numbers only through `ui/fmt.py`.
 - `scripts/`: standalone tools (inspector, privacy check). Standard library plus openpyxl only.
 - `data/` (git-ignored): `finance.db`, `raw/` (archived exports), `manual/` (CSV), `config/` (YAML), `samples/` (masked reports).

@@ -8,9 +8,9 @@ your whole portfolio is worth, day by day, and where the return came from:
 - dividends after tax;
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
-> **Status:** early development. XTB exports are imported, prices and FX rates cached locally,
-> and the portfolio is valued daily in PLN. Returns (TWR, XIRR), dividends, inflation, bonds
-> and cash come next.
+> **Status:** early development.
+> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, and TWR/XIRR/drawdown.
+> - Next: the currency split of returns, dividends, inflation, bonds and cash.
 
 ## Privacy first
 

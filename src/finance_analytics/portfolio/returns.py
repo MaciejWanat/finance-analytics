@@ -1,0 +1,190 @@
+"""Return metrics on top of the daily valuation (D-022).
+
+- TWR (time-weighted return): daily sub-period returns chained,
+  r_t = V_t / (V_{t-1} + F_t) - 1, with external flows F_t (deposits +, withdrawals -)
+  treated as arriving at the start of day t. Independent of when money was added,
+  so it measures the investments, not the saver.
+- XIRR (money-weighted return): the annual rate that discounts all external flows
+  plus the start and end value to zero. It measures the investor's own experience.
+- Drawdown: fall of the TWR index below its running peak (deposits cannot hide losses).
+
+All amounts are in PLN; flows are deposits and withdrawals only (buys, sells,
+dividends and taxes are internal to the portfolio).
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date
+
+import pandas as pd
+
+DAYS_PER_YEAR = 365.25
+
+
+# ------------------------------------------------------------------------------------ TWR
+
+
+def daily_returns(values: pd.Series, flows: pd.Series) -> pd.Series:
+    """Daily TWR sub-period returns. `values`: daily value; `flows`: external flow per day."""
+    flows = flows.groupby(level=0).sum().reindex(values.index, fill_value=0.0)
+    base = values.shift(1).fillna(0.0) + flows
+    returns = values / base - 1
+    return returns.where(base > 0, 0.0)  # no capital at risk yet: no return
+
+
+def twr_index(values: pd.Series, flows: pd.Series) -> pd.Series:
+    """Growth of 1 PLN invested at the start (1.0 = break-even)."""
+    return (1 + daily_returns(values, flows)).cumprod()
+
+
+def period_return(index: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> float:
+    """Return between two days from a growth index (start day's close to end day's close)."""
+    first = index.asof(start) if start > index.index[0] else 1.0
+    return float(index.asof(end) / first - 1)
+
+
+def annualize(total_return: float, days: float) -> float | None:
+    """Annualized rate; None for periods under a year (annualizing them exaggerates)."""
+    if days < 365 or total_return <= -1:
+        return None
+    return (1 + total_return) ** (DAYS_PER_YEAR / days) - 1
+
+
+# ----------------------------------------------------------------------------------- XIRR
+
+
+def xirr(cashflows: Sequence[tuple[date, float]], *, guess: float = 0.1) -> float | None:
+    """Annual internal rate of return of dated cash flows (investor's view: money in < 0).
+
+    Newton's method, falling back to bisection. None when there is no solution
+    (all flows of one sign, or nothing to compare).
+    """
+    flows = [(d, a) for d, a in cashflows if a]
+    if len(flows) < 2 or all(a > 0 for _, a in flows) or all(a < 0 for _, a in flows):
+        return None
+    t0 = min(d for d, _ in flows)
+    years = [((d - t0).days / DAYS_PER_YEAR, a) for d, a in flows]
+
+    def npv(rate: float) -> float:
+        return sum(a / (1 + rate) ** t for t, a in years)
+
+    def dnpv(rate: float) -> float:
+        return sum(-t * a / (1 + rate) ** (t + 1) for t, a in years)
+
+    rate = guess
+    for _ in range(100):
+        value, slope = npv(rate), dnpv(rate)
+        if slope == 0:
+            break
+        step = value / slope
+        rate -= step
+        if rate <= -0.9999:
+            break
+        if abs(step) < 1e-10:
+            return rate
+    # Bisection on a wide bracket.
+    low, high = -0.9999, 10.0
+    f_low, f_high = npv(low), npv(high)
+    if math.isnan(f_low) or math.isnan(f_high) or f_low * f_high > 0:
+        return None
+    for _ in range(300):
+        mid = (low + high) / 2
+        f_mid = npv(mid)
+        if abs(f_mid) < 1e-9:
+            return mid
+        if f_low * f_mid < 0:
+            high = mid
+        else:
+            low, f_low = mid, f_mid
+    return (low + high) / 2
+
+
+def period_xirr(values: pd.Series, flows: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> float | None:
+    """XIRR of a window: the start value counts as money put in, the end value as money taken out."""
+    start_value = float(values.asof(start)) if start >= values.index[0] else 0.0
+    inside = flows[(flows.index > start) & (flows.index <= end)]
+    cashflows = [(start.date(), -start_value)] if start_value else []
+    cashflows += [(d.date(), -float(a)) for d, a in inside.items()]
+    cashflows.append((end.date(), float(values.asof(end))))
+    return xirr(cashflows)
+
+
+# ------------------------------------------------------------------------------- drawdown
+
+
+@dataclass(frozen=True)
+class Drawdown:
+    series: pd.Series  # index / running peak - 1 (<= 0)
+    max_drawdown: float
+    peak: pd.Timestamp | None  # high before the deepest fall
+    trough: pd.Timestamp | None
+    recovered: pd.Timestamp | None  # first day back at the old peak, None if not yet
+    current: float
+
+
+def drawdown(index: pd.Series) -> Drawdown:
+    peak_series = index.cummax()
+    series = index / peak_series - 1
+    if series.empty or series.min() >= 0:
+        return Drawdown(series, 0.0, None, None, None, 0.0)
+    trough = series.idxmin()
+    peak = index[:trough].idxmax()
+    after = index[trough:]
+    back = after[after >= index[peak]]
+    return Drawdown(
+        series=series,
+        max_drawdown=float(series.min()),
+        peak=peak,
+        trough=trough,
+        recovered=back.index[0] if not back.empty else None,
+        current=float(series.iloc[-1]),
+    )
+
+
+# ----------------------------------------------------------------------- calendar returns
+
+
+def monthly_returns(index: pd.Series) -> pd.DataFrame:
+    """TWR per calendar month: rows = years, columns = 1..12, plus a 'year' column."""
+    month_end = index.resample("ME").last()
+    previous = month_end.shift(1).fillna(1.0)  # the first month is measured from 1.0
+    by_month = month_end / previous - 1
+    table = pd.DataFrame({"year": by_month.index.year, "month": by_month.index.month, "r": by_month.to_numpy()})
+    grid = table.pivot(index="year", columns="month", values="r").reindex(columns=range(1, 13))
+    year_end = index.resample("YE").last()
+    grid["year"] = (year_end / year_end.shift(1).fillna(1.0) - 1).to_numpy()
+    return grid
+
+
+# --------------------------------------------------------------------------------- report
+
+
+@dataclass(frozen=True)
+class Returns:
+    twr: float
+    twr_annual: float | None
+    xirr: float | None
+    drawdown: Drawdown
+    index: pd.Series
+
+
+def returns_for(values: pd.Series, flows: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> Returns:
+    """All metrics for one series (portfolio or account) within [start, end]."""
+    flows = flows.groupby(level=0).sum()
+    index = twr_index(values, flows)
+    window = index[(index.index >= start) & (index.index <= end)]
+    base = index.asof(start) if start > index.index[0] else 1.0
+    rebased = window / base if base else window
+    total = period_return(index, start, end)
+    return Returns(
+        twr=total,
+        twr_annual=annualize(total, (end - start).days),
+        # An annual rate over a few weeks explodes into nonsense; like annualized TWR, XIRR
+        # is reported for windows of a year or more.
+        xirr=period_xirr(values, flows, start, end) if (end - start).days >= 365 else None,
+        drawdown=drawdown(rebased),
+        index=rebased,
+    )

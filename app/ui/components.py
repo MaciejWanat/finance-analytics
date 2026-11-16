@@ -59,6 +59,8 @@ def kpi_row(kpis: Sequence[Kpi]) -> None:
             kpi.value,
             delta,
             delta_color=kpi.delta_color,
+            # A neutral (grey) delta is information, not a direction: no arrow.
+            delta_arrow="off" if kpi.delta_color == "off" else "auto",
             help=kpi.help,
             border=True,
             chart_data=list(kpi.trend) if kpi.trend else None,

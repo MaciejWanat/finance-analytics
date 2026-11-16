@@ -133,6 +133,54 @@ def stacked_bars(
     return fig
 
 
+def drawdown_chart(series: pd.Series, *, mode: Mode, height: int = 220) -> go.Figure:
+    """Underwater chart: how far below its previous peak the series is (values <= 0)."""
+    color = TOKENS[mode].bad
+    fig = _base(mode, height)
+    fig.add_trace(
+        go.Scatter(
+            x=series.index, y=series.values, name="Spadek od szczytu", mode="lines",
+            line={"color": color, "width": 2}, fill="tozeroy", fillcolor=_rgba(color, 0.10),
+            hovertemplate="%{y:.1%}<extra></extra>",
+        )
+    )
+    fig.update_yaxes(tickformat=".0%", rangemode="tozero")
+    fig.update_layout(showlegend=False)
+    return fig
+
+
+MONTHS_PL = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"]
+_DIVERGING = {  # red (loss) <- neutral grey -> blue (gain); validated diverging pair
+    "light": ["#e34948", "#f0efec", "#2a78d6"],
+    "dark": ["#e66767", "#383835", "#3987e5"],
+}
+
+
+def returns_heatmap(grid: pd.DataFrame, *, mode: Mode, cap: float = 0.08) -> go.Figure:
+    """Monthly returns: rows = years, columns = months; diverging colour around 0.
+
+    The scale is symmetric and capped at +/- `cap`, so one extreme month does not wash
+    out the rest. Every cell prints its value; empty months stay blank.
+    """
+    tokens = TOKENS[mode]
+    low, mid, high = _DIVERGING[mode]
+    months = grid[list(range(1, 13))]
+    text = [[fmt_pct(v, 1) if pd.notna(v) else "" for v in row] for row in months.to_numpy()]
+    fig = go.Figure(layout={"template": template(mode), "height": 70 + 38 * len(months)})
+    fig.add_trace(
+        go.Heatmap(
+            z=months.to_numpy(), x=MONTHS_PL, y=[str(y) for y in months.index],
+            zmin=-cap, zmax=cap, zmid=0, colorscale=[[0, low], [0.5, mid], [1, high]], showscale=False,
+            text=text, texttemplate="%{text}", textfont={"size": 12, "color": tokens.ink_primary},
+            xgap=2, ygap=2, hovertemplate="%{x} %{y}: <b>%{text}</b><extra></extra>",
+        )
+    )
+    fig.update_xaxes(side="top", showgrid=False, showline=False, tickformatstops=None)
+    fig.update_yaxes(autorange="reversed", showgrid=False, type="category")
+    fig.update_layout(hovermode="closest", margin={"l": 8, "r": 8, "t": 30, "b": 8})
+    return fig
+
+
 _DARK_TEXT_ON = {"#eda100", "#c98500"}  # yellow slots carry near-black labels
 
 
