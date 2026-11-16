@@ -233,7 +233,10 @@ G: dict[str, str] = {
         "do własnego katalogu danych, więc nie musisz ich importować ręcznie. Działa bez internetu."
     ),
     # --- network --------------------------------------------------------------------------------
-    "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
+    "offline": (
+        "Aplikacja sama nie łączy się z internetem i liczy wszystko na zapisanych danych. Dane rynkowe pobierasz "
+        "tylko wtedy, gdy klikniesz przycisk na stronie Dane rynkowe."
+    ),
     "online": (
         "Aplikacja odświeża ceny i kursy. Wysyła wyłącznie tickery, kody walut i daty, nigdy kwoty, ilości "
         "ani numery rachunków."

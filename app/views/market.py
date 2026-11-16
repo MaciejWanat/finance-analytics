@@ -52,24 +52,24 @@ with st.container(border=True):
     offline = not load_preferences(settings).online
     if offline:
         st.info(
-            "Tryb offline: aplikacja nie łączy się z internetem i korzysta tylko z danych zapisanych poniżej.",
+            "Tryb offline: aplikacja sama niczego nie pobiera. Możesz jednorazowo pobrać brakujące dane "
+            "przyciskiem poniżej; w trybie online odświeżałyby się same.",
             icon=":material/cloud_off:",
         )
-        st.page_link("views/settings.py", label="Włącz tryb online w Ustawieniach", icon=":material/settings:")
     # Two runs: the click only flips a flag, so the button can redraw itself as a disabled
     # spinner before the download starts; the next run does the work and redraws it back.
-    updating = st.session_state.get("market_updating", False) and not offline
+    updating = st.session_state.get("market_updating", False)
     st.button(
         "Pobieram ceny i kursy…" if updating else "Pobierz brakujące dane",
         type="primary",
         icon="spinner" if updating else ":material/sync:",
-        disabled=updating or offline,
+        disabled=updating,
         key="market_update",
         on_click=lambda: st.session_state.update(market_updating=True),
     )
     if updating:
         try:
-            st.session_state["market_report"] = update_market(settings)
+            st.session_state["market_report"] = update_market(settings, manual=True)  # explicit click (D-031)
         finally:
             st.session_state["market_updating"] = False
         st.rerun()

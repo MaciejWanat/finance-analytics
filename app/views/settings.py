@@ -23,7 +23,7 @@ mode = st.radio(
     "Tryb pracy",
     ["offline", "online"],
     index=1 if preferences.online else 0,
-    format_func={"offline": "Offline: bez połączeń z internetem", "online": "Online: dane rynkowe na żywo"}.get,
+    format_func={"offline": "Offline: pobieranie tylko na żądanie", "online": "Online: dane rynkowe na żywo"}.get,
     label_visibility="collapsed",
     horizontal=True,
     help=f'Offline: {G["offline"]} Online: {G["online"]}',
@@ -33,7 +33,8 @@ left, right = st.columns(2, gap="large")
 with left, st.container(border=True, height="stretch"):
     st.markdown("#### :material/cloud_off: Offline")
     st.markdown(
-        "- Aplikacja **nie wykonuje żadnych połączeń** sieciowych.\n"
+        "- Aplikacja **sama nie łączy się** z internetem: nic nie odświeża się w tle.\n"
+        "- Dane rynkowe pobierasz tylko wtedy, gdy sam klikniesz przycisk na stronie Dane rynkowe.\n"
         "- Wyceny liczone są na już pobranych cenach i kursach.\n"
         "- Wszystko działa lokalnie: import, wykresy, raporty."
     )

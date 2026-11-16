@@ -53,7 +53,7 @@ def test_preferences_default_offline_and_roundtrip(tmp_path):
 
 def test_offline_makes_no_network_calls(imported, no_network):
     with pytest.raises(OfflineError):
-        update_market(imported)
+        update_market(imported)  # an automatic caller is refused offline
     with pytest.raises(OfflineError):
         live.update_live(imported)
     assert auto.maybe_update_market(imported) is None

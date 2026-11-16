@@ -100,7 +100,7 @@ def network_status() -> None:
         )
         st.rerun()
     if not preferences.online:
-        st.caption(":material/cloud_off: **Offline**: bez połączeń z internetem.")
+        st.caption(":material/cloud_off: **Offline**: nic nie pobiera się samo.")
         return
     changed = False
     first_run = not st.session_state.get("network_started")

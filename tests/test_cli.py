@@ -38,10 +38,23 @@ def test_settings_command_switches_mode(tmp_path, monkeypatch):
     assert "Network mode: offline" in back.output
 
 
-def test_update_market_refuses_offline(tmp_path, monkeypatch):
+def test_update_market_is_a_manual_request_allowed_offline(tmp_path, monkeypatch):
+    """Offline means "never on its own"; an explicit `fa update-market` still fetches (D-031)."""
+    from finance_analytics.market import update
+
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "data"))
+    calls = []
+
+    def fake_update(settings, *, manual=False, **kwargs):
+        calls.append(manual)
+        from finance_analytics.market.gus import CpiReport
+
+        return update.MarketReport(prices=update.PriceReport(), fx=update.FxReport(), cpi=CpiReport())
+
+    monkeypatch.setattr(update, "update_market", fake_update)
     result = CliRunner().invoke(cli.main, ["update-market"])
-    assert result.exit_code != 0 and "offline mode" in result.output
+    assert result.exit_code == 0, result.output
+    assert calls == [True] and "fetching once because you asked" in result.output
 
 
 def test_import_inbox_command(tmp_path, monkeypatch):

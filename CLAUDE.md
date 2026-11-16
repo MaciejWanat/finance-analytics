@@ -20,7 +20,8 @@ reports, not from raw exports.
 
 The main promise of the app is that it can run 100% locally. Every feature must keep
 working without network access, on cached data. Network use is limited to public market
-data, lives only in `market/`, and must respect the online/offline setting (R-016).
+data, lives only in `market/`, and must respect the online/offline setting (R-016, D-031): automatic calls
+only in online mode; an explicit user request (button, `fa update-market`) is allowed in both.
 Never add a dependency or feature that sends data to a server: no telemetry, no hosted
 APIs for processing, no cloud sync.
 

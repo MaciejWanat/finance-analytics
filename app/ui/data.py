@@ -76,15 +76,12 @@ def require_valued_data(settings: Settings, purpose: str) -> None:
         online = load_preferences(settings).online
         empty_state(
             "Brakuje cen i kursów walut",
-            "Do wyceny w PLN potrzebne są notowania instrumentów i kursy NBP. "
-            + ("Pobierz je jednym kliknięciem." if online else
-               "Aplikacja jest w trybie offline, więc ich nie pobiera. Włącz tryb online w Ustawieniach."),
+            "Do wyceny w PLN potrzebne są notowania instrumentów i kursy NBP. Pobierz je jednym kliknięciem "
+            "na stronie Dane rynkowe"
+            + ("." if online else " (w trybie offline to jednorazowe pobranie; aplikacja sama nic nie pobiera)."),
             icon=":material/candlestick_chart:",
         )
-        if online:
-            st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
-        else:
-            st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
+        st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
         st.stop()
 
 
@@ -109,7 +106,7 @@ def load_valuation(settings: Settings, *, stop_if_empty: bool = True) -> tuple[V
     if valuation.total.empty and stop_if_empty:
         if any(w.startswith(NO_RATES) for w in valuation.warnings):
             st.info("Nie da się jeszcze nic wycenić: brakuje kursów NBP dla walut Twoich kont. Pobierz je na "
-                    "stronie Dane rynkowe (tryb online).", icon=":material/currency_exchange:")
+                    "stronie Dane rynkowe.", icon=":material/currency_exchange:")
         else:
             st.info("Brak pozycji i operacji do wyceny.")
         st.stop()

@@ -27,6 +27,7 @@ from finance_analytics.sources.accounts import (
 )
 from finance_analytics.sources.xtb.parser import (
     CATEGORY_TO_ASSET_CLASS,
+    OPEN_BUY_RE,
     PARSER_VERSION,
     ParsedFile,
     Position,
@@ -54,7 +55,42 @@ def _sha256(path: Path) -> str:
 
 
 def _iso(moment: datetime | None) -> str | None:
-    return moment.isoformat(sep=" ") if moment else None
+    """One fixed text format for every timestamp; exports can carry milliseconds, which are dropped."""
+    return moment.replace(microsecond=0).isoformat(sep=" ") if moment else None
+
+
+MATCH_WINDOW_SECONDS = 600  # a cash operation and its position may be stamped a few minutes apart
+
+
+def _match(positions: dict, ops: dict, when) -> dict:
+    """Pair cash operations (buys or sells) with positions: position key -> operation.
+
+    First by position ID. Real exports do not always use the same ID in Cash Operations and
+    in the position sheets, so the rest is paired by account, ticker, volume (from the
+    "OPEN BUY <ticker> <volume> @ <price>" comment when present) and the nearest time within
+    MATCH_WINDOW_SECONDS. `when(position)` gives the position's time to compare with.
+    """
+    matched = {key: ops[key] for key in positions if key in ops}
+    used = {id(op) for op in matched.values()}
+    for (account_id, _), op in sorted(ops.items(), key=lambda kv: kv[1].ts):
+        if id(op) in used:
+            continue
+        volume = None
+        found = OPEN_BUY_RE.match(op.comment or "")
+        if found:
+            volume = float(found["volume"])
+        candidates = [
+            (abs((when(p) - op.ts).total_seconds()), key)
+            for key, (p, _) in positions.items()
+            if key[0] == account_id and key not in matched and p.symbol == op.symbol and when(p) is not None
+            and abs((when(p) - op.ts).total_seconds()) <= MATCH_WINDOW_SECONDS
+            and (volume is None or abs(p.volume - volume) < 1e-6)
+        ]
+        if candidates:
+            key = min(candidates)[1]
+            matched[key] = op
+            used.add(id(op))
+    return matched
 
 
 # ------------------------------------------------------------------------ import
@@ -379,8 +415,10 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
              op.position_id, op.broker_type, op.comment, op.operation_id, file_id),
         )
 
+    buy_for = _match(positions, buys, lambda p: p.open_time)
+    sell_for = _match(positions, sells, lambda p: p.close_time)
     for (account_id, position_id), (p, file_id) in sorted(positions.items(), key=lambda kv: kv[1][0].open_time):
-        buy, sell = buys.get((account_id, position_id)), sells.get((account_id, position_id))
+        buy, sell = buy_for.get((account_id, position_id)), sell_for.get((account_id, position_id))
         purchase = p.purchase_value if p.purchase_value is not None else (-buy.amount if buy else None)
         sale = p.sale_value if p.sale_value is not None else (sell.amount if sell else None)
         conn.execute(
@@ -390,19 +428,20 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             (account_id, position_id, instrument_ids[p.symbol], p.volume, _iso(p.open_time), p.open_price,
              _iso(p.close_time), p.close_price, purchase, sale, file_id),
         )
-    _reconcile(issue, positions, buys, sells, latest_open, seen_open)
+    _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, sell_for)
 
 
-def _reconcile(issue, positions, buys, sells, latest_open, seen_open) -> None:
+def _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, sell_for) -> None:
     """Cross-check sheets and exports; findings are warnings, never silent fixes."""
+    paired_buys = {id(op) for op in buy_for.values()}
+    paired_sells = {id(op) for op in sell_for.values()}
     for (account_id, position_id), op in buys.items():
-        if (account_id, position_id) not in positions:
+        if id(op) not in paired_buys:
             issue(None, account_id, "warning",
                   f"purchase {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no matching position; "
                   "it was probably sold outside the exported date ranges")
     for (account_id, position_id), op in sells.items():
-        position = positions.get((account_id, position_id))
-        if position is None or position[0].close_time is None:
+        if id(op) not in paired_sells:
             issue(None, account_id, "warning",
                   f"sale {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no closed position")
     for (account_id, position_id), (p, _) in positions.items():

@@ -110,18 +110,19 @@ def settings_command(online: bool | None, refresh: int | None) -> None:
 
 @main.command("update-market")
 def update_market_command() -> None:
-    """Download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the local cache. Online mode only."""
-    from finance_analytics.market.network import OfflineError
+    """Download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the local cache.
+
+    An explicit request, so it works in offline mode too (D-031): offline only stops the
+    app from going online on its own.
+    """
     from finance_analytics.market.update import update_market
+    from finance_analytics.preferences import load_preferences
 
     settings = get_settings()
     _prepare(settings)
-    try:
-        report = update_market(settings)
-    except OfflineError as exc:
-        raise click.ClickException(
-            "offline mode: no network calls. Switch with `fa settings --online` to fetch market data."
-        ) from exc
+    if not load_preferences(settings).online:
+        click.echo("Offline mode: fetching once because you asked; the app will not fetch on its own.")
+    report = update_market(settings, manual=True)
     click.echo(
         f"Prices: {sum(report.prices.fetched.values())} rows for {len(report.prices.fetched)} ticker(s); "
         f"FX: {sum(report.fx.fetched.values())} rows for {len(report.fx.fetched)} currency(ies)."

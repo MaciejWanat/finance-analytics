@@ -18,7 +18,7 @@ from openpyxl import load_workbook
 
 from finance_analytics.sources.xtb import schema
 
-PARSER_VERSION = 1  # bump when parsing changes; `fa sync` then rebuilds everything
+PARSER_VERSION = 2  # bump when parsing or projection changes; `fa sync` then rebuilds everything
 
 FILE_NAME_RE = re.compile(
     r"^(?P<prefix>IKZE|IKE|PLN|EUR|USD)_(?P<number>\d+)_(?P<start>\d{4}-\d{2}-\d{2})_(?P<end>\d{4}-\d{2}-\d{2})"

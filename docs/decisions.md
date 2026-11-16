@@ -199,7 +199,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - CLAUDE.md keeps a one-line pointer.
 
 ### D-021 Online/offline mode (R-015, R-016)
-- **Date:** 2026-11-16 · **Status:** Accepted
+- **Date:** 2026-11-16 · **Status:** Accepted; offline semantics refined by D-031
 - **Decision:**
   - **Setting:** `data/config/settings.yaml` holds `network: offline | online` and `refresh_minutes`. It can be changed on the "Ustawienia" page or with `fa settings`.
   - **Default is offline**: a fresh install makes no network calls until the user switches online, after a clear explanation of what is sent.
@@ -392,6 +392,32 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Date:** 2026-11-16 · **Status:** Accepted (resolves Q-005)
 - **Decision:** the project is released under the MIT licence (`LICENSE`, `pyproject.toml`).
 - **Consequences:** anyone may use, modify and redistribute the code, including in closed forks, as long as the copyright notice is kept. The shipped public reference data (bond series, NBP reference rates) comes from official public sources.
+
+### D-031 Offline means "never on its own"; manual fetch is always allowed
+- **Date:** 2026-11-16 · **Status:** Accepted (refines D-021)
+- **Context:** with a hard offline gate, a fresh install (offline by default) could never get its first prices, FX rates or CPI, so it could not value anything.
+- **Decision:**
+  - Offline mode stops every **automatic** network call: the live-quote polling, the daily auto-update and anything started without the user asking.
+  - An **explicit request** works in both modes and fetches only the public market data (tickers, currency codes, dates):
+    - the "Pobierz brakujące dane" button on *Dane rynkowe*;
+    - `fa update-market`.
+
+    In code, `update_market(..., manual=True)` skips `require_online`; automatic callers keep the gate.
+- **Consequences:**
+  - The app can start from scratch while offline.
+  - The privacy promise is unchanged: nothing leaves the machine unless the user clicks or types it, and never anything about the accounts.
+  - The UI explains that an offline fetch is a one-off.
+
+### D-032 Robust timestamps and pairing of purchases with positions
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** a real export showed two things:
+  - timestamps with milliseconds next to whole seconds, which crashed date parsing;
+  - purchases in Cash Operations whose position ID differs from the one in the position sheets, so their cost was missing.
+- **Decision:**
+  - Timestamps are stored without fractions of a second and read with an ISO 8601 parser that accepts both forms.
+  - Purchases and sales are paired with positions first by ID and then by account, ticker, volume (from the `OPEN BUY` comment) and the nearest time within 10 minutes.
+  - Only unpaired ones are reported.
+  - `PARSER_VERSION` is now 2, so the next sync rebuilds the projection.
 
 ---
 

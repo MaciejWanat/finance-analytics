@@ -83,8 +83,16 @@ def update_market(
     price_client: PriceClient | None = None,
     fx_fetch: Fetch = fetch_rates,
     cpi_fetch: CpiFetch = fetch_cpi,
+    manual: bool = False,
 ) -> MarketReport:
-    require_online(settings)  # offline mode: no network call, ever (D-021)
+    """Bring the market cache up to date.
+
+    `manual=True` marks an explicit request by the user (the button on "Dane rynkowe",
+    `fa update-market`); it is allowed in offline mode too, because offline means "never
+    on its own" (D-031). Automatic callers leave it False and are refused offline.
+    """
+    if not manual:
+        require_online(settings)
     today = today or date.today()
     with closing(connect(settings.db_path)) as conn:
         migrate(conn)

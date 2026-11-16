@@ -48,7 +48,7 @@ def cash_ledger(db_path: Path, account_id: str) -> pd.DataFrame:
         """,
         (account_id,),
     )
-    df["ts"] = pd.to_datetime(df["ts"])
+    df["ts"] = pd.to_datetime(df["ts"], format="ISO8601")
     return df
 
 
@@ -66,7 +66,7 @@ def positions(db_path: Path, account_id: str, *, open_only: bool) -> pd.DataFram
         (account_id,),
     )
     for column in ("open_time", "close_time"):
-        df[column] = pd.to_datetime(df[column])
+        df[column] = pd.to_datetime(df[column], format="ISO8601")
     return df
 
 

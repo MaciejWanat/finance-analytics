@@ -103,3 +103,71 @@ def test_yahoo_ticker_rules():
     assert yahoo_ticker("NVDA.US") == "NVDA"
     assert yahoo_ticker("VUAA.UK") == "VUAA.L"
     assert yahoo_ticker("PKN.PL") is None  # not seen yet: unresolved, reported as a warning
+
+
+def _edit_usd_export(export, tmp_path, edit):
+    """Copy the synthetic export and change its USD file with `edit(workbook)`."""
+    from openpyxl import load_workbook
+
+    root = tmp_path / "edited_export"
+    shutil.copytree(export, root)
+    path = next(root.rglob("USD_*.xlsx"))
+    wb = load_workbook(path)
+    edit(wb)
+    wb.save(path)
+    return root
+
+
+def test_timestamps_with_milliseconds_do_not_break_reading(settings, export, tmp_path):
+    from datetime import timedelta
+
+    from finance_analytics import reports
+    from finance_analytics.sources.xtb import schema
+
+    def add_milliseconds(wb):
+        ws = wb[schema.OPEN_POSITIONS.name]
+        column = schema.OPEN_POSITIONS.columns.index("Open time (UTC)") + 1
+        for row in range(schema.OPEN_POSITIONS.header_row + 1, ws.max_row + 1, 2):
+            cell = ws.cell(row=row, column=column)
+            if cell.value is not None:
+                cell.value = cell.value + timedelta(milliseconds=123)
+
+    import_xtb(_edit_usd_export(export, tmp_path, add_milliseconds), settings)
+    assert not sync(settings).errors
+    opened = reports.positions(settings.db_path, "xtb-1000001", open_only=True)
+    assert not opened.empty and opened["open_time"].notna().all()
+    assert not reports.cash_ledger(settings.db_path, "xtb-1000001").empty
+
+
+def test_purchase_with_a_different_position_id_is_paired_by_time_and_volume(settings, export, tmp_path):
+    from finance_analytics.sources.xtb import schema
+
+    def change_ids(wb):
+        ws = wb[schema.CASH_OPERATIONS.name]
+        kind = schema.CASH_OPERATIONS.columns.index("Type") + 1
+        pid = schema.CASH_OPERATIONS.columns.index("Position ID") + 1
+        changed = 0
+        for row in range(schema.CASH_OPERATIONS.header_row + 1, ws.max_row + 1):
+            if ws.cell(row=row, column=kind).value == "Stock purchase" and changed < 3:
+                ws.cell(row=row, column=pid).value = f"9{ws.cell(row=row, column=pid).value[1:]}"
+                changed += 1
+
+    import_xtb(_edit_usd_export(export, tmp_path, change_ids), settings)
+    result = sync(settings)
+    assert not [w for w in result.warnings if "no matching position" in w], result.warnings
+    assert _count(settings, "positions", "purchase_value IS NULL") == 0
+
+
+def test_reports_read_mixed_timestamp_formats_already_in_the_database(settings, export):
+    """Databases built before timestamps were normalised hold both '...:SS' and '...:SS.ffffff'."""
+    from finance_analytics import reports
+
+    import_xtb(export, settings)
+    sync(settings)
+    with closing(sqlite3.connect(settings.db_path)) as conn:
+        conn.execute("UPDATE positions SET open_time = open_time || '.123000' WHERE id % 2 = 0")
+        conn.execute("UPDATE cash_ledger SET ts = ts || '.500000' WHERE id % 3 = 0")
+        conn.commit()
+    opened = reports.positions(settings.db_path, "xtb-1000001", open_only=True)
+    assert opened["open_time"].notna().all()
+    assert reports.cash_ledger(settings.db_path, "xtb-1000001")["ts"].notna().all()

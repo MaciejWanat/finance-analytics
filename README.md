@@ -33,7 +33,7 @@ Under the hood:
 Privacy is the point of this project. The app can run **100% on your machine**: no account,
 no server, no cloud processing, no telemetry.
 
-- **Offline is the default.** A fresh install makes no network calls at all, from any entry point (UI, CLI or background refresh); the app works on the data it already has. This is enforced in code and covered by tests.
+- **Offline is the default.** The app never goes online on its own: no background refresh, no automatic updates. It works on the data it already has. This is enforced in code and covered by tests. When you need market data (for example on first use), you fetch it once on purpose with the button on *Dane rynkowe* or `fa update-market`; only tickers, currency codes and dates are sent.
 - **Online mode is your choice**, on *Ustawienia* or with `fa settings --online`. It then:
   - fetches daily prices from Yahoo Finance (via `yfinance`) and polls live prices every few minutes on weekdays;
   - fetches NBP exchange rates (daily, after the table is published);
