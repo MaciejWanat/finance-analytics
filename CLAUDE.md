@@ -50,6 +50,7 @@ python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_repo
 python scripts/check_no_private_data.py [--all]
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
+fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
 fa update-market       # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the cache
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)

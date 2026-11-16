@@ -19,6 +19,8 @@ HEADER = """\
 #          online - prices and FX rates are fetched from Yahoo and NBP and kept up to date.
 #          Only tickers, currency codes and dates are sent; nothing about your accounts.
 # refresh_minutes: how often live prices are refreshed in online mode (1-60).
+# inbox_dir: folder where xStation exports are saved; new ones are imported automatically
+#            (read only, D-028). Empty = off.
 """
 
 
@@ -27,6 +29,7 @@ class Preferences(BaseModel):
 
     network: Literal["offline", "online"] = "offline"
     refresh_minutes: int = Field(default=5, ge=1, le=60)
+    inbox_dir: str | None = None
 
     @property
     def online(self) -> bool:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 from ui.components import page_header, section
 from ui.glossary import G
@@ -50,9 +52,28 @@ refresh = st.slider(
     help="Co ile minut aplikacja pobiera bieżące ceny i kursy, gdy jest otwarta. Tylko w dni robocze.",
 )
 
-changed = mode != preferences.network or refresh != preferences.refresh_minutes
-if st.button("Zapisz", type="primary", icon=":material/save:", disabled=not changed):
-    save_preferences(settings, preferences.model_copy(update={"network": mode, "refresh_minutes": refresh}))
+section(
+    "Folder skrzynki XTB",
+    "Aplikacja tylko czyta ten folder i kopiuje nowe eksporty do własnego katalogu danych. "
+    "Niczego w nim nie zmienia ani nie usuwa.",
+    help=G["inbox"],
+)
+inbox_text = st.text_input(
+    "Ścieżka do folderu", value=preferences.inbox_dir or "", placeholder="np. D:/Pobrane/XTB",
+    help=G["inbox"], label_visibility="collapsed",
+).strip().strip('"')
+inbox_dir = str(Path(inbox_text).expanduser().resolve()) if inbox_text else None
+inbox_ok = inbox_dir is None or Path(inbox_dir).is_dir()
+if not inbox_ok:
+    st.error("Nie znaleziono takiego folderu. Wskaż istniejący folder albo wyczyść pole.", icon=":material/error:")
+
+changed = (
+    mode != preferences.network or refresh != preferences.refresh_minutes or inbox_dir != preferences.inbox_dir
+)
+if st.button("Zapisz", type="primary", icon=":material/save:", disabled=not changed or not inbox_ok):
+    save_preferences(settings, preferences.model_copy(update={
+        "network": mode, "refresh_minutes": refresh, "inbox_dir": inbox_dir,
+    }))
     st.toast("Zapisano ustawienia.", icon=":material/check_circle:")
     st.rerun()
 

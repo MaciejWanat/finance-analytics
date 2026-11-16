@@ -12,6 +12,8 @@ from ui.manual_data import manual_data_section
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.preferences import PreferencesError, load_preferences
+from finance_analytics.sources.inbox import InboxResult, check_inbox
 from finance_analytics.sources.sync import store_xtb_file, sync
 from finance_analytics.sources.xtb.parser import XtbFormatError
 
@@ -33,6 +35,22 @@ if not settings.db_path.exists():
         steps=["W terminalu, w katalogu projektu, uruchom `fa init`.", "Odśwież tę stronę."],
     )
     st.stop()
+
+
+def _report_inbox(result: InboxResult | None) -> None:
+    if result is None:
+        return
+    if result.error:
+        st.warning(result.error, icon=":material/warning:")
+        return
+    if result.sync is not None and result.sync.errors:
+        st.warning(f"Skopiowano {len(result.copied)} plik(ów), ale z błędami: {len(result.sync.errors)}.")
+    elif result.copied:
+        st.success(f"Zaimportowano nowych plików: {len(result.copied)}.", icon=":material/check_circle:")
+    else:
+        st.success("Brak nowych plików w folderze skrzynki.", icon=":material/check_circle:")
+    for path, reason in result.skipped:
+        st.warning(f"{path.name}: {reason}")
 
 
 def _report_sync(result) -> None:
@@ -66,6 +84,14 @@ with st.container(border=True):
         st.session_state["last_stored"] = stored
     if right.button("Przebuduj bazę z plików", icon=":material/sync:", help="fa rebuild"):
         st.session_state["last_sync"] = sync(settings, force=True)
+    try:
+        inbox_dir = load_preferences(settings).inbox_dir
+    except PreferencesError:
+        inbox_dir = None
+    if inbox_dir:
+        st.caption(f"Skrzynka: `{inbox_dir}`. Nowe eksporty z tego folderu importują się same.")
+        if st.button("Sprawdź folder teraz", icon=":material/refresh:"):
+            _report_inbox(check_inbox(settings))
 
 manual_data_section(settings)
 

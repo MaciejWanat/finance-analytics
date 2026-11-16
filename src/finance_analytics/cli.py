@@ -156,6 +156,33 @@ def import_xtb_command(source: Path) -> None:
     _report_sync(run_sync(settings))
 
 
+@import_.command("inbox")
+def import_inbox_command() -> None:
+    """Check the inbox folder set on the Ustawienia page once and import new exports (D-028)."""
+    from finance_analytics.preferences import PreferencesError
+    from finance_analytics.sources.inbox import check_inbox
+
+    settings = get_settings()
+    _prepare(settings)
+    try:
+        result = check_inbox(settings)
+    except PreferencesError as exc:
+        raise click.ClickException(f"Invalid settings file: {exc}") from exc
+    if result is None:
+        click.echo("No inbox folder configured. Set it on the Ustawienia page (inbox_dir in settings.yaml).")
+        return
+    if result.error:
+        raise click.ClickException(result.error)
+    click.echo(
+        f"Inbox {result.folder}: copied {len(result.copied)} new file(s), "
+        f"{result.already_imported} already imported."
+    )
+    for path, reason in result.skipped:
+        click.secho(f"  skipped {path.name}: {reason}", fg="yellow")
+    if result.sync is not None:
+        _report_sync(result.sync)
+
+
 @main.command()
 @click.option("--port", default=8501, show_default=True, help="Port on localhost.")
 @click.option("--dev", is_flag=True, help="Show developer pages (style preview on synthetic data).")

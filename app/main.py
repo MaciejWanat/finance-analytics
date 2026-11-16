@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import timedelta
 
 import streamlit as st
 from ui.components import apply_global_styles
+from ui.fmt import plural
 
 from finance_analytics.config import get_settings
 from finance_analytics.market.auto import maybe_update_market
 from finance_analytics.market.live import read_live, update_live
 from finance_analytics.preferences import PreferencesError, load_preferences
+from finance_analytics.sources.inbox import check_inbox
 
 st.set_page_config(
     page_title="Finanse",
@@ -44,6 +47,36 @@ if os.environ.get("FA_DEV") == "1":
 navigation = st.navigation(pages, position="sidebar")
 apply_global_styles()
 settings = get_settings()
+if message := st.session_state.pop("inbox_toast", None):
+    st.toast(message, icon=":material/inbox:")
+INBOX_INTERVAL_SECONDS = 60  # how often the inbox folder is checked (D-028)
+
+
+def _inbox_tick() -> int:
+    """Import new exports from the inbox folder, at most once a minute; works offline too (D-028).
+
+    The first run of a session only starts the clock, so page load is never delayed.
+    Returns how many files were newly copied.
+    """
+    now = time.monotonic()
+    last = st.session_state.get("inbox_checked_at")
+    if last is None:
+        st.session_state["inbox_checked_at"] = now
+        return 0
+    if now - last < INBOX_INTERVAL_SECONDS or not settings.db_path.exists():
+        return 0
+    st.session_state["inbox_checked_at"] = now
+    try:
+        result = check_inbox(settings)
+    except Exception as exc:  # the inbox must never break the page
+        st.caption(f":material/sync_problem: Folder skrzynki: {exc}")
+        return 0
+    if result is None:
+        return 0
+    if result.error:
+        st.caption(f":material/sync_problem: {result.error}")
+        return 0
+    return len(result.copied)
 
 
 @st.fragment(run_every=timedelta(seconds=30))
@@ -60,6 +93,12 @@ def network_status() -> None:
     except PreferencesError as exc:
         st.caption(f":material/error: Błędny plik ustawień: {exc}")
         return
+    imported = _inbox_tick()
+    if imported:
+        st.session_state["inbox_toast"] = (
+            f"Zaimportowano {plural(imported, 'nowy plik', 'nowe pliki', 'nowych plików')} z folderu skrzynki"
+        )
+        st.rerun()
     if not preferences.online:
         st.caption(":material/cloud_off: **Offline**: bez połączeń z internetem.")
         return

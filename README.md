@@ -54,6 +54,7 @@ Import an XTB export (the folder xStation produces) and open the UI:
 
 ```bash
 fa import xtb <export folder>
+fa import inbox          # or set an inbox folder on Ustawienia: new exports are then imported automatically
 fa settings --online   # allow market data downloads (offline by default)
 fa update-market
 fa ui

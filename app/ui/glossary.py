@@ -227,6 +227,11 @@ G: dict[str, str] = {
         "Wgrany plik jest najpierw sprawdzany i pokazany. Poprawne wiersze są dopisywane na koniec Twojego "
         "pliku; nic nie jest nadpisywane, a wiersze z błędami są pomijane."
     ),
+    # --- inbox ----------------------------------------------------------------------------------
+    "inbox": (
+        "Folder, do którego zapisujesz eksporty z xStation. Aplikacja sprawdza go co minutę i kopiuje nowe pliki "
+        "do własnego katalogu danych, więc nie musisz ich importować ręcznie. Działa bez internetu."
+    ),
     # --- network --------------------------------------------------------------------------------
     "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
     "online": (

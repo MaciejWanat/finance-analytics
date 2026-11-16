@@ -3,7 +3,7 @@ from contextlib import closing
 from click.testing import CliRunner
 
 from finance_analytics import cli
-from finance_analytics.config import DATA_DIR_ENV
+from finance_analytics.config import DATA_DIR_ENV, Settings
 from finance_analytics.db import connect
 
 
@@ -42,3 +42,32 @@ def test_update_market_refuses_offline(tmp_path, monkeypatch):
     monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "data"))
     result = CliRunner().invoke(cli.main, ["update-market"])
     assert result.exit_code != 0 and "offline mode" in result.output
+
+
+def test_import_inbox_command(tmp_path, monkeypatch):
+    from finance_analytics.mock.xtb_export import write_mock_export
+    from finance_analytics.preferences import Preferences, save_preferences
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir))
+    runner = CliRunner()
+    assert "No inbox folder configured" in runner.invoke(cli.main, ["import", "inbox"]).output
+
+    inbox = tmp_path / "XTB"
+    write_mock_export(inbox)
+    save_preferences(Settings(data_dir=data_dir), Preferences(inbox_dir=str(inbox)))
+    first = runner.invoke(cli.main, ["import", "inbox"])
+    assert first.exit_code == 0, first.output
+    assert "copied 5 new file(s)" in first.output
+    again = runner.invoke(cli.main, ["import", "inbox"])
+    assert "copied 0 new file(s)" in again.output
+
+
+def test_import_inbox_reports_missing_folder(tmp_path, monkeypatch):
+    from finance_analytics.preferences import Preferences, save_preferences
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir))
+    save_preferences(Settings(data_dir=data_dir), Preferences(inbox_dir=str(tmp_path / "missing")))
+    result = CliRunner().invoke(cli.main, ["import", "inbox"])
+    assert result.exit_code != 0 and "nie istnieje" in result.output

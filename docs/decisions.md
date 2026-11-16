@@ -361,6 +361,20 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A balance in a currency without NBP rates in the cache cannot be valued; the page says so.
   - No bank importer was written, and no bank export format was assumed (see the research notes).
 
+
+### D-028 XTB inbox folder: automatic import of new exports
+- **Date:** 2026-11-16 · **Status:** Accepted
+- **Context:** the only manual step left in the XTB flow is exporting from xStation. Importing each file by hand (D-013) is easy to forget.
+- **Decision:**
+  - **Setting:** `inbox_dir` in `data/config/settings.yaml` (absolute path, default none = off), set on "Ustawienia" with a check that the folder exists. Old settings files load unchanged.
+  - **Behaviour:** `check_inbox` (`sources/inbox.py`) runs the same import as `fa import xtb`: new `.xlsx` files are copied into `data/raw/xtb`, files already imported are skipped, and `sync` runs only when something was copied. The source folder is only read.
+  - **Triggers:** the sidebar fragment checks the folder at most once a minute and not on the first run of a session. It runs before the online/offline branch, so it works offline. Each import shows a toast and reruns the app. Also `fa import inbox` (one check, prints the result) and "Sprawdź folder teraz" on "Importy".
+  - **Errors:** a missing folder or an unreadable file becomes a message, never a crash.
+  - **Privacy:** local only, no network code. The folder path stays in the git-ignored `data/`.
+- **Consequences:**
+  - A file that is still open in Excel may fail to copy; it is picked up on a later check.
+  - The whole folder is read on every check (about once a minute): fine for an export folder, not for a very large one.
+
 ---
 
 ## Open questions
