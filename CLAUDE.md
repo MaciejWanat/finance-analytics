@@ -40,7 +40,12 @@ pytest             # no network access in tests
 ruff check .
 python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_report.md
 python scripts/check_no_private_data.py [--all]
+fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
 ```
+
+The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
+`src/finance_analytics/sources/xtb/schema.py`. Update both only from a fresh inspector
+report, never from memory.
 
 ## Architecture
 

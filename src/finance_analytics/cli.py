@@ -90,6 +90,20 @@ def ui(port: int, dev: bool, open_browser: bool) -> None:
     raise SystemExit(subprocess.call(cmd, cwd=REPO_ROOT, env=env))
 
 
+@main.command("mock-xtb")
+@click.argument("out_dir", type=click.Path(path_type=Path), default=Path("data-demo") / "xtb_export")
+@click.option("--force", is_flag=True, help="Write even if the folder is not empty.")
+def mock_xtb(out_dir: Path, force: bool) -> None:
+    """Write a synthetic xStation export folder (real layout, fake values)."""
+    from finance_analytics.mock.xtb_export import write_mock_export
+
+    if out_dir.exists() and any(out_dir.iterdir()) and not force:
+        raise click.ClickException(f"{out_dir} is not empty (use --force to overwrite)")
+    for path in write_mock_export(out_dir):
+        click.echo(f"  {path}")
+    click.echo(f"Mock XTB export written to {out_dir} (synthetic data, git-ignored).")
+
+
 def _install_git_hooks() -> None:
     """Point git at .githooks so the privacy pre-commit check runs (D-014)."""
     if not (REPO_ROOT / ".git").exists() or not (REPO_ROOT / ".githooks").is_dir():

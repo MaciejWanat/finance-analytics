@@ -108,7 +108,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Consequences:** a consistent look. Business logic stays in `src/`, so the UI could be replaced later without touching calculations.
 
 ### D-013 XTB import unit is the whole export folder
-- **Date:** 2026-11-16 · **Status:** Accepted
+- **Date:** 2026-11-16 · **Status:** Superseded by D-015
 - **Context:** the xStation export is a folder with one subfolder per XTB account number. Inside, xlsx files are named starting with the currency (`PLN`, `EUR`, `USD`) or the tax wrapper (`IKE`, `IKZE`).
 - **Decision:** `fa import xtb <folder>` takes the whole folder. The account is identified by the subfolder name, and the type of account by the file prefix. Account numbers stay local; the UI shows aliases from `accounts.yaml`.
 
@@ -119,6 +119,18 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   2. A pre-commit hook (`.githooks/pre-commit`, enabled by `fa init` via `core.hooksPath`) runs `scripts/check_no_private_data.py`. The script blocks staged files from `data/`, blocked file types, YAML outside the allowlist, and content that looks like an IBAN/NRB (checksum validated) or a card number (Luhn validated).
   3. A rule in CLAUDE.md: before every commit, review the staged file list and diff and run the check.
 - **Consequences:** test fixtures are generated in code. The hook is never bypassed with `--no-verify`.
+
+### D-015 XTB account identity comes from the file, not the folder
+- **Date:** 2026-11-16 · **Status:** Accepted (supersedes D-013)
+- **Context:** the inspector report of a real export showed that one export subfolder can hold several account files (e.g. `PLN`, `IKE` and `IKZE`), each with its own account number in the file name (7 or 8 digits). Accounts with no activity still produce a file, but with three completely empty sheets. Format details: `docs/xtb-export-format.md`.
+- **Decision:**
+  - `fa import xtb <folder>` still takes the whole export folder and walks all subfolders.
+  - Each xlsx file is one account. Its number comes from the file name (`<PREFIX>_<number>_<from>_<to>.xlsx`) and is cross-checked with the `Account number` cell (B1). The account type comes from the prefix.
+  - Subfolder names are ignored.
+  - Files with empty sheets are valid; they register the account without data.
+- **Consequences:**
+  - Sheet and column names live in one module, `sources/xtb/schema.py`.
+  - `fa mock-xtb` writes a synthetic export with this exact layout, for tests and the demo.
 
 ---
 
@@ -131,6 +143,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open |
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
+| Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
 
 ---
 
