@@ -151,3 +151,46 @@ def source_files(db_path: Path) -> pd.DataFrame:
         "SELECT path, account_id, date_from, date_to, rows_json, imported_at FROM source_files "
         "WHERE kind = 'xtb' ORDER BY account_id, date_to",
     )
+
+
+# ------------------------------------------------------------------------------- bonds (D-026)
+
+
+def bond_lots(db_path: Path) -> pd.DataFrame:
+    """Every bond purchase from bonds.csv with its account and series type."""
+    df = _query(
+        db_path,
+        """
+        SELECT l.row_no, l.account_id, a.alias AS account, a.tax_wrapper, l.series, s.type, l.purchase_date,
+               l.quantity, l.note
+        FROM bond_lots l JOIN accounts a ON a.id = l.account_id LEFT JOIN bond_series s ON s.series = l.series
+        ORDER BY l.purchase_date, l.series
+        """,
+    )
+    df["purchase_date"] = pd.to_datetime(df["purchase_date"])
+    return df
+
+
+def bond_accounts(db_path: Path) -> pd.DataFrame:
+    return _query(db_path, "SELECT id, alias, tax_wrapper FROM accounts WHERE kind = 'bonds' ORDER BY alias")
+
+
+def bond_series(db_path: Path) -> pd.DataFrame:
+    """Known series with their parameters, newest first."""
+    return _query(
+        db_path,
+        "SELECT series, type, first_rate, margin, early_fee, origin FROM bond_series "
+        "ORDER BY substr(series, 6, 2) || substr(series, 4, 2) DESC, series",
+    )
+
+
+def bond_issues(db_path: Path) -> pd.DataFrame:
+    """Problems found in bonds.csv and bond_series.yaml."""
+    return _query(
+        db_path,
+        """
+        SELECT i.severity, i.message FROM import_issues i JOIN source_files f ON f.id = i.source_file_id
+        WHERE f.kind = 'manual_bonds' OR f.path LIKE '%bond_series.yaml'
+        ORDER BY i.id
+        """,
+    )

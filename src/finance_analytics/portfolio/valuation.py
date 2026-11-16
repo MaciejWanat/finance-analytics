@@ -6,7 +6,8 @@ Pipeline, all on a calendar-day index from the first event to `end`:
 2. price per instrument: Yahoo close (split-adjusted), carried forward over days
    without trading;
 3. FX: NBP mid rate, the last one published on or before the day (D-008);
-4. cash per account: running sum of the cash ledger, in the account currency.
+4. cash per account: running sum of the cash ledger, in the account currency;
+5. treasury bonds (D-026): gross value per (account, series) from `portfolio.bonds`, in PLN.
 
 `load_inputs` reads SQLite; `value_portfolio` is a pure function of the inputs.
 """
@@ -22,8 +23,37 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-MODEL_VERSION = 2  # bump when Valuation's fields change, so UI caches are not reused
+from finance_analytics.portfolio import bonds as bond_math
+
+MODEL_VERSION = 3  # bump when Valuation's fields or rules change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
+
+
+@dataclass
+class BondInputs:
+    lots: pd.DataFrame  # account_id, series, purchase_date (datetime), quantity
+    series: pd.DataFrame  # series, type, first_rate, margin, early_fee, maturity_interest (OTS)
+    rates: pd.DataFrame  # series, period, rate: official rates of later interest periods
+    cpi: pd.DataFrame  # year, month, yoy (index points, same month a year earlier = 100)
+    reference: pd.DataFrame  # date_from, rate: NBP reference rate
+
+    @classmethod
+    def empty(cls) -> BondInputs:
+        return cls(
+            lots=pd.DataFrame(columns=["account_id", "series", "purchase_date", "quantity"]).astype(
+                {"purchase_date": "datetime64[ns]"}),
+            series=pd.DataFrame(columns=["series", "type", "first_rate", "margin", "early_fee",
+                                         "maturity_interest"]),
+            rates=pd.DataFrame(columns=["series", "period", "rate"]),
+            cpi=pd.DataFrame(columns=["year", "month", "yoy"]),
+            reference=pd.DataFrame(columns=["date_from", "rate"]),
+        )
+
+    def params(self) -> dict[str, bond_math.SeriesParams]:
+        return bond_math.params_from_frame(self.series)
+
+    def market(self) -> bond_math.MarketData:
+        return bond_math.market_data(self.rates, self.cpi, self.reference)
 
 
 @dataclass
@@ -36,6 +66,7 @@ class Inputs:
     currencies: dict[str, str]  # ticker -> price currency
     fx: pd.DataFrame  # currency, date, mid
     splits: pd.DataFrame  # ticker, date, ratio
+    bonds: BondInputs = field(default_factory=BondInputs.empty)
 
 
 @dataclass
@@ -76,11 +107,26 @@ def load_inputs(db_path: Path) -> Inputs:
         currencies = dict(conn.execute("SELECT ticker, currency FROM ticker_info").fetchall())
         fx = q("SELECT currency, date, mid FROM fx_rates")
         splits = q("SELECT ticker, date, value AS ratio FROM corporate_actions WHERE kind = 'SPLIT'")
+        bonds = _load_bonds(q)
     for frame, columns in ((lots, ["open_date", "close_date"]), (ledger, ["date"]), (prices, ["date"]),
                            (fx, ["date"]), (splits, ["date"])):
         for column in columns:
             frame[column] = pd.to_datetime(frame[column])
-    return Inputs(lots, ledger, accounts, prices, currencies, fx, splits)
+    return Inputs(lots, ledger, accounts, prices, currencies, fx, splits, bonds)
+
+
+def _load_bonds(q) -> BondInputs:
+    """Bond tables (migration 0006) and the CPI; empty when the database predates them."""
+    try:
+        lots = q("SELECT account_id, series, purchase_date, quantity FROM bond_lots ORDER BY id")
+        series = q("SELECT series, type, first_rate, margin, early_fee, maturity_interest FROM bond_series")
+        rates = q("SELECT series, period, rate FROM bond_rates")
+        reference = q("SELECT date_from, rate FROM bond_reference_rate ORDER BY date_from")
+        cpi = q("SELECT year, month, yoy FROM cpi_monthly WHERE yoy IS NOT NULL")
+    except (sqlite3.OperationalError, pd.errors.DatabaseError):
+        return BondInputs.empty()
+    lots["purchase_date"] = pd.to_datetime(lots["purchase_date"])
+    return BondInputs(lots, series, rates, cpi, reference)
 
 
 def data_version(db_path: Path) -> tuple:
@@ -89,6 +135,8 @@ def data_version(db_path: Path) -> tuple:
         return conn.execute(
             """
             SELECT (SELECT MAX(imported_at) FROM source_files), (SELECT COUNT(*) FROM cash_ledger),
+                   (SELECT COUNT(*) || '/' || COALESCE(SUM(quantity), 0) FROM bond_lots),
+                   (SELECT COUNT(*) || MAX(year * 100 + month) FROM cpi_monthly),
                    (SELECT COUNT(*) FROM positions), (SELECT COUNT(*) || MAX(date) FROM prices),
                    (SELECT COUNT(*) || MAX(date) FROM fx_rates), (SELECT MAX(fetched_at) FROM fetch_log),
                    (SELECT group_concat(alias) FROM accounts)
@@ -139,6 +187,30 @@ def _adjust_for_splits(lots: pd.DataFrame, inputs: Inputs, warnings: list[str]) 
     return lots
 
 
+def _bond_rows(inputs: Inputs, lots: pd.DataFrame, calendar: pd.DatetimeIndex, end: date, accounts: pd.DataFrame,
+               warnings: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Daily rows (one per account and series) and external flows of the treasury bonds."""
+    if lots.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    wrappers = accounts["tax_wrapper"] if "tax_wrapper" in accounts.columns else pd.Series(dtype=object)
+    tax_free = {account for account, wrapper in wrappers.items() if wrapper in ("IKE", "IKZE")}
+    params = inputs.bonds.params()
+    result = bond_math.value_lots(lots, params, inputs.bonds.market(), end, tax_free)
+    warnings.extend(result.warnings)
+    rows = result.daily[result.daily["date"].isin(calendar)]
+    if rows.empty:
+        return pd.DataFrame(), result.flows.assign(currency="PLN", amount_pln=result.flows["amount"])
+    types = {code: p.type for code, p in params.items()}
+    rows = rows.assign(
+        kind="bond", symbol=rows["series"],
+        name=[f"Obligacje {bond_math.TYPES[types[s]].name}" for s in rows["series"]],
+        asset_class="bond", currency="PLN", price=rows["value"] / rows["qty"], fx=1.0,
+        value_local=rows["value"], value_pln=rows["value"], priced=True,
+    ).drop(columns=["series", "value"])
+    flows = result.flows.assign(currency="PLN", amount_pln=result.flows["amount"])
+    return rows, flows
+
+
 def value_portfolio(
     inputs: Inputs,
     end: date,
@@ -154,7 +226,9 @@ def value_portfolio(
     """
     warnings: list[str] = []
     accounts = inputs.accounts.set_index("account_id")
-    starts = [frame[column].min() for frame, column in ((inputs.lots, "open_date"), (inputs.ledger, "date"))
+    bond_lots = inputs.bonds.lots[inputs.bonds.lots["purchase_date"] <= pd.Timestamp(end)]
+    starts = [frame[column].min() for frame, column in ((inputs.lots, "open_date"), (inputs.ledger, "date"),
+                                                        (bond_lots, "purchase_date"))
               if not frame.empty]
     if not starts:
         empty = pd.DataFrame(columns=["date", "account_id", "value_pln"])
@@ -248,7 +322,10 @@ def value_portfolio(
     if not cash.empty:
         cash = cash.assign(kind="cash", symbol="Gotówka", name="Gotówka", asset_class="cash", priced=True)
 
-    daily = pd.concat([held, cash], ignore_index=True)
+    # --- treasury bonds (D-026): gross value in PLN; purchases in, coupons and redemptions out ------------
+    bond_rows, bond_flows = _bond_rows(inputs, bond_lots, calendar, end, accounts, warnings)
+
+    daily = pd.concat([frame for frame in (held, cash, bond_rows) if not frame.empty], ignore_index=True)
     daily["account"] = daily["account_id"].map(accounts["alias"])
     daily = daily[["date", "account_id", "account", "kind", "symbol", "name", "asset_class", "currency", "qty",
                    "price", "fx", "value_local", "value_pln", "priced"]].sort_values(["date", "account", "symbol"])
@@ -260,5 +337,8 @@ def value_portfolio(
         amount * rate(ccy).asof(day) for amount, ccy, day in zip(flows["amount"], flows["currency"], flows["date"],
                                                                strict=True)
     ]
+    if not bond_flows.empty:
+        frames = [frame for frame in (flows, bond_flows) if not frame.empty]
+        flows = pd.concat(frames, ignore_index=True).sort_values("date", kind="stable")
     return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
                      warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies))

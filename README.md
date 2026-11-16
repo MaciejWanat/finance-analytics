@@ -9,8 +9,8 @@ your whole portfolio is worth, day by day, and where the return came from:
 - inflation-adjusted performance (TWR, XIRR, drawdown).
 
 > **Status:** early development.
-> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, the split of returns into prices and currencies, dividends with a PIT-38 estimate, and inflation-adjusted returns from GUS CPI.
-> - Next: bonds and cash.
+> - Works now: XTB import, a local cache of prices and FX rates, daily valuation in PLN, TWR/XIRR/drawdown, the split of returns into prices and currencies, dividends with a PIT-38 estimate, inflation-adjusted returns from GUS CPI, and Polish retail treasury bonds (EDO, COI, ROS, ROD, TOS, OTS, ROR, DOR) valued from the issue-letter rules.
+> - Next: cash at banks.
 
 ## Privacy first
 
@@ -59,7 +59,11 @@ fa update-market
 fa ui
 ```
 
-To try it without your own data, run `fa demo`. It builds a `data-demo/` directory from a synthetic export and opens the UI on it.
+To try it without your own data, run `fa demo`. It builds a `data-demo/` directory from a synthetic export and a few mock bond purchases, and opens the UI on it.
+
+Treasury bonds are entered on the *Obligacje* page (series, purchase date, quantity) or in
+`data/manual/bonds.csv` (`account_id,series,purchase_date,quantity,note`). The parameters of every series
+sold since 2019 ship with the app; a newer series can be added in `data/config/bond_series.yaml`.
 
 ## Project layout
 

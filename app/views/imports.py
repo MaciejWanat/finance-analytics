@@ -91,9 +91,9 @@ if overview.empty:
 section("Rachunki", "Saldo gotówki to suma operacji w walucie rachunku.")
 accounts_view = overview.assign(
     rodzaj=overview["tax_wrapper"].fillna("").map(lambda w: ACCOUNT_KIND.get(w or None, w)),
-    numer=overview["external_no"].map(lambda n: f"…{n[-3:]}" if n else ""),
+    numer=overview["external_no"].map(lambda n: f"…{n[-3:]}" if isinstance(n, str) and n else ""),
     zakres=[
-        f"{fmt_date(date.fromisoformat(a))} – {fmt_date(date.fromisoformat(b))}" if a else "–"
+        f"{fmt_date(date.fromisoformat(a))} – {fmt_date(date.fromisoformat(b))}" if isinstance(a, str) else "–"
         for a, b in zip(overview["date_from"], overview["date_to"], strict=True)
     ],
     gotowka=[fmt_money(v, c) for v, c in zip(overview["cash"], overview["currency"], strict=True)],

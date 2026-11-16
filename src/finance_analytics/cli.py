@@ -171,7 +171,9 @@ def ui(port: int, dev: bool, open_browser: bool) -> None:
 @click.option("--no-ui", is_flag=True, help="Only prepare the demo data.")
 def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     """Build a demo data directory (data-demo/) from a synthetic XTB export and open the UI on it."""
+    from finance_analytics.mock.bonds import write_mock_bonds
     from finance_analytics.mock.xtb_export import write_mock_export
+    from finance_analytics.sources.bonds import bonds_file
     from finance_analytics.sources.sync import import_xtb
     from finance_analytics.sources.sync import sync as run_sync
 
@@ -185,6 +187,7 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     settings.accounts_file.unlink(missing_ok=True)  # settings.yaml (network mode) is kept
     write_mock_export(export)
     _prepare(settings)
+    write_mock_bonds(bonds_file(settings.manual_dir))  # synthetic purchases, only ever in data-demo/
     import_xtb(export, settings)
     _report_sync(run_sync(settings, force=True))
     click.echo(f"Demo data directory: {settings.data_dir} (synthetic, git-ignored)")

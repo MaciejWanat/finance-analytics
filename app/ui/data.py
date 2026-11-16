@@ -52,18 +52,21 @@ def require_valued_data(settings: Settings, purpose: str) -> None:
     if reports.accounts_overview(settings.db_path).empty:
         empty_state(
             "Nie ma jeszcze danych do pokazania",
-            f"Po zaimportowaniu historii konta z XTB zobaczysz tu {purpose}.",
+            f"Po zaimportowaniu historii konta z XTB albo dodaniu obligacji zobaczysz tu {purpose}.",
             icon=":material/upload_file:",
             steps=[
                 "W xStation wyeksportuj historię konta: powstanie folder z podfolderami kont.",
                 "Zaimportuj go na stronie **Importy** albo poleceniem `fa import xtb <folder>`.",
+                "Obligacje skarbowe dodasz na stronie **Obligacje**.",
             ],
         )
         st.page_link("views/imports.py", label="Przejdź do importu", icon=":material/arrow_forward:")
         st.stop()
     with closing(sqlite3.connect(settings.db_path)) as conn:
         has_prices = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0] > 0
-    if not has_prices:
+        # Bonds are valued without market data (D-026); prices matter only once there are positions.
+        has_positions = conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] > 0
+    if has_positions and not has_prices:
         online = load_preferences(settings).online
         empty_state(
             "Brakuje cen i kursów walut",

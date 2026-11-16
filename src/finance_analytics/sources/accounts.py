@@ -13,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 HEADER = """\
 # Accounts known to finance-analytics. This file is private: data/ is git-ignored.
-# XTB accounts are added here automatically when an export is imported.
+# XTB accounts are added here automatically when an export is imported, and a bonds
+# account when data/manual/bonds.csv names one that is missing (set tax_wrapper: IKE
+# yourself for bonds held in an IKE).
 # Change `alias` (the name the UI shows) whenever you like; keep `id` stable.
 #
 # Fields: id, institution, kind (broker | bank | bonds), currency, alias,
@@ -63,6 +65,32 @@ def save_accounts(path: Path, accounts: list[AccountConfig]) -> None:
         {"accounts": [a.model_dump() for a in accounts]}, sort_keys=False, allow_unicode=True
     )
     path.write_text(HEADER + "\n" + body, encoding="utf-8")
+
+
+BOND_ALIAS = "Obligacje skarbowe"
+
+
+def register_bond_accounts(path: Path, account_ids: list[str]) -> list[AccountConfig]:
+    """Add a bonds account (PKO, PLN) for every id used in bonds.csv but missing from the file.
+
+    `tax_wrapper` stays null; set it to IKE by hand for bonds held in an IKE (D-026).
+    """
+    accounts = load_accounts(path)
+    known = {a.id for a in accounts}
+    aliases = {a.alias for a in accounts}
+    added = []
+    for account_id in account_ids:
+        if account_id in known:
+            continue
+        alias = BOND_ALIAS if BOND_ALIAS not in aliases else f"{BOND_ALIAS} ({account_id})"
+        account = AccountConfig(id=account_id, institution="pko", kind="bonds", currency="PLN", alias=alias)
+        accounts.append(account)
+        added.append(account)
+        known.add(account_id)
+        aliases.add(alias)
+    if added:
+        save_accounts(path, accounts)
+    return added
 
 
 def register_xtb_accounts(path: Path, found: list[tuple[str, str, str, str | None]]) -> list[AccountConfig]:

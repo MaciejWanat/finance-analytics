@@ -133,6 +133,71 @@ G: dict[str, str] = {
         "GUS publikuje inflację za dany miesiąc w połowie następnego. Dla nowszych miesięcy aplikacja zakłada "
         "brak zmiany cen (ostatni znany poziom), więc wynik realny jest wtedy przybliżony."
     ),
+    # --- treasury bonds -------------------------------------------------------------------------
+    "bond_series": (
+        "Seria to skrót obligacji: typ, miesiąc i rok wykupu. EDO0736 to obligacja 10-letnia kupiona "
+        "w lipcu 2026 r., wykupywana w lipcu 2036 r."
+    ),
+    "bond_types": (
+        "OTS: 3 miesiące, stałe. ROR: rok, DOR: 2 lata, oprocentowanie za stopą NBP, odsetki co miesiąc. "
+        "TOS: 3 lata, stałe. COI: 4 lata, inflacja + marża, odsetki co rok. EDO: 10 lat, ROS: 6 lat, "
+        "ROD: 12 lat, inflacja + marża, odsetki dopisywane do kapitału."
+    ),
+    "bond_edo": (
+        "EDO to 10-letnie obligacje emerytalne. Od drugiego roku dają inflację plus marżę, a odsetki co roku "
+        "dopisują się do kapitału, więc dostajesz je dopiero przy wykupie."
+    ),
+    "bond_coi": (
+        "COI to 4-letnie obligacje indeksowane inflacją. Od drugiego roku dają inflację plus marżę, a odsetki "
+        "są wypłacane co roku na Twoje konto."
+    ),
+    "bond_margin": (
+        "Marża to stała nadwyżka ponad inflację (EDO, COI, ROS, ROD) albo ponad stopę referencyjną NBP "
+        "(ROR, DOR), ustalona w dniu zakupu na cały czas trwania obligacji."
+    ),
+    "bond_current_rate": (
+        "Oprocentowanie w bieżącym okresie odsetkowym, w skali roku. W pierwszym okresie jest stałe, potem "
+        "zależy od inflacji albo stopy NBP."
+    ),
+    "bond_avg_rate": "Bieżące oprocentowanie wszystkich obligacji, średnio ważone ich wartością brutto.",
+    "bond_rate_source": (
+        "Oficjalna: ogłoszona przez Ministerstwo Finansów. Wyliczona: policzona przez aplikację z inflacji GUS "
+        "lub stopy NBP, zanim trafiła do pliku z oficjalnymi stopami. Tylko marża: brakuje jeszcze danych o "
+        "inflacji, więc odsetki mogą być zaniżone."
+    ),
+    "bond_period": (
+        "Okres odsetkowy to rok (miesiąc w ROR i DOR) liczony od dnia zakupu. Na jego końcu odsetki są "
+        "wypłacane albo dopisywane do kapitału, a oprocentowanie może się zmienić."
+    ),
+    "bond_accrued": (
+        "Odsetki naliczone do dziś przed podatkiem: w EDO, ROS, ROD i TOS razem z dopisanymi wcześniej, "
+        "w COI, ROR i DOR tylko z bieżącego okresu, bo wcześniejsze już wypłacono."
+    ),
+    "bond_capitalization": (
+        "Kapitalizacja: po każdym roku odsetki dopisują się do wartości obligacji i w kolejnym roku też "
+        "zarabiają. Tak działają EDO, ROS, ROD i TOS."
+    ),
+    "bond_gross": "Wartość nominalna 100 zł za sztukę plus naliczone odsetki, przed podatkiem i opłatą za wykup.",
+    "bond_early_fee": (
+        "Opłata za wcześniejszy wykup, w złotych za sztukę. W EDO, ROS, ROD i TOS nigdy nie jest wyższa niż "
+        "naliczone odsetki; w COI, ROR i DOR tak jest tylko w pierwszym okresie. OTS zwraca wtedy 100 zł bez "
+        "odsetek."
+    ),
+    "bond_payout": (
+        "Ile dostałbyś, gdybyś dziś zlecił wcześniejszy wykup: wartość minus opłata i 19% podatku od odsetek "
+        "(na IKE bez podatku). Szacunek: bank liczy odsetki jeszcze za kilka dni roboczych po zleceniu."
+    ),
+    "bond_maturity": "Dzień wykupu: wtedy dostajesz 100 zł za sztukę i pozostałe odsetki.",
+    "bond_account": (
+        "Rachunek obligacji z pliku accounts.yaml. Pierwszy powstaje sam; dla obligacji na IKE ustaw tam "
+        "tax_wrapper: IKE, a aplikacja nie będzie liczyć podatku."
+    ),
+    "bond_purchase": "Dzień, w którym obligacje zostały zapisane na Twoim rejestrze; od niego liczą się odsetki.",
+    "bond_quantity": "Liczba obligacji. Jedna sztuka ma wartość nominalną 100 zł.",
+    "bond_flows": (
+        "Zakup obligacji to wpłata do portfela, a wypłacone odsetki i wykup to wypłaty z niego, bo trafiają "
+        "na konto w banku. Odsetki widać więc w zwrotach w części „pozostałe”."
+    ),
     # --- network --------------------------------------------------------------------------------
     "offline": "Aplikacja nie łączy się z internetem i liczy wszystko na już zapisanych danych.",
     "online": (

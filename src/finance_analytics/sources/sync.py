@@ -12,12 +12,18 @@ import hashlib
 import json
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
-from finance_analytics.sources.accounts import load_accounts, register_xtb_accounts, xtb_account_id
+from finance_analytics.sources import bonds as bond_files
+from finance_analytics.sources.accounts import (
+    load_accounts,
+    register_bond_accounts,
+    register_xtb_accounts,
+    xtb_account_id,
+)
 from finance_analytics.sources.xtb.parser import (
     CATEGORY_TO_ASSET_CLASS,
     PARSER_VERSION,
@@ -28,7 +34,10 @@ from finance_analytics.sources.xtb.parser import (
     parse_file_name,
 )
 
-PROJECTION_TABLES = ("import_issues", "cash_ledger", "positions", "instruments", "accounts", "source_files")
+PROJECTION_TABLES = (
+    "bond_lots", "bond_rates", "bond_series", "bond_reference_rate",
+    "import_issues", "cash_ledger", "positions", "instruments", "accounts", "source_files",
+)
 YAHOO_SUFFIX = {".US": "", ".UK": ".L"}  # XTB suffix -> Yahoo suffix; only suffixes seen so far
 
 
@@ -111,7 +120,21 @@ def _source_state(settings: Settings) -> dict[str, tuple[str, int]]:
         state[settings.accounts_file.relative_to(settings.data_dir).as_posix()] = (
             _sha256(settings.accounts_file), 1,
         )
+    for path in _bond_sources(settings):
+        state[path.relative_to(settings.data_dir).as_posix()] = (_sha256(path), bond_files.BONDS_PARSER_VERSION)
+    for name in bond_files.RESOURCE_FILES:  # shipped with the app: a new version re-syncs
+        state[f"{RESOURCE_PREFIX}{name}"] = (hashlib.sha256(bond_files.resource_bytes(name)).hexdigest(),
+                                             bond_files.BONDS_PARSER_VERSION)
     return state
+
+
+RESOURCE_PREFIX = "resources/"
+
+
+def _bond_sources(settings: Settings) -> list[Path]:
+    """The user's bond files that exist: purchases and series overrides."""
+    candidates = [bond_files.bonds_file(settings.manual_dir), bond_files.series_overrides_file(settings.config_dir)]
+    return [path for path in candidates if path.exists()]
 
 
 def sync(settings: Settings, *, force: bool = False) -> SyncResult:
@@ -136,6 +159,9 @@ def sync(settings: Settings, *, force: bool = False) -> SyncResult:
 
         found = sorted({(p.account_number, p.prefix, p.currency, p.tax_wrapper) for _, p, _ in parsed if p})
         added = register_xtb_accounts(settings.accounts_file, found)
+        series = bond_files.load_series(settings.config_dir)
+        lots = bond_files.read_lots(bond_files.bonds_file(settings.manual_dir), series.series, date.today())
+        added += register_bond_accounts(settings.accounts_file, sorted({lot.account_id for lot in lots.lots}))
         accounts = load_accounts(settings.accounts_file)
         result = SyncResult(rebuilt=True, files=len(parsed), accounts_added=[a.alias for a in added])
 
@@ -143,7 +169,78 @@ def sync(settings: Settings, *, force: bool = False) -> SyncResult:
             for table in PROJECTION_TABLES:
                 conn.execute(f"DELETE FROM {table}")
             _write(conn, settings, accounts, parsed, result)
+            _write_bonds(conn, settings, accounts, series, lots, result)
     return result
+
+
+def _float(value) -> float | None:
+    return None if value is None else float(value)
+
+
+def _write_bonds(conn, settings: Settings, accounts, series: bond_files.SeriesTable, lots: bond_files.LotsResult,
+                 result: SyncResult) -> None:
+    """Series parameters, official rates, the NBP reference rate and the user's purchases (D-026)."""
+    now = datetime.now(UTC).replace(microsecond=0).isoformat()
+    for name in bond_files.RESOURCE_FILES:
+        conn.execute(
+            "INSERT INTO source_files (kind, path, sha256, parser_version, imported_at) "
+            "VALUES ('resource', ?, ?, ?, ?)",
+            (f"{RESOURCE_PREFIX}{name}", hashlib.sha256(bond_files.resource_bytes(name)).hexdigest(),
+             bond_files.BONDS_PARSER_VERSION, now),
+        )
+    file_ids = {}
+    for path in _bond_sources(settings):
+        kind = "manual_bonds" if path.suffix == ".csv" else "config"
+        file_ids[path] = conn.execute(
+            "INSERT INTO source_files (kind, path, sha256, parser_version, imported_at, rows_json) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (kind, path.relative_to(settings.data_dir).as_posix(), _sha256(path), bond_files.BONDS_PARSER_VERSION,
+             now, json.dumps({"bond_lots": len(lots.lots)}) if kind == "manual_bonds" else None),
+        ).lastrowid
+
+    def issue(file_id, account_id, message):
+        conn.execute(
+            "INSERT INTO import_issues (source_file_id, account_id, severity, message) VALUES (?, ?, 'error', ?)",
+            (file_id, account_id, message),
+        )
+        result.errors.append(message)
+
+    overrides = bond_files.series_overrides_file(settings.config_dir)
+    for message in series.errors:
+        issue(file_ids.get(overrides), None, message)
+    for code, entry in sorted(series.series.items()):
+        conn.execute(
+            "INSERT INTO bond_series (series, type, first_rate, margin, early_fee, maturity_interest, origin) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (code, entry["type"], float(entry["first_rate"]), _float(entry["margin"]), float(entry["early_fee"]),
+             _float(entry.get("maturity_interest")), entry["origin"]),
+        )
+    conn.executemany(
+        "INSERT INTO bond_rates (series, period, rate, origin) VALUES (?, ?, ?, ?)",
+        [(code, period, float(rate), origin) for (code, period), (rate, origin) in sorted(series.rates.items())],
+    )
+    conn.executemany(
+        "INSERT INTO bond_reference_rate (date_from, rate) VALUES (?, ?)",
+        [(day, float(rate)) for day, rate in series.reference],
+    )
+
+    csv_path = bond_files.bonds_file(settings.manual_dir)
+    csv_id = file_ids.get(csv_path)
+    for message in lots.errors:
+        issue(csv_id, None, message)
+    kinds = {a.id: a.kind for a in accounts}
+    for lot in lots.lots:
+        if kinds.get(lot.account_id) != "bonds":
+            issue(csv_id, lot.account_id,
+                  f"{csv_path.name}, wiersz {lot.row}: rachunek {lot.account_id} nie jest rachunkiem obligacji "
+                  "(kind: bonds w accounts.yaml). Wiersz pominięto.")
+            continue
+        conn.execute(
+            "INSERT INTO bond_lots (account_id, series, purchase_date, quantity, note, row_no, source_file_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (lot.account_id, lot.series, lot.purchase_date.isoformat(), lot.quantity, lot.note or None, lot.row,
+             csv_id),
+        )
 
 
 def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> None:

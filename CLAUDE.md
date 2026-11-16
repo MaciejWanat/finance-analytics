@@ -53,7 +53,7 @@ fa import xtb <folder>  # archive an export into data/raw/xtb and sync the datab
 fa sync / fa rebuild   # rebuild projection tables when files changed / always
 fa update-market       # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS) into the cache
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
-fa demo                # data-demo/ from a synthetic export, then the UI on it
+fa demo                # data-demo/ from a synthetic export and mock bond purchases, then the UI on it
 ```
 
 The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
@@ -68,9 +68,12 @@ report, never from memory.
   - `sources/`: files → projection tables. Contents:
     - `xtb/schema.py` and `xtb/parser.py` for the export;
     - `accounts.py` for `accounts.yaml`;
+    - `bonds.py` for `manual/bonds.csv`, `config/bond_series.yaml` and the shipped series files (D-026);
     - `sync.py` for import, rebuild and reconciliation.
   - `reports.py`: read-only queries for the UI.
-  - `mock/`: synthetic data generators.
+  - `mock/`: synthetic data generators (XTB export, demo bond purchases).
+  - `resources/`: public data shipped with the app (bond series parameters, official bond rates, NBP
+    reference rate history), built from official sources (D-026). The only CSVs allowed in the repo.
   - `market/`: **the only package allowed to use the network**; a test enforces this. Contents:
     - `nbp.py` for FX rates;
     - `gus.py` for the CPI (D-025);
@@ -86,7 +89,8 @@ report, never from memory.
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
-    - Next: bonds.
+    - `bonds.py`: treasury bonds: interest periods, rates, daily value, coupons, early redemption (D-026).
+    - Next: cash at banks.
 - `app/`: thin Streamlit UI, in Polish.
   - `main.py`: navigation.
   - `views/`: one page per file.

@@ -294,6 +294,53 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - The flash estimate and the revisions of earlier months are picked up by the daily refetch (`INSERT OR REPLACE`).
   - Bonds (R-008) will reuse this table for their indexation (y/y).
 
+### D-026 Polish retail treasury bonds (R-008)
+- **Date:** 2026-11-16 · **Status:** Accepted (resolves Q-002)
+- **Context:** the user enters only the series, purchase date and quantity (R-011); the app must value the bonds itself, including inflation indexation, without network access.
+- **Decision:**
+  - **Input:** `data/manual/bonds.csv` (`account_id,series,purchase_date,quantity,note`), edited by hand or through the form on the "Obligacje" page, which appends a row and runs the sync; a mistaken row can be deleted there (with a confirmation). Dates `RRRR-MM-DD` (also `DD.MM.RRRR`), `,` or `;` separators. Every row is validated: known series, positive whole quantity, no future date, and the series code must match purchase date + term (EDO0736 bought in July 2026). Bad rows become `import_issues` errors, never a crash.
+  - **Accounts:** an `account_id` missing from `accounts.yaml` is added automatically (`institution: pko`, `kind: bonds`, PLN, alias "Obligacje skarbowe", `tax_wrapper: null`). Setting `tax_wrapper: IKE`/`IKZE` by hand removes the tax. A row pointing to a non-bonds account is rejected.
+  - **Public data shipped in `src/finance_analytics/resources/`** (public, committed, allowlisted):
+    - `bond_series.csv`: series, type, sale window, first-period rate, margin, early-redemption fee, OTS interest at maturity, issue-letter number. 633 series: every OTS, ROR, DOR, TOS, COI, EDO, ROS and ROD series sold from 01.2019 to 11.2026.
+    - `bond_rates.csv`: the official rate of every later interest period already set (2 650 rates).
+    - `nbp_reference_rate.csv`: NBP reference rate from 2015-03-05 on.
+  - **Sources and how they were checked (2026-11-16):**
+    - Ministry of Finance file "Dane dotyczące obligacji detalicznych" (xls on gov.pl/web/finanse/obligacje-detaliczne1): sale dates, first rate, margin, the rate of every elapsed period and the interest paid.
+    - The issue letter of every series (obligacjeskarbowe.pl, "Listy emisyjne" and "Archiwum"), 633 PDFs parsed: first rate and margin agree with the MF file for every series; the fee, the fee cap and the OTS interest come from the letters. (The letter of EDO0134 has a typo, "wynos 6,90%"; checked by hand.)
+    - NBP XML `static.nbp.pl/dane/stopy/stopy_procentowe_archiwum.xml`.
+    - Left out because their issue letters are not published on obligacjeskarbowe.pl: **COI0923** and **EDO0829**. Not covered: DOS and TOZ (sold until mid-2022; TOZ needs WIBOR 6M), POS, KOS, and series sold before 2019. Any of them can be added in `data/config/bond_series.yaml`.
+  - **User overrides:** `data/config/bond_series.yaml`, `series: {CODE: {first_rate, margin, early_fee, maturity_interest, rates: {period: rate}}}`, merged over the shipped file (a new series or a newly announced rate). Errors there are reported and the entry is skipped.
+  - **Rules** (`portfolio/bonds.py`, pure, `Decimal` arithmetic), per the issue letters:
+    - Nominal 100 zł. The code holds the redemption month and year; maturity = purchase + term (OTS 3 months, ROR 1 year, DOR 2, TOS 3, COI 4, ROS 6, EDO 10, ROD 12 years).
+    - Periods are anchored on the purchase date: period k starts on purchase + (k-1) years (months for ROR/DOR), clamped to a shorter month's end (30.11 → 28.02 → 30.03), as in the ROR/DOR letters' period tables.
+    - Accrual is actual/actual within the period: `base × r × (months/12) × a / D`, `a` = days from the period start (inclusive) to the day (exclusive), `D` = period length. Rounded to the grosz per bond (half up). The value on day d is the one in the official interest table for d.
+    - EDO, ROS, ROD, TOS capitalise yearly without intermediate rounding: `100 × Π(1 + r_j) × (1 + r_k × a/D)`. Paid at maturity.
+    - COI pays `round(100 × r, 2)` every year; ROR and DOR pay `round(100 × r / 12, 2)` every month, on the last day of the period.
+    - OTS pays the interest amount fixed in its letter (e.g. 0,37 zł for OTS0419 at 1.50%, not 0,375 → 0,38); it is accrued evenly for the daily value.
+    - EDO, COI, ROS, ROD from period 2: CPI y/y announced by GUS in the month before the period starts (the figure for two months earlier), floored at 0, plus the margin.
+    - ROR, DOR from period 2: NBP reference rate in force on the 10th working day (Saturdays, Sundays and Polish public holidays excluded) before the first day of the month in which the period starts, floored at 0, plus the margin.
+    - Rate precedence: the official rate (shipped or the user's YAML) wins; otherwise it is computed from the CPI cache (`cpi_monthly`, D-025) or the shipped NBP history and labelled "wyliczona". If the CPI needed is missing, only the margin is used (the guaranteed minimum; inflation is never invented) and the period is flagged "tylko marża".
+    - Early redemption: value minus the fee per bond. EDO, ROS, ROD, TOS: the fee never exceeds the accrued interest (value ≥ 100). COI, ROR, DOR: capped only in period 1, the full fee afterwards. OTS: nominal only, no interest. 19% tax on the interest left after the fee (none on IKE/IKZE), per lot, to the grosz.
+  - **Verification:**
+    - Every value in six official interest tables (EDO0129 period 8, TOS0127 period 3, COI0328 period 3, ROS0130 period 3, ROR0127 and DOR0127 period 1; 1 525 days) is reproduced to the grosz.
+    - Every elapsed rate in the MF file is reproduced by the rules: all 1 602 ROR/DOR monthly rates from the NBP history; all CPI-indexed rates except those of periods starting in March (99 cases), because GUS revises the January CPI after the bond rate is set. That is why official rates are shipped and win.
+    - Every coupon and redemption amount in the MF file (OTS, TOS, COI, ROR, DOR, ROS) is reproduced.
+    - The PKO example on the EDO page (EDO0524: 4,16 zł interest − 2 zł fee − 0,41 zł tax = 101,75 zł) is reproduced.
+  - **Differences between older and newer series:** the fees rose for series sold from September 2024: EDO 2,00 → 3,00 zł, COI 0,70 → 2,00 zł, ROS 0,70 → 2,00 zł, ROD 2,00 → 3,00 zł, TOS 0,70 → 1,00 zł; ROR (0,50 zł) and DOR (0,70 zł) unchanged. The fee rules, rate rules and formulas are the same in every 2019–2026 letter. ROR and DOR exist from June 2022 and TOS from August 2022. The TOS letters define the base of later periods as rounded to the grosz, but the official interest tables use the unrounded base; the app follows the tables (differences of 1 grosz).
+  - **Storage:** projection tables `bond_series`, `bond_rates`, `bond_reference_rate`, `bond_lots` (migrations 0006, 0007), rebuilt by `fa sync`. `bonds.csv`, `bond_series.yaml` and the three shipped files are in the sync fingerprint, so an edit or an app update triggers a rebuild.
+  - **Valuation (D-019):** `Inputs.bonds` carries the lots, parameters, rates, CPI and reference rate; `value_portfolio` stays pure and adds one row per (account, series) per day: `kind = bond`, `asset_class = bond`, PLN, `value_pln` = gross value (nominal + accrued and capitalised interest). A lot is held from its purchase day to the day before redemption. `MODEL_VERSION` = 3.
+  - **Flows (D-022, resolves Q-002):** a purchase is an external deposit into the bonds account (100 zł × quantity). Coupons (COI, ROR, DOR) and redemption proceeds are external withdrawals, net of the 19% tax (gross on IKE/IKZE), because PKO pays them to a bank account outside the tracked portfolio.
+  - **UI:** page "Obligacje" (group "Analiza", after "Dywidendy"): KPIs (gross value, accrued interest, payout today after fee and tax, average current rate), the value over time, one row per purchase (series, type, quantity, purchase date, maturity, current rate and its source, end of the interest period, gross value, interest, payout), the parameters of the series held, the form "Dodaj zakup obligacji", the list of saved purchases with deletion, and notes. Every term has a glossary tooltip. Bonds also appear in "Portfel", "Zwroty", the attribution and the inflation views.
+  - **Demo:** `fa demo` writes mock purchases (EDO, COI, ROR from 2024–2025) to `data-demo/manual/bonds.csv`.
+- **Consequences:**
+  - Bonds are valued fully offline; no network code was added.
+  - Bond interest lands in the "other" part of the return split (D-023), as do dividends.
+  - On a coupon or redemption day the 19% tax shows as a small loss, because the value drops by the gross amount while only the net amount is withdrawn. TWR and XIRR are therefore after tax at source.
+  - "Do wypłaty" is an estimate: the bank accrues interest for five more working days after the order, and the tax is computed per order.
+  - Purchases through a swap ("zamiana", price 99,90 zł) are counted at 100 zł.
+  - Coupons on an IKE are counted as withdrawals too, although they stay on the IKE register (see Q-003).
+  - The shipped files need refreshing with each app release (new series, new official rates). Until then, newer periods are computed and labelled "wyliczona", and a new series needs a YAML entry.
+
 ---
 
 ## Open questions
@@ -301,8 +348,8 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | ID | Question | Status |
 |---|---|---|
 | Q-001 | How does XTB record stock splits in position history (adjusted volumes and prices, or a separate operation)? | Open: check against real data |
-| Q-002 | Where do COI coupons go? If to a bank account outside the tracked portfolio, they count as a withdrawal. | Open |
-| Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open |
+| Q-002 | Where do COI coupons go? If to a bank account outside the tracked portfolio, they count as a withdrawal. | Resolved 2026-11-16 by D-026: coupons and redemptions are withdrawals (net of tax) |
+| Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open. Bonds: yes, the issue letters allow IKE and IKZE at PKO BP; D-026 drops the tax for bonds on an account with `tax_wrapper` IKE/IKZE, but still counts their coupons as withdrawals although they stay on the IKE register. |
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Open |
 | Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
@@ -343,4 +390,10 @@ Public data sources:
   - Index types: previous month = 100, same month a year earlier = 100, December = 100.
   - The flash estimate comes out at month end, final data around the 15th of the next month.
 - **Bonds (EDO, COI):** from the second period the rate is the y/y CPI announced in the month before the period starts (in practice the figure for two months earlier), floored at 0, plus the series margin. EDO capitalises interest yearly; COI pays a yearly coupon. Early-redemption fees differ per series, so they are stored per series.
+- **Bonds, checked 2026-11-16 (D-026):**
+  - Ministry of Finance xls "Dane dotyczące obligacji detalicznych" on gov.pl/web/finanse/obligacje-detaliczne1: one sheet per type (OTS, ROR, DOR, TOS, COI, EDO, ROS, ROD, plus older types), with sale dates, first rate, margin, the rate of every elapsed period and the interest paid. It is the best single source of official rates.
+  - Issue letters: obligacjeskarbowe.pl/listy-emisyjne/?id=<series> (active series) and /archiwum-listow-emisyjnych/?id=<series> (matured), each linking one PDF. PDF text extraction sometimes splits Polish words at diacritics, so parse with whitespace removed.
+  - Interest tables ("tabela odsetkowa"): obligacjeskarbowe.pl/tabela-odsetkowa/?table_id=<id>, one PDF per series and period, with the interest per bond for every day for a purchase on the first day of sale.
+  - NBP reference rate history: static.nbp.pl/dane/stopy/stopy_procentowe_archiwum.xml (`obowiazuje_od`, `id="ref"`).
+  - GUS revises the January CPI in March; bond rates keep the figure first announced, so a rate computed from today's GUS file can be off for periods starting in March.
 - **Prices:** yfinance (unofficial; rate-limited by Yahoo). Cache everything, fetch incrementally, back off on `YFRateLimitError`. Ticker suffixes: `.WA` Warsaw, `.L` London, `.DE` Xetra, `.AS` Amsterdam.
