@@ -494,6 +494,19 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - The synthetic XTB export holds a gold ETC (`SGLN.UK`, "Physical Gold ETC") on the PLN account.
 - **Consequences:** gold and silver ETCs and gold ETFs show as their own slice of the portfolio; crypto and commodity notes still show as "Inne" and are now listed with their class in the holdings table. A wrong guess is fixed by one line in `instruments.yaml`; editing it from the UI is I-002.
 
+### D-042 Faster market updates: closed tickers stop, a rate limit stops the run, progress is shown
+- **Date:** 2026-11-17 · **Status:** Accepted (extends D-017)
+- **Context:** measured on the demo portfolio (12 tickers, 2 currencies, about 2 years): the first update took 7 s (Yahoo 2.3 s, NBP 3.7 s in 20 requests of ≤93 days, GUS 0.9 s), each later one 2.5 s (one Yahoo request per ticker for the last 5 days, about 1 s of it the yfinance cold start, plus one NBP request per currency for today). Three things grew with a real portfolio:
+  - every ticker ever held was asked for again on each run, including sold ones; a ticker Yahoo does not know ("possibly delisted") costs about 1 s per run;
+  - after a Yahoo rate limit each remaining ticker backed off again (5 + 10 + 20 s) before failing;
+  - the button gave no sign of progress.
+- **Decision:**
+  - A ticker with no open position is needed only up to its last close or cash event (a dividend after the sale counts). Once that range is cached, no request is sent for it. The 5-day correction window applies only while the range still grows.
+  - When Yahoo gives up on a ticker with a rate limit, the remaining tickers of that run are skipped with an error ("try again later") instead of each waiting 35 s.
+  - `update_market` takes a `progress` callback; the button on "Dane rynkowe" shows a progress bar (Yahoo ticker by ticker, then NBP, then GUS).
+  - Not done: parallel Yahoo requests and the NBP whole-table endpoint. Tables are 0.3 s and 130 kB each against 0.17 s per currency, so they pay off only from three currencies, and only on the first fetch.
+- **Consequences:** a later update costs about 1 s plus 0.1-0.2 s per ticker still held, plus 0.2 s per currency (GUS once a day). Prices of a sold instrument are not refreshed after the sale, so a later split of it is not re-read; nothing values it after the sale.
+
 ---
 
 ## Open questions
