@@ -221,3 +221,88 @@ def test_estimated_months():
     levels = inflation.price_level_index(mom_series([100.0, 101.0]))  # Jan, Feb
     assert inflation.estimated_months(levels, pd.Timestamp("2026-02-20")) == 0
     assert inflation.estimated_months(levels, pd.Timestamp("2026-04-02")) == 2
+
+
+# ------------------------------------------------------------------------- real profit (D-041)
+
+
+def test_monthly_trend_from_latest_yoy():
+    yoy = pd.Series([103.0, 104.0, float("nan")], index=pd.date_range("2026-01-01", periods=3, freq="MS"))
+    assert inflation.monthly_trend(yoy) == pytest.approx(1.04 ** (1 / 12) - 1)
+    assert inflation.monthly_trend(pd.Series(dtype=float)) == 0.0
+
+
+def test_daily_levels_extrapolate_unpublished_months():
+    levels = inflation.price_level_index(mom_series([100.0, 101.0]))  # Jan 100, Feb 101
+    days = pd.DatetimeIndex(["2026-02-10", "2026-03-10", "2026-05-10"])
+    daily = inflation.daily_levels(levels, days, monthly_rate=0.01)
+    assert daily["level"].tolist() == pytest.approx([101.0, 101.0 * 1.01, 101.0 * 1.01 ** 3])
+    assert daily["estimated"].tolist() == [False, True, True]
+
+
+def test_daily_from_cpi_table():
+    cpi = pd.DataFrame({"month": pd.date_range("2026-01-01", periods=2, freq="MS"),
+                        "mom": [100.0, 101.0], "yoy": [103.0, 112.68250301319698]})
+    levels, daily = inflation.daily_from_cpi(cpi, pd.DatetimeIndex(["2026-03-15"]))
+    assert levels.tolist() == pytest.approx([100.0, 101.0])
+    assert daily["level"].iloc[0] == pytest.approx(101.0 * 1.01)  # 112.68% a year is 1% a month
+
+
+def flat_then_up():
+    """CPI 100 in January, 110 from February: money from January is worth 10% more later."""
+    levels = inflation.price_level_index(mom_series([100.0, 110.0, 100.0]))
+    days = pd.date_range("2026-01-01", "2026-03-31", freq="D")
+    return days, inflation.daily_levels(levels, days)
+
+
+def test_real_profit_whole_history_matches_the_worked_example():
+    days, daily = flat_then_up()
+    values = pd.Series(11_500.0, index=days)
+    flows = pd.Series([10_000.0], index=[pd.Timestamp("2026-01-05")])
+    # Nominal profit 1 500 zł; the deposit is 11 000 zł in March złoty, so 500 zł after inflation.
+    result = inflation.real_profit(values, flows, daily, None, days[-1])
+    assert result.invested == pytest.approx(11_000.0)
+    assert result.profit == pytest.approx(500.0)
+    assert result.pct == pytest.approx(500 / 11_000)
+
+
+def test_real_profit_counts_withdrawals_and_window_start():
+    days, daily = flat_then_up()
+    values = pd.Series(5_000.0, index=days)
+    flows = pd.Series([10_000.0, -6_000.0], index=pd.DatetimeIndex(["2026-01-05", "2026-03-01"]))
+    whole = inflation.real_profit(values, flows, daily, None, days[-1])
+    assert whole.invested == pytest.approx(11_000.0 - 6_000.0)
+    assert whole.profit == pytest.approx(0.0, abs=1e-6)
+    # From 31 January: the 5 000 zł held then (a January level) is 5 500 zł in March money.
+    window = inflation.real_profit(values, flows.iloc[1:], daily, pd.Timestamp("2026-01-31"), days[-1])
+    assert window.invested == pytest.approx(5_500.0 - 6_000.0)
+    assert window.pct is None  # more taken out than put in
+
+
+def test_real_profit_is_none_when_cpi_starts_after_a_flow():
+    days, daily = flat_then_up()
+    values = pd.Series(1.0, index=days)
+    flows = pd.Series([1.0], index=[pd.Timestamp("2025-12-01")])
+    assert inflation.real_profit(values, flows, daily, None, days[-1]) is None
+
+
+def test_real_xirr_is_nominal_xirr_deflated():
+    levels = inflation.price_level_index(pd.Series(
+        [100.0] + [100.5] * 24, index=pd.date_range("2024-01-01", periods=25, freq="MS")))
+    days = pd.date_range("2024-01-01", "2026-01-01", freq="D")
+    daily = inflation.daily_levels(levels, days)
+    values = pd.Series(1000.0 * (1.10 ** ((days - days[0]).days / 365)), index=days)
+    flows = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    real = inflation.real_xirr(values, flows, daily, days[0], days[-1])
+    inflation_annual = (levels.iloc[-1] / levels.iloc[0]) ** (365 / (days[-1] - days[0]).days) - 1
+    assert real == pytest.approx(1.10 / (1 + inflation_annual) - 1, abs=1e-3)
+
+
+def test_real_return_with_payouts_adds_coupons_back():
+    days, daily = flat_then_up()
+    deposits = pd.Series([1_000.0], index=[pd.Timestamp("2026-01-10")])
+    payouts = pd.Series([50.0], index=[pd.Timestamp("2026-02-10")])
+    # (1 060 + 50) / 1 100 - 1
+    assert inflation.real_return_with_payouts(1_060.0, deposits, payouts, daily, days[-1]) == pytest.approx(
+        1_110 / 1_100 - 1)
+    assert inflation.real_return_with_payouts(1.0, deposits.iloc[:0], payouts, daily, days[-1]) is None

@@ -16,6 +16,7 @@ from ui.glossary import G
 from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.portfolio import bonds as bond_math
+from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.valuation import MODEL_VERSION, BondInputs, data_version, load_inputs
 from finance_analytics.sources import bonds as bond_files
 from finance_analytics.sources.sync import sync
@@ -161,31 +162,68 @@ show(area_total(total, name="Obligacje", mode=mode, height=300), key="bonds_valu
 # ------------------------------------------------------------------------------------ per purchase
 section("Twoje obligacje", "Jeden wiersz na zakup. Wartości na dziś, po zamknięciu poprzedniego dnia.",
         help=G["bond_types"])
+
+# Do the bonds beat inflation? Value plus coupons against the purchase, all in today's złoty (D-041).
+cpi = reports.cpi_monthly(settings.db_path)
+as_of = pd.Timestamp(today)
+daily_cpi = None
+if not cpi.empty:
+    _, daily_cpi = inflation.daily_from_cpi(cpi, pd.date_range(min(s.purchase for _, s in held), today, freq="D"))
+
+
+def real_since_purchase(lot_status: bond_math.LotStatus) -> float | None:
+    """Real return of a purchase since the purchase day; None without the CPI."""
+    if daily_cpi is None:
+        return None
+    paid = bond_math.paid_out(params[lot_status.series], lot_status.purchase, market, today)
+    deposit = pd.Series([100.0 * lot_status.quantity], index=[pd.Timestamp(lot_status.purchase)])
+    payouts = pd.Series([float(x.amount) * lot_status.quantity for x in paid],
+                        index=pd.DatetimeIndex([pd.Timestamp(x.date) for x in paid]), dtype=float)
+    return inflation.real_return_with_payouts(float(lot_status.gross) * lot_status.quantity, deposit, payouts,
+                                              daily_cpi, as_of)
+
+
+real_by_lot = {id(s): real_since_purchase(s) for _, s in held}
+weights = {id(s): 100.0 * s.quantity for _, s in held}
+known = {k: r for k, r in real_by_lot.items() if r is not None}
+if known:
+    # Nominal-weighted average of the lots (exact when the lots were bought in the same month).
+    total_real = sum(r * weights[k] for k, r in known.items()) / sum(weights[k] for k in known)
+    st.markdown(
+        f"Średnio od zakupu, po inflacji: **{fmt_pct(total_real)}** "
+        + ("(obligacje pobijają inflację)." if total_real >= 0 else "(obligacje przegrywają z inflacją)."),
+        help=G["bond_real"],
+    )
+elif cpi.empty:
+    st.caption("Wynik po inflacji pojawi się po pobraniu CPI z GUS (strona Dane rynkowe, w trybie online).")
 rows = pd.DataFrame([
     {
         "series": s.series, "type": s.type, "account": lot.account, "quantity": s.quantity,
         "purchase": fmt_date(s.purchase), "maturity": fmt_date(s.maturity), "rate": float(s.period.rate) / 100,
         "source": RATE_SOURCE[s.period.source], "period_end": fmt_date(s.period.end),
         "gross": float(s.gross) * s.quantity, "accrued": float(s.accrued) * s.quantity, "payout": float(s.payout),
+        "real": real_by_lot[id(s)],
         "sort": s.purchase,
     }
     for lot, s in held
 ]).sort_values(["series", "sort"]).drop(columns="sort")
-columns = ["series", "type", "quantity", "purchase", "maturity", "rate", "source", "period_end", "gross", "accrued",
-           "payout"]
+columns = ["series", "type", "quantity", "purchase", "maturity", "rate", *(["real"] if known else []), "source",
+           "period_end", "gross", "accrued", "payout"]
 if rows["account"].nunique() > 1:
     columns.insert(2, "account")
 table(
     rows[columns],
     numbers={"quantity": 0, "gross": 2, "accrued": 2, "payout": 2},
-    percents=["rate"],
+    percents=["rate", "real"] if known else ["rate"],
+    signed=["real"] if known else [],
     labels={"series": "Seria", "type": "Typ", "account": "Rachunek", "quantity": "Liczba", "purchase": "Data zakupu",
             "maturity": "Wykup", "rate": "Oprocentowanie", "source": "Stopa", "period_end": "Okres odsetkowy do",
-            "gross": "Wartość brutto (zł)", "accrued": "Odsetki (zł)", "payout": "Do wypłaty (zł)"},
+            "gross": "Wartość brutto (zł)", "accrued": "Odsetki (zł)", "payout": "Do wypłaty (zł)",
+            "real": "Realnie od zakupu"},
     helps={"series": G["bond_series"], "type": G["bond_types"], "quantity": G["bond_quantity"],
            "purchase": G["bond_purchase"], "maturity": G["bond_maturity"], "rate": G["bond_current_rate"],
            "source": G["bond_rate_source"], "period_end": G["bond_period"], "gross": G["bond_gross"],
-           "accrued": G["bond_accrued"], "payout": G["bond_payout"]},
+           "accrued": G["bond_accrued"], "payout": G["bond_payout"], "real": G["bond_real"]},
 )
 st.caption(
     ":material/info: Do wypłaty: szacunek przy wcześniejszym wykupie dziś, po opłacie i 19% podatku od odsetek "

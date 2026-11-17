@@ -322,6 +322,11 @@ def payments(params: SeriesParams, periods: list[Period]) -> list[Payment]:
     return paid
 
 
+def paid_out(params: SeriesParams, purchase: date, data: MarketData, day: date) -> list[Payment]:
+    """Payments per bond already made on or before `day` (coupons; the redemption once it happened)."""
+    return [p for p in payments(params, schedule(params, purchase, data, until=day)) if p.date <= day]
+
+
 # ------------------------------------------------------------------------------- per lot
 
 

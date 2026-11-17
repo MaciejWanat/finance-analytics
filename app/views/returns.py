@@ -7,7 +7,7 @@ import streamlit as st
 from ui.charts import current_mode, drawdown_chart, line_chart, returns_heatmap, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
 from ui.data import RANGES, load_valuation, period_start, require_valued_data
-from ui.fmt import fmt_date, fmt_pct
+from ui.fmt import fmt_date, fmt_money, fmt_pct
 from ui.glossary import G
 from ui.theme import color_map
 
@@ -48,6 +48,11 @@ per_account = {
     )
     for account in sorted(account_values.columns)
 }
+
+# Inflation (D-025, D-041): the price level per day, from the saved GUS CPI; nothing without it.
+cpi = reports.cpi_monthly(settings.db_path)
+levels, daily_cpi = inflation.daily_from_cpi(cpi, total.index) if not cpi.empty else (None, None)
+period_inflation = inflation.window_inflation(daily_cpi, start, end) if daily_cpi is not None else None
 
 # ------------------------------------------------------------------------------------------- KPIs
 dd = portfolio.drawdown
@@ -91,7 +96,6 @@ show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.1%}", y
 # ------------------------------------------------------------------------------ after inflation
 section("Po inflacji", "Zwrot nominalny (TWR) i realny, czyli po odjęciu wzrostu cen według CPI z GUS.",
         help=G["real_return"])
-cpi = reports.cpi_monthly(settings.db_path)
 if cpi.empty:
     online = is_online(settings)
     empty_state(
@@ -106,9 +110,6 @@ if cpi.empty:
     else:
         st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
 else:
-    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
-    daily_cpi = inflation.daily_levels(levels, total.index)
-    period_inflation = inflation.window_inflation(daily_cpi, start, end)
     if period_inflation is None:
         st.caption(f"CPI zaczyna się od {fmt_date(levels.index[0])}, więc dla tego okresu nie ma inflacji.")
     else:
@@ -120,6 +121,18 @@ else:
             f"**{fmt_pct(portfolio.twr)}**, zwrot realny **{fmt_pct(real)}**{annual_note}.",
             help=G["real_return"],
         )
+        # Profit "na czysto" in złoty and the real XIRR: the money-weighted view (D-041).
+        # "Maks." counts every deposit, like "Zysk całkowity" on Portfel, so the two amounts agree.
+        profit = inflation.real_profit(total, flows, daily_cpi, None if start <= total.index[0] else start, end)
+        real_irr = inflation.real_xirr(total, flows, daily_cpi, start, end) if portfolio.xirr is not None else None
+        if profit is not None:
+            irr_note = (f", XIRR realny **{fmt_pct(real_irr)}** rocznie (nominalnie {fmt_pct(portfolio.xirr)})"
+                        if real_irr is not None else "")
+            st.markdown(
+                f"Zysk realny w okresie **{fmt_money(profit.profit, decimals=0, signed=True)}** "
+                f"(w złotych z {end:%m.%Y}){irr_note}.",
+                help=G["real_profit"] + " " + G["real_xirr"],
+            )
         cumulative_cpi = inflation.cumulative_inflation(daily_cpi, start)
         nominal = (portfolio.index - 1).reindex(cumulative_cpi.index).dropna()
         cumulative_cpi = cumulative_cpi.reindex(nominal.index)
@@ -129,7 +142,8 @@ else:
         show(line_chart(compare, mode=mode, height=320, hover="%{y:.1%}", y_tickformat=".0%"), key="real")
         if daily_cpi["estimated"].iloc[-1]:
             st.caption(f"Ostatni opublikowany miesiąc CPI: {levels.index[-1]:%m.%Y}. Dla nowszych miesięcy "
-                       "zakładamy brak zmiany cen, więc wynik realny jest przybliżony.", help=G["cpi_estimated"])
+                       "przyjmujemy ostatnią inflację rok do roku, więc wynik realny jest przybliżony.",
+                       help=G["cpi_estimated"])
 
 # ---------------------------------------------------------------------------- stocks vs currency
 attribution = attribute(v, start, end)
@@ -191,14 +205,30 @@ rows = [
 ]
 rows.append({"account": PORTFOLIO, "value": float(total.iloc[-1]), "twr": portfolio.twr,
              "twr_annual": portfolio.twr_annual, "xirr": portfolio.xirr, "max_dd": dd.max_drawdown})
+accounts_table = pd.DataFrame(rows)
+columns = ["account", "value", "twr", "twr_annual", "xirr", "max_dd"]
+if period_inflation is not None:  # real TWR next to the nominal one (D-041)
+    def account_inflation(name: str) -> float | None:
+        """Inflation from the later of the window start and the account's first day with money."""
+        held = account_values[name][account_values[name] != 0] if name != PORTFOLIO else total[total != 0]
+        first = max(start, held.index[0]) if not held.empty else start
+        return inflation.window_inflation(daily_cpi, first, end)
+
+    real_twr = []
+    for name, twr in zip(accounts_table["account"], accounts_table["twr"], strict=True):
+        pi = account_inflation(name)
+        real_twr.append(None if pi is None else inflation.real_return(twr, pi))
+    accounts_table["twr_real"] = real_twr
+    columns.insert(3, "twr_real")
 table(
-    pd.DataFrame(rows),
+    accounts_table[columns],
     numbers={"value": 2},
-    percents=["twr", "twr_annual", "xirr", "max_dd"],
-    signed=["twr", "twr_annual", "xirr", "max_dd"],
-    labels={"account": "Rachunek", "value": "Wartość (zł)", "twr": "TWR", "twr_annual": "TWR rocznie",
-            "xirr": "XIRR", "max_dd": "Maks. spadek"},
-    helps={"twr": G["twr"], "twr_annual": G["twr_annual"], "xirr": G["xirr"], "max_dd": G["drawdown"]},
+    percents=["twr", "twr_real", "twr_annual", "xirr", "max_dd"],
+    signed=["twr", "twr_real", "twr_annual", "xirr", "max_dd"],
+    labels={"account": "Rachunek", "value": "Wartość (zł)", "twr": "TWR", "twr_real": "TWR realnie",
+            "twr_annual": "TWR rocznie", "xirr": "XIRR", "max_dd": "Maks. spadek"},
+    helps={"twr": G["twr"], "twr_real": G["twr_real"], "twr_annual": G["twr_annual"], "xirr": G["xirr"],
+           "max_dd": G["drawdown"]},
 )
 
 # ---------------------------------------------------------------------------------- monthly grid

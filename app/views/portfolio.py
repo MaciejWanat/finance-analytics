@@ -41,6 +41,19 @@ result = value_now - window.iloc[0] - in_window
 twr_period = period_return(twr_index(total, flows), start, end)
 contributed = flows.sum()
 
+# Inflation (D-025, D-041): the price level per day, from the saved GUS CPI; nothing without it.
+cpi = reports.cpi_monthly(settings.db_path)
+levels, daily_cpi = inflation.daily_from_cpi(cpi, total.index) if not cpi.empty else (None, None)
+real = inflation.real_profit(total, flows, daily_cpi, None, end) if daily_cpi is not None else None
+if real is None:
+    real_delta = "realnie: brak CPI" if cpi.empty else "realnie: –"
+else:
+    real_delta = f"realnie {'+' if real.profit >= 0 else ''}{fmt_money_compact(real.profit)}"
+real_help = G["total_gain"] + " Pod spodem zysk realny: " + G["real_profit"]
+if real is not None:
+    real_help += (f" Teraz: {fmt_money(real.profit, decimals=0, signed=True)}"
+                  + (f", {fmt_pct(real.pct)} wpłat w dzisiejszych złotych." if real.pct is not None else "."))
+
 # Every tile gets a sparkline over the selected period, so the tiles line up and read alike.
 cumulative_flows = flows.groupby(level=0).sum().reindex(total.index, fill_value=0.0).cumsum()
 step = "W-FRI" if (end - start).days <= 180 else "ME"
@@ -64,9 +77,11 @@ kpi_row(
         Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
             delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
             help=G["contributed"], trend=trend(cumulative_flows)),
+        # Nominal profit as the value, profit after inflation ("na czysto") as the delta (D-041).
         Kpi("Zysk całkowity", fmt_money_compact(value_now - contributed),
-            delta=fmt_pct((value_now - contributed) / contributed) if contributed > 0 else None,
-            help=G["total_gain"], trend=trend(total - cumulative_flows)),
+            delta=real_delta, delta_color="normal" if real is not None else "off",
+            help=real_help,
+            trend=trend(total - cumulative_flows)),
     ]
 )
 
@@ -76,7 +91,6 @@ mode = current_mode()
 live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else ""
 section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}",
         help=G["portfolio_value"])
-cpi = reports.cpi_monthly(settings.db_path)
 real_view = st.toggle(
     "W dzisiejszych złotych", value=False, key="todays_pln", help=G["todays_pln"], disabled=cpi.empty,
 )
@@ -84,10 +98,9 @@ shown = window
 if cpi.empty:
     st.caption("Brak danych o inflacji (CPI z GUS): pobierz je w trybie online na stronie Dane rynkowe.")
 elif real_view:
-    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
-    daily_cpi = inflation.daily_levels(levels, total.index)
     shown = inflation.todays_zloty(window, daily_cpi)
-    estimated = " (miesiąc bez opublikowanego CPI: ostatni znany poziom cen)" if daily_cpi["estimated"].iloc[-1] else ""
+    estimated = (" (miesiąc bez opublikowanego CPI: ostatnia inflacja r/r)" if daily_cpi["estimated"].iloc[-1]
+                 else "")
     st.caption(f"Wartości w złotych z {end:%m.%Y}, czyli po uwzględnieniu wzrostu cen od danego dnia{estimated}.",
                help=G["cpi_estimated"] if estimated else None)
 show(area_total(shown, name="Portfel", mode=mode, height=340), key="total")

@@ -130,8 +130,25 @@ G: dict[str, str] = {
         "poziom cen wtedy. Dzięki temu widać, czy portfel rósł realnie, a nie tylko nominalnie."
     ),
     "cpi_estimated": (
-        "GUS publikuje inflację za dany miesiąc w połowie następnego. Dla nowszych miesięcy aplikacja zakłada "
-        "brak zmiany cen (ostatni znany poziom), więc wynik realny jest wtedy przybliżony."
+        "GUS publikuje inflację za dany miesiąc w połowie następnego. Dla nowszych miesięcy aplikacja przyjmuje "
+        "ostatnią opublikowaną inflację rok do roku, rozłożoną równo na miesiące, więc wynik realny jest wtedy "
+        "przybliżony."
+    ),
+    "real_profit": (
+        "Zysk realny, czyli „na czysto” po inflacji: wartość portfela dziś minus każda wpłata (i wypłata) "
+        "przeliczona na dzisiejsze złote według CPI z GUS od jej dnia do dziś. Przykład: 10 000 zł wpłacone, "
+        "gdy ceny były o 8% niższe, to dziś 10 800 zł; przy wartości 11 500 zł zysk nominalny wynosi 1 500 zł, "
+        "a realny 700 zł. Procent liczony od wpłat w dzisiejszych złotych."
+    ),
+    "real_xirr": (
+        "XIRR liczony na kwotach przeliczonych na dzisiejsze złote: roczny zysk ponad inflację, z uwzględnieniem "
+        "dat i kwot wpłat i wypłat. Pokazywany dla okresów od roku."
+    ),
+    "twr_real": "TWR w wybranym okresie po odjęciu inflacji z tego samego okresu: (1 + TWR) / (1 + inflacja) − 1.",
+    "bond_real": (
+        "Ile ten zakup zarobił ponad inflację od dnia zakupu: (wartość brutto dziś + wypłacone kupony) / wpłata, "
+        "wszystko w dzisiejszych złotych według CPI z GUS, minus 1. Przed podatkiem i opłatą za wcześniejszy "
+        "wykup. Wynik dodatni oznacza, że obligacja pobiła inflację."
     ),
     # --- treasury bonds -------------------------------------------------------------------------
     "bond_series": (
