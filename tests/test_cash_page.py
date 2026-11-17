@@ -59,6 +59,7 @@ def test_page_with_demo_balances_flags_stale_ones(settings):
     assert not at.exception
     assert [m.label for m in at.metric] == ["Gotówka razem", "Konta bankowe", "Ostatnia aktualizacja"]
     assert "Twoje konta" in [s.value for s in at.subheader]
+    assert "Podział na konta" in [s.value for s in at.subheader]
     assert any("starsze niż 30 dni" in w.value for w in at.warning)  # the demo's last balances are old
 
 

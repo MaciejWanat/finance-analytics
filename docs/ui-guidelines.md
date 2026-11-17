@@ -70,6 +70,7 @@ Load the `dataviz` skill before designing a new chart form.
   | several series to compare | `line_chart` |
   | composition over time | `stacked_bars` (weekly ≤ 100 days, monthly otherwise) |
   | part-to-whole today | `segmented_bar` + a small table (no donuts) |
+  | value per part today, compared | `category_bars` (one column per part, share above it) |
 - **Colour follows the entity, never its rank.**
   - Assign slots with `color_map` over a stable (alphabetical) key order.
   - More than 8 parts: keep the 7 largest and fold the rest into `OTHER_LABEL` ("Inne").
