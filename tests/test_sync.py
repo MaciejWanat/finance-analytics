@@ -102,6 +102,8 @@ def test_broken_file_is_reported_not_imported(settings, export):
 def test_yahoo_ticker_rules():
     assert yahoo_ticker("NVDA.US") == "NVDA"
     assert yahoo_ticker("VUAA.UK") == "VUAA.L"
+    assert yahoo_ticker("SAP.DE") == "SAP.DE"
+    assert yahoo_ticker("COIN.DE", {"COIN.DE": "COIN.SW"}) == "COIN.SW"  # user override wins
     assert yahoo_ticker("PKN.PL") is None  # not seen yet: unresolved, reported as a warning
 
 
@@ -193,3 +195,15 @@ def test_sub_accounts_stay_separate_and_remember_their_main_account(settings, ex
     assert by_id["xtb-20000003"]["tax_wrapper"] == "IKE" and by_id["xtb-20000003"]["parent_no"] == "1000002"
     assert by_id["xtb-20000004"]["tax_wrapper"] == "IKZE"
     assert by_id["xtb-1000002"]["parent_no"] is None  # B1 equals its own number
+
+
+def test_user_yahoo_overrides_file(tmp_path):
+    from finance_analytics.sources.sync import load_yahoo_overrides, yahoo_tickers_file
+
+    config = tmp_path / "config"
+    assert load_yahoo_overrides(config) == {}
+    config.mkdir()
+    yahoo_tickers_file(config).write_text("# c\nPKN.PL: PKN.WA\n", encoding="utf-8")
+    assert load_yahoo_overrides(config) == {"PKN.PL": "PKN.WA"}
+    yahoo_tickers_file(config).write_text("[broken: yaml", encoding="utf-8")
+    assert load_yahoo_overrides(config) == {}

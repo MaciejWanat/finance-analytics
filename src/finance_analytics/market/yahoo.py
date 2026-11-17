@@ -39,6 +39,21 @@ class YahooError(RuntimeError):
     pass
 
 
+NO_QUOTES_PREFIX = "Brak notowań w Yahoo dla"
+NO_QUOTES_RETRY_DAYS = 7  # a ticker Yahoo does not know is not asked again for this long (D-039)
+_NO_QUOTES_MARKERS = ("possibly delisted", "no timezone found", "no data found", "no price data found")
+
+
+def no_quotes_message(ticker: str) -> str:
+    return (f"{NO_QUOTES_PREFIX} {ticker} — Yahoo nie zna tego symbolu. Wpisz właściwy ticker w "
+            "config/yahoo_tickers.yaml (np. ABC.DE: ABC.L) i zsynchronizuj dane.")
+
+
+def _is_no_quotes(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _NO_QUOTES_MARKERS)
+
+
 class YahooClient:
     """Thin wrapper around yfinance; the only place that imports it."""
 
@@ -69,6 +84,8 @@ class YahooClient:
                     raise YahooError(f"{ticker}: Yahoo rate limit, try again later") from exc
                 self.sleep(5 * 2**attempt)
             except Exception as exc:  # unknown ticker, no data in range, network error
+                if _is_no_quotes(exc):
+                    raise YahooError(no_quotes_message(ticker)) from exc
                 raise YahooError(f"{ticker}: {exc}") from exc
 
         currency, divisor = meta.get("currency"), 1.0
@@ -97,6 +114,18 @@ class PriceReport:
     currencies: dict[str, str] = field(default_factory=dict)  # ticker -> price currency
 
 
+def _recent_no_quotes(conn: sqlite3.Connection, ticker: str) -> str | None:
+    """The stored "no quotes" error, while it is fresh and the ticker has never had a price."""
+    row = conn.execute(
+        "SELECT last_error, fetched_at, date_from > date_to FROM fetch_log WHERE source = 'yahoo' AND key = ?",
+        (ticker,),
+    ).fetchone()
+    if not row or not row[0] or not row[0].startswith(NO_QUOTES_PREFIX) or not row[2]:
+        return None
+    age = datetime.now(UTC) - datetime.fromisoformat(row[1])
+    return row[0] if age < timedelta(days=NO_QUOTES_RETRY_DAYS) else None
+
+
 def update_prices(
     conn: sqlite3.Connection,
     needed: dict[str, date],
@@ -110,6 +139,10 @@ def update_prices(
     final_until = today - timedelta(days=1)
     for ticker, first_needed in sorted(needed.items()):
         start = first_needed - timedelta(days=7)
+        known_bad = _recent_no_quotes(conn, ticker)
+        if known_bad:
+            report.errors[ticker] = known_bad
+            continue
         ranges = cache.missing_ranges(cache.coverage(conn, "yahoo", ticker), start, today, overlap_days=REFETCH_DAYS)
         written = 0
         try:

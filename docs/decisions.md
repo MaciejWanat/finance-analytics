@@ -441,6 +441,15 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A header that is present but different still fails the file (D-006).
   - `PARSER_VERSION` 4.
 
+### D-039 Yahoo ticker exceptions and "no quotes" warning
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** some XTB symbols map by the suffix rule to a Yahoo ticker that Yahoo does not carry (for example an ETP Yahoo only lists on another exchange). The fetch failed with a raw yfinance message and was retried on every update.
+- **Decision:**
+  - `.DE` maps to `.DE` in `YAHOO_SUFFIX`. Exceptions are not built in: a list of symbols in a public repository would reveal which instruments the author holds.
+  - The user maps such symbols in `config/yahoo_tickers.yaml` (`XTB_SYMBOL: YAHOO_TICKER`). It wins over the suffix rule and is part of the sync fingerprint. A broken file is ignored.
+  - A ticker Yahoo does not know gives a Polish warning ("Brak notowań w Yahoo dla X — ..."). It is stored in `fetch_log.last_error` and the ticker is not requested again for 7 days (`NO_QUOTES_RETRY_DAYS`), unless it already has cached prices.
+- **Consequence:** the price currency comes from Yahoo (`ticker_info`), so a USD or CHF listing is converted at NBP rates like any other foreign price.
+
 ---
 
 ## Open questions
