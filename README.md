@@ -7,6 +7,10 @@ values all of it day by day in złoty and shows where the return came from: the 
 themselves or currency moves, dividends after tax, and performance after inflation.
 Everything runs on your own computer, and it works fully offline.
 
+![The Portfel page: portfolio value, today's result, period result, currency result, contributed capital and profit vs deposits, above the value of the portfolio over time](docs/images/portfel-demo.webp)
+
+*The Portfel page in dark mode, on the synthetic data of `fa demo`.*
+
 - [What it does](#what-it-does)
 - [Core principles](#core-principles)
 - [Install](#install)
