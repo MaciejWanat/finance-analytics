@@ -224,3 +224,11 @@ def test_shipped_ror_dor_rates_follow_the_reference_rule(shipped):
         assert (computed, source) == (rate, B.RATE_REFERENCE), (code, number)
         checked += 1
     assert checked > 1000
+
+
+def test_paid_out_lists_coupons_made_up_to_the_day():
+    p = params("COI0627", first="7.00", margin="1.25", fee="0.70")
+    data = B.MarketData(cpi_yoy={(2024, 4): D("102.4"), (2025, 4): D("104.3")})
+    paid = B.paid_out(p, date(2023, 6, 10), data, date(2025, 6, 10))
+    assert [(x.date, x.amount) for x in paid] == [(date(2024, 6, 10), D("7.00")), (date(2025, 6, 10), D("3.65"))]
+    assert B.paid_out(p, date(2023, 6, 10), data, date(2024, 6, 9)) == []

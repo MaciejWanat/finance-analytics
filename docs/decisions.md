@@ -272,7 +272,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - yfinance dividends (in the market cache) are not used for received amounts.
 
 ### D-025 Inflation-adjusted returns from GUS CPI
-- **Date:** 2026-11-16 · **Status:** Accepted (R-004)
+- **Date:** 2026-11-16 · **Status:** Accepted (R-004); the rule for unpublished months superseded by D-041
 - **Decision:**
   - **Source:** `market/gus.py` scrapes the GUS page "Miesięczne wskaźniki cen towarów i usług konsumpcyjnych od 1982 roku" for the `.csv` link (the file name changes with every release) and downloads it. Checked against the real file (2026-11):
     - `;` separator, decimal comma, **cp1250** (UTF-8 is tried first), a trailing `;;` on every line;
@@ -493,6 +493,24 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - UI: the class colour follows a fixed class order (Akcje, ETF, Obligacje, Metale szlachetne, Gotówka → palette slots 1–5; "Inne" keeps the neutral colour), so adding a class never repaints the others. "Bieżące pozycje" on Portfel gains a "Klasa" column, and a tooltip (`G["asset_class"]`) explains what each class holds, what "Inne" means and where to override it.
   - The synthetic XTB export holds a gold ETC (`SGLN.UK`, "Physical Gold ETC") on the PLN account.
 - **Consequences:** gold and silver ETCs and gold ETFs show as their own slice of the portfolio; crypto and commodity notes still show as "Inne" and are now listed with their class in the holdings table. A wrong guess is fixed by one line in `instruments.yaml`; editing it from the UI is I-002.
+
+### D-041 Profit after inflation ("na czysto") next to the nominal figures
+- **Date:** 2026-11-17 · **Status:** Accepted (extends D-025 and supersedes its rule for unpublished months)
+- **Context:** the user wants to know how much they earned "na czysto", after inflation. D-025 already gave the real TWR on "Zwroty" and a "today's złoty" toggle for the value chart on "Portfel", but no amount in złoty and nothing money-weighted.
+- **Decision:**
+  - **Definition:** real profit = value at the end − every deposit and withdrawal restated in the złoty of the end day (`amount × level(end) / level(day of the flow)`). Example: 10 000 zł paid in when prices were 8% lower is 10 800 zł today; at a value of 11 500 zł the nominal profit is 1 500 zł and the real profit 700 zł. Bank cash is included like everywhere else (D-027), so idle cash shows its real loss.
+  - **Maths** (`portfolio/inflation.py`, pure, tested on synthetic data): `real_profit` (whole history, or a D-022 window where the start value counts as money put in), `real_xirr` (XIRR of the cash flows and values restated in end-day złoty; shown, like XIRR, for windows of a year or more), `real_return_with_payouts` (holdings that pay out, for bonds), `in_todays_zloty`, `daily_from_cpi`. `portfolio/bonds.paid_out` lists the payments already made on a lot.
+  - **Unpublished CPI months (supersedes the D-025 rule):** instead of carrying the last level (zero inflation), the last published y/y index is spread evenly over months, `(yoy/100)^(1/12)`, and the months are still flagged as estimated. This applies everywhere the price level is used (Portfel, Zwroty, Obligacje).
+  - **UI: real figures always next to the nominal ones; no new global or per-page toggle.** The existing "W dzisiejszych złotych" chart toggle on "Portfel" stays.
+    - "Portfel": the "Zysk całkowity" tile keeps the nominal amount and shows "realnie ±X zł" as its delta (a fifth tile would break the four-tile rule); the tooltip explains it and gives the percentage of deposits in today's złoty.
+    - "Zwroty", section "Po inflacji": real profit in złoty for the window (all deposits for "Maks.", so it matches the tile) and the real XIRR next to the nominal one; a "TWR realnie" column in the per-account table, using the inflation from the later of the window start and the account's first day with money.
+    - "Obligacje": a "Realnie od zakupu" column per purchase, `(gross value + coupons paid) / purchase − 1` in today's złoty (before tax and the early-redemption fee), and a nominal-weighted average above the table.
+    - Glossary: `real_profit`, `real_xirr`, `twr_real`, `bond_real`; `cpi_estimated` updated.
+  - Not built: dividends in today's złoty (small amounts spread over time, and PIT-38 is nominal anyway).
+- **Consequences:**
+  - Without saved CPI the tile says "realnie: brak CPI", the bond column is hidden with a hint, and "Zwroty" keeps its existing empty state. Everything works offline on the saved CPI (R-015).
+  - The extrapolation is a forecast for the newest one or two months; it changes slightly when GUS publishes the month. The UI still says the result is approximate.
+  - The average on "Obligacje" weights lots by nominal, not by money in today's złoty, so it is exact only for lots bought in the same month.
 
 ### D-042 Faster market updates: closed tickers stop, a rate limit stops the run, progress is shown
 - **Date:** 2026-11-17 · **Status:** Accepted (extends D-017)
