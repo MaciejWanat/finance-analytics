@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finance-analytics"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Self-hosted, privacy-first analytics for personal savings and investments, valued in PLN."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,9 @@ dev = [
 
 [project.scripts]
 fa = "finance_analytics.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "finance_analytics.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

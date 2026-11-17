@@ -701,6 +701,17 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Six tiles in the row. Each tile is a CSS size container and its value shrinks with the tile (never below 1 rem) instead of losing digits to an ellipsis; at about 1280 px with the sidebar open the values are smaller, from about 1600 px they are full size.
 - **Consequences:** none for other pages beyond the shrinking values, which only apply to tiles too narrow for them.
 
+### D-064 Versioning and releases; first release 0.9.0
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** the core scope works end to end and the user wants a first GitHub release, numbered 0.9 rather than 1.0.
+- **Decision:**
+  - Versions follow Semantic Versioning. The only place the version is written is `__version__` in `src/finance_analytics/__init__.py`; `pyproject.toml` reads it (`dynamic = ["version"]`), and `fa --version` shows it.
+  - A release is an annotated tag `vX.Y.Z` on `main` and a GitHub release of that tag. Its notes are the version's section of `CHANGELOG.md` (Keep a Changelog), plus install instructions.
+  - No wheel or other build is attached: the UI runs from the checkout (`app/` is not part of the package), so the app is installed from source with `pip install -e .`. GitHub's source archives are the only assets.
+  - Before tagging: `pytest`, `ruff check .`, `python scripts/check_no_private_data.py --all`, the shipped bond data checked for new series and official rates (D-026), the README and `CHANGELOG.md` updated.
+  - 0.9.0 (2026-11-18) is the first release. It is not marked as a pre-release: the 0.x number already says the app may still change.
+- **Consequences:** changes from now on are noted in `CHANGELOG.md` under an `Unreleased` heading until the next release.
+
 ---
 
 ## Open questions
