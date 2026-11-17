@@ -61,8 +61,11 @@ OPEN_POSITIONS = SheetLayout(
 
 SHEETS = (CLOSED_POSITIONS, CASH_OPERATIONS, OPEN_POSITIONS)  # order in the workbook
 
-# Cash operation types seen so far. Others (sales, withdrawals, fees) exist in XTB but
+# Cash operation types seen so far. Others (fees, currency conversion) exist in XTB but
 # have not been observed yet; the parser must reject unknown types loudly (D-007).
+# `Stock sell`, `Withdrawal` and `Subaccount transfer` come from a real EUR export (D-043);
+# `Transfer`, `IKE deposit`, `IKZE deposit` and `SEC fee` from real exports too (D-045).
+# Their comment formats are not confirmed yet.
 CASH_TYPES_OBSERVED = (
     "Deposit",
     "Stock purchase",
@@ -70,10 +73,17 @@ CASH_TYPES_OBSERVED = (
     "Withholding tax",
     "Free funds interest",
     "Free funds interest tax",
+    "Stock sell",
+    "Withdrawal",
+    "Subaccount transfer",
+    "Transfer",
+    "IKE deposit",
+    "IKZE deposit",
+    "SEC fee",
 )
-# Used by the mock export for sales, but NOT seen in a real export yet (Q-006). The
-# parser must not accept these until a real report confirms them.
-CASH_TYPES_ASSUMED = ("Stock sale",)
+# Types accepted with a warning because only the mock uses them (Q-006). Empty since
+# `Stock sell` was seen in a real export (D-043).
+CASH_TYPES_ASSUMED: tuple[str, ...] = ()
 CLOSED_TOTAL_ROW = "Profit/loss"  # last row of Closed Positions (seen with no closed positions)
 CASH_TOTAL_ROW = "Total"  # last row of Cash Operations: Type="Total", only Amount filled
 

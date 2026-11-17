@@ -10,6 +10,8 @@ allocation view).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -258,6 +260,99 @@ def category_bars(
     fig.update_layout(showlegend=False, bargap=0.45, barcornerradius=4, hovermode="closest",
                       margin={"t": 30})
     return fig
+
+
+SPARK_HOVER = {"money": "%{y:,.2f} zł", "pct": "%{y:+.1%}"}
+
+
+def sparkline(values: Sequence[float], *, color: str, kind: str = "money", mode: Mode, height: int = 56,
+              water: bool = False) -> go.Figure:
+    """KPI tile sparkline: area down to the lowest point, Polish number format in the hover (12 345,67 zł).
+
+    `water=True` fills from the zero line instead: red below it (under water), green above it.
+    """
+    tokens = TOKENS[mode]
+    y = [float(v) for v in values]
+    fig = go.Figure(layout={"template": template(mode), "height": height})
+    x = list(range(len(y)))
+    if water:
+        for part, fill in (([min(v, 0.0) for v in y], tokens.bad), ([max(v, 0.0) for v in y], tokens.good)):
+            if any(part):
+                fig.add_trace(go.Scatter(x=x, y=part, mode="lines", fill="tozeroy", fillcolor=_rgba(fill, 0.30),
+                                         line={"width": 0}, hoverinfo="skip", showlegend=False))
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="lines", line={"color": tokens.ink_secondary, "width": 1.5},
+            hovertemplate=f"{SPARK_HOVER[kind]}<extra></extra>", showlegend=False,
+        ))
+        fig.add_hline(y=0, line={"color": tokens.baseline, "width": 1})
+    else:
+        floor = min(y)
+        fig.add_trace(go.Scatter(x=x, y=[floor] * len(y), mode="lines", line={"width": 0}, hoverinfo="skip",
+                                 showlegend=False))
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="lines", fill="tonexty", fillcolor=_rgba(color, 0.18), line={"color": color, "width": 2},
+            hovertemplate=f"{SPARK_HOVER[kind]}<extra></extra>", showlegend=False,
+        ))
+    fig.update_layout(
+        margin={"l": 0, "r": 0, "t": 4, "b": 0}, hovermode="x", showlegend=False,
+        hoverlabel={"bgcolor": tokens.surface, "bordercolor": tokens.gridline},
+    )
+    # The axis stays "visible" but bare: Plotly draws the hover line (spike) only on a visible axis.
+    fig.update_xaxes(
+        visible=True, showticklabels=False, showgrid=False, zeroline=False, showline=False, ticks="",
+        fixedrange=True, showspikes=True, spikemode="across", spikesnap="data", spikethickness=1,
+        spikedash="solid", spikecolor=tokens.ink_muted,
+    )
+    fig.update_yaxes(visible=False, fixedrange=True)
+    return fig
+
+
+DETAIL_HOVER = {"money": "%{y:,.2f} zł", "pct": "%{y:+.2%}"}
+# Range buttons of the full chart; "Okres" = the window picked on the page.
+_RANGE_BUTTONS = [
+    {"count": 1, "label": "1M", "step": "month", "stepmode": "backward"},
+    {"count": 6, "label": "6M", "step": "month", "stepmode": "backward"},
+    {"count": 1, "label": "YTD", "step": "year", "stepmode": "todate"},
+    {"count": 1, "label": "1R", "step": "year", "stepmode": "backward"},
+    {"count": 3, "label": "3L", "step": "year", "stepmode": "backward"},
+    {"label": "Maks.", "step": "all"},
+]
+DETAIL_CONFIG = {**PLOTLY_CONFIG, "scrollZoom": True, "displayModeBar": True}
+
+
+def detail_chart(
+    series: pd.Series, *, name: str, mode: Mode, kind: str = "money", start: pd.Timestamp | None = None,
+    height: int = 520,
+) -> go.Figure:
+    """Full history of one KPI for the enlarged view: zoom with the wheel or a box, a range slider
+    below and range buttons above. Opens on `start` (the page's period) when given."""
+    tokens = TOKENS[mode]
+    color = tokens.series[0]
+    fig = _base(mode, height)
+    fig.add_trace(go.Scatter(
+        x=series.index, y=series.values, name=name, mode="lines", line={"color": color, "width": 2},
+        fill="tozeroy", fillcolor=_rgba(color, 0.10), hovertemplate=f"{DETAIL_HOVER[kind]}<extra></extra>",
+    ))
+    fig.update_layout(showlegend=False, hovermode="x", dragmode="zoom", margin={"t": 48})
+    fig.update_xaxes(
+        rangeslider={"visible": True, "thickness": 0.08, "bgcolor": tokens.surface, "bordercolor": tokens.gridline},
+        rangeselector={
+            "buttons": _RANGE_BUTTONS, "x": 0, "y": 1.08, "bgcolor": tokens.surface, "activecolor": tokens.gridline,
+            "bordercolor": tokens.gridline, "borderwidth": 1, "font": {"color": tokens.ink_secondary, "size": 12},
+        },
+    )
+    if start is not None and len(series) and start > series.index[0]:
+        fig.update_xaxes(range=[start, series.index[-1]])
+    fig.update_yaxes(tickformat=",.0%" if kind == "pct" else ",.0f", fixedrange=False)
+    return fig
+
+
+def show_detail(fig: go.Figure, *, key: str) -> None:
+    st.plotly_chart(fig, theme=None, config=DETAIL_CONFIG, key=key)
+
+
+def show_spark(fig: go.Figure, *, key: str) -> None:
+    st.plotly_chart(fig, theme=None, config={"displayModeBar": False}, key=key)
 
 
 def show(fig: go.Figure, *, key: str | None = None) -> None:

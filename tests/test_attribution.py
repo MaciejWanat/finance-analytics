@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 from test_valuation import D, lot, make_inputs
 
-from finance_analytics.portfolio.attribution import attribute
+from finance_analytics.portfolio.attribution import attribute, fx_pnl
 from finance_analytics.portfolio.valuation import value_portfolio
 
 FX = [("USD", D("2026-01-05"), 4.0), ("USD", D("2026-01-06"), 4.0), ("USD", D("2026-01-07"), 4.4)]
@@ -64,3 +64,13 @@ def test_currency_without_nbp_rates_does_not_break_the_split():
     v = value_portfolio(make_inputs(lots=[lot()], ledger=LEDGER, prices=PRICES), date(2026, 1, 7))
     a = attribute(v, START, END)
     assert a.by_currency["fx_change"].isna().all()
+
+
+def test_fx_pnl_is_the_daily_currency_gain_in_pln():
+    """D-059: shares and foreign cash, rate change times what was held overnight, per currency."""
+    stock = fx_pnl(value_portfolio(make_inputs(lots=[lot()], ledger=LEDGER, prices=PRICES, fx=FX), date(2026, 1, 7)))
+    assert list(stock.columns) == ["USD"] and stock["USD"].sum() == pytest.approx(440.0)  # 1100 USD x +0.4
+    assert stock.loc[D("2026-01-06"), "USD"] == pytest.approx(0.0)  # price moved, the rate did not
+    cash = fx_pnl(value_portfolio(make_inputs(ledger=[("usd", D("2026-01-05"), "DEPOSIT", 1000.0)], fx=FX),
+                                  date(2026, 1, 7)))
+    assert cash["USD"].sum() == pytest.approx(400.0)

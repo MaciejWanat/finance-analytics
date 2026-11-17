@@ -93,6 +93,12 @@ def test_append_and_delete_rows(tmp_path):
         (1, date(2026, 1, 5)), (2, date(2026, 2, 5))]
     assert not files.delete_row(path, 9)
     assert path.read_text(encoding="utf-8").startswith(HEADER)
+    # Edit in place: the row keeps its number, other rows are untouched.
+    assert files.update_snapshot(path, 1, "bank-eur", date(2026, 1, 6), Decimal("7.25"), "fixed")
+    assert [(s.row, s.account_id, s.day, s.balance, s.note) for s in files.read_snapshots(path, KINDS).snapshots] == [
+        (1, "bank-eur", date(2026, 1, 6), Decimal("7.25"), "fixed"), (2, "bank-pln", date(2026, 2, 5), Decimal("-3.1"),
+                                                                      "")]
+    assert not files.update_snapshot(path, 5, "bank-pln", date(2026, 1, 6), Decimal("1"))
 
 
 def test_upload_is_validated_and_never_overwrites(tmp_path):
@@ -255,3 +261,22 @@ def test_load_inputs_reads_the_projection(settings):
     assert inputs.cash_snapshots["balance"].tolist() == [100.5]
     v = value_portfolio(inputs, date(2026, 1, 6))
     assert v.total.tolist() == [100.5, 100.5]
+
+
+def test_edited_table_is_checked_as_a_whole_then_written(tmp_path):
+    """D-053: the table on "Gotówka" is validated row by row and replaces the file only when all rows are fine."""
+    path = tmp_path / "manual" / "cash_balances.csv"
+    files.append_snapshot(path, "bank-pln", date(2026, 1, 5), Decimal("100"), "a")
+    rows = [("bank-pln", date(2026, 1, 5), 120.5, " edited "), ("bank-eur", date(2026, 1, 4), "2,5", "")]
+    clean, errors = files.check_table(rows, KINDS, date(2026, 2, 1))
+    assert errors == []
+    files.write_snapshots(path, clean)
+    assert [(s.account_id, s.day, s.balance, s.note) for s in files.read_snapshots(path, KINDS).snapshots] == [
+        ("bank-eur", date(2026, 1, 4), Decimal("2.5"), ""), ("bank-pln", date(2026, 1, 5), Decimal("120.5"), "edited")]
+    bad = [("bank-pln", date(2026, 1, 5), 1.0, ""), ("bank-pln", date(2026, 1, 5), 2.0, ""),
+           (None, date(2026, 1, 5), 1.0, ""), ("xtb-1", date(2026, 1, 5), 1.0, ""), ("bank-pln", None, 1.0, ""),
+           ("bank-pln", date(2026, 1, 6), float("nan"), "")]
+    _, errors = files.check_table(bad, KINDS, date(2026, 2, 1))
+    assert [e.split(":")[0] for e in errors] == ["Wiersz 2", "Wiersz 3", "Wiersz 4", "Wiersz 5", "Wiersz 6"]
+    assert "wierszu 1" in errors[0]
+

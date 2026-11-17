@@ -9,11 +9,15 @@ cache (later migrations) is never touched here.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import re
+import zipfile
+from collections.abc import Iterator
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -86,33 +90,51 @@ def _iso(moment: datetime | None) -> str | None:
 MATCH_WINDOW_SECONDS = 600  # a cash operation and its position may be stamped a few minutes apart
 
 
-def _match(positions: dict, ops: dict, when) -> dict:
-    """Pair cash operations (buys or sells) with positions: position key -> operation.
+def _fill(op) -> tuple[float | None, float | None]:
+    """(volume of this fill, volume of the whole order) from an "OPEN BUY" comment, when present."""
+    found = OPEN_BUY_RE.match(op.comment or "")
+    if not found:
+        return None, None
+    volume = float(found["volume"])
+    return volume, float(found["order"]) if found["order"] else volume
 
-    First by position ID. Real exports do not always use the same ID in Cash Operations and
-    in the position sheets, so the rest is paired by account, ticker, volume (from the
-    "OPEN BUY <ticker> <volume> @ <price>" comment when present) and the nearest time within
-    MATCH_WINDOW_SECONDS. `when(position)` gives the position's time to compare with.
+
+def _match(positions: dict, ops: dict[tuple, list], when) -> dict[tuple, list]:
+    """Pair cash operations (buys or sells) with positions: position key -> its operations.
+
+    One position can have several operations: an order for fractional shares is filled in
+    parts (D-048), and the parts may carry different IDs. First by position ID; the rest is
+    paired by account, ticker, order volume (from the "OPEN BUY" comment when present) and
+    the nearest time within MATCH_WINDOW_SECONDS. A position takes parts until their volumes
+    add up to its own. `when(position)` gives the position's time to compare with.
     """
-    matched = {key: ops[key] for key in positions if key in ops}
-    used = {id(op) for op in matched.values()}
-    for (account_id, _), op in sorted(ops.items(), key=lambda kv: kv[1].ts):
+    matched = {key: list(ops[key]) for key in positions if key in ops}
+    used = {id(op) for group in matched.values() for op in group}
+
+    def room(key) -> float:
+        p = positions[key][0]
+        taken = 0.0
+        for op in matched.get(key, []):
+            volume, _ = _fill(op)
+            taken += p.volume if volume is None else volume
+        return p.volume - taken
+
+    pending = sorted(((key, op) for key, group in ops.items() for op in group), key=lambda kv: kv[1].ts)
+    for (account_id, _), op in pending:
         if id(op) in used:
             continue
-        volume = None
-        found = OPEN_BUY_RE.match(op.comment or "")
-        if found:
-            volume = float(found["volume"])
+        volume, order = _fill(op)
         candidates = [
             (abs((when(p) - op.ts).total_seconds()), key)
             for key, (p, _) in positions.items()
-            if key[0] == account_id and key not in matched and p.symbol == op.symbol and when(p) is not None
+            if key[0] == account_id and p.symbol == op.symbol and when(p) is not None
             and abs((when(p) - op.ts).total_seconds()) <= MATCH_WINDOW_SECONDS
-            and (volume is None or abs(p.volume - volume) < 1e-6)
+            and (order is None or abs(p.volume - order) < 1e-6)
+            and room(key) >= (volume if volume is not None else p.volume) - 1e-6
         ]
         if candidates:
             key = min(candidates)[1]
-            matched[key] = op
+            matched.setdefault(key, []).append(op)
             used.add(id(op))
     return matched
 
@@ -145,19 +167,57 @@ def store_xtb_file(name: str, data: bytes, settings: Settings) -> tuple[Path, bo
     return target, True
 
 
+MAX_ZIP_ENTRY_BYTES = 100 * 1024 * 1024  # an export file is a few hundred kB; guards against zip bombs
+
+
+def is_export_name(name: str) -> bool:
+    base = PurePosixPath(name).name
+    return (base.lower().endswith(".xlsx") and not base.startswith(("~$", "._"))
+            and "__MACOSX" not in PurePosixPath(name).parts)
+
+
+def zip_export_files(data: bytes, label: str) -> Iterator[tuple[str, str, bytes]]:
+    """The .xlsx files inside an export zip (as xStation saves it): (display name, file name, content)."""
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        for entry in archive.infolist():
+            if entry.is_dir() or not is_export_name(entry.filename):
+                continue
+            if entry.file_size > MAX_ZIP_ENTRY_BYTES:
+                raise XtbFormatError(f"{entry.filename}: too large for an export file")
+            yield f"{label}/{entry.filename}", PurePosixPath(entry.filename).name, archive.read(entry)
+
+
+def _export_paths(source: Path) -> list[Path]:
+    if source.is_file():
+        return [source]
+    return sorted(p for p in source.rglob("*") if p.is_file() and p.suffix.lower() in (".xlsx", ".zip"))
+
+
 def import_xtb(source: Path, settings: Settings) -> ImportResult:
-    """Copy an export folder (or a single file) into data/raw/xtb. Never modifies the source."""
-    files = [source] if source.is_file() else sorted(source.rglob("*.xlsx"))
+    """Copy an export folder, an export zip or a single file into data/raw/xtb (D-044).
+
+    A folder may hold .xlsx files and zips. Zips are read in memory, never extracted to
+    disk, and the source is never modified.
+    """
     result = ImportResult()
-    for path in files:
-        if path.name.startswith("~$"):  # Excel lock file
+    for path in _export_paths(source):
+        if path.suffix.lower() == ".zip":
+            try:
+                files = list(zip_export_files(path.read_bytes(), str(path)))
+            except (zipfile.BadZipFile, XtbFormatError) as exc:
+                result.skipped.append((path, f"not a readable export zip: {exc}"))
+                continue
+        elif is_export_name(path.name):
+            files = [(str(path), path.name, path.read_bytes())]
+        else:
             continue
-        try:
-            stored, written = store_xtb_file(path.name, path.read_bytes(), settings)
-        except XtbFormatError as exc:
-            result.skipped.append((path, str(exc)))
-            continue
-        (result.copied if written else result.unchanged).append(stored)
+        for shown, name, data in files:
+            try:
+                stored, written = store_xtb_file(name, data, settings)
+            except XtbFormatError as exc:
+                result.skipped.append((Path(shown), str(exc)))
+                continue
+            (result.copied if written else result.unchanged).append(stored)
     return result
 
 
@@ -383,6 +443,8 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
     cash: dict[tuple[str, str], tuple] = {}
     latest_open: dict[str, tuple[str, set[str]]] = {}  # account -> (date_to, open position ids)
     seen_open: dict[tuple[str, str], str] = {}  # (account, position) -> file name that listed it open
+    open_records: dict[tuple[str, str], tuple[Position, int, date]] = {}  # newest file listing it open
+    closed_records: dict[tuple[str, str], tuple[Position, int]] = {}
 
     ordered = sorted(parsed, key=lambda item: (item[1].date_to if item[1] else datetime.min.date(), item[0].name))
     for path, data, error in ordered:
@@ -425,13 +487,13 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             key = (account_id, position.position_id)
             open_ids.add(position.position_id)
             seen_open[key] = path.name
-            existing = positions.get(key)
-            if existing is None or existing[0].close_time is None:
-                positions[key] = (position, file_id)
+            open_records[key] = (position, file_id, data.date_to)  # files go oldest first: the newest wins
         for position in data.closed_positions:
-            positions[(account_id, position.position_id)] = (position, file_id)
+            closed_records[(account_id, position.position_id)] = (position, file_id)
         if data.date_to.isoformat() >= latest_open.get(account_id, ("", set()))[0]:
             latest_open[account_id] = (data.date_to.isoformat(), open_ids)
+
+    positions.update(_merge_open_and_closed(open_records, closed_records))
 
     instrument_ids = {}
     ticker_overrides = load_yahoo_overrides(settings.config_dir)
@@ -448,8 +510,11 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
                   "sources/sync.py or config/yahoo_tickers.yaml), so it has no market price and is valued at "
                   "purchase cost")
 
-    buys = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "BUY"}
-    sells = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "SELL"}
+    buys: dict[tuple, list] = {}
+    sells: dict[tuple, list] = {}
+    for (acc, _), (op, _) in sorted(cash.items(), key=lambda kv: kv[1][0].ts):
+        if op.ledger_type in ("BUY", "SELL"):
+            (buys if op.ledger_type == "BUY" else sells).setdefault((acc, op.position_id), []).append(op)
     for (account_id, _), (op, file_id) in sorted(cash.items(), key=lambda kv: kv[1][0].ts):
         conn.execute(
             "INSERT INTO cash_ledger (account_id, ts, type, amount, instrument_id, position_id, broker_type, "
@@ -460,10 +525,16 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
 
     buy_for = _match(positions, buys, lambda p: p.open_time)
     sell_for = _match(positions, sells, lambda p: p.close_time)
+    _continue_split_closes(positions, sells, sell_for, issue)
     for (account_id, position_id), (p, file_id) in sorted(positions.items(), key=lambda kv: kv[1][0].open_time):
-        buy, sell = buy_for.get((account_id, position_id)), sell_for.get((account_id, position_id))
-        purchase = p.purchase_value if p.purchase_value is not None else (-buy.amount if buy else None)
-        sale = p.sale_value if p.sale_value is not None else (sell.amount if sell else None)
+        bought, sold = buy_for.get((account_id, position_id), []), sell_for.get((account_id, position_id), [])
+        # All parts of a split order (D-048); the Closed Positions sheet's own values win when present.
+        purchase = p.purchase_value if p.purchase_value is not None else (
+            round(-sum(op.amount for op in bought), 2) if bought else None)
+        sale = p.sale_value if p.sale_value is not None else (
+            round(sum(op.amount for op in sold), 2) if sold else None)
+        if purchase is None and position_id.endswith("/rest"):
+            purchase = _rest_cost(positions, buy_for, (account_id, position_id.removesuffix("/rest")), p)
         conn.execute(
             "INSERT INTO positions (account_id, position_id, instrument_id, side, volume, open_time, open_price, "
             "close_time, close_price, purchase_value, sale_value, source_file_id) "
@@ -482,22 +553,121 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
     _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, sell_for)
 
 
+def _technical_close(p: Position) -> bool:
+    """Closed at its own open price for its own purchase value: how XTB books a stock split (D-051, D-056)."""
+    if p.close_price is None or not p.open_price or abs(p.close_price / p.open_price - 1) > 1e-6:
+        return False
+    return p.sale_value is None or not p.purchase_value or abs(p.sale_value / p.purchase_value - 1) <= 1e-4
+
+
+def _merge_open_and_closed(open_records: dict, closed_records: dict) -> dict:
+    """One entry per position, from the Open and Closed Positions sheets of all exports (D-056).
+
+    XTB keeps a position's ID when it closes it only in part, or only for a stock split: the same ID
+    is then both in Closed Positions and, in an export that ends after that close, in Open Positions.
+    Such a position is still open. A technical (split) close is dropped, since the open record already
+    holds the shares in today's units from the original open date; after a partial sale the sold part
+    stays as a closed lot and the rest becomes a lot of its own. An open record from an export that
+    ends before the close is simply out of date.
+    """
+    merged: dict = {}
+    for key in open_records.keys() | closed_records.keys():
+        opened, closed = open_records.get(key), closed_records.get(key)
+        if closed is None:
+            merged[key] = opened[:2]
+        elif opened is None or opened[2] < closed[0].close_time.date():
+            merged[key] = closed
+        elif _technical_close(closed[0]):
+            merged[key] = opened[:2]
+        else:
+            merged[key] = closed
+            rest = replace(opened[0], position_id=f"{key[1]}/rest")
+            merged[(key[0], rest.position_id)] = (rest, opened[1])
+    return merged
+
+
+def _rest_cost(positions: dict, buy_for: dict, sold_key: tuple, rest: Position) -> float | None:
+    """Cost of what is left after a partial sale (D-061).
+
+    The purchases carry the position's own ID, so they pair with the sold part. What is left
+    cost all purchases minus the sold part's purchase value; when that is not known, the
+    purchases are split by volume.
+    """
+    bought = buy_for.get(sold_key, [])
+    if not bought or sold_key not in positions:
+        return None
+    total = -sum(op.amount for op in bought)
+    sold = positions[sold_key][0]
+    if sold.purchase_value is not None and 0 < sold.purchase_value < total:
+        return round(total - sold.purchase_value, 2)
+    whole = sold.volume + rest.volume
+    return round(total * rest.volume / whole, 2) if whole else None
+
+
+CLOSE_PRICE_RE = re.compile(r"^CLOSE BUY .*@ (?P<price>[\d.]+)$")
+
+
+def _continue_split_closes(positions: dict, sells: dict[tuple, list], sell_for: dict[tuple, list], issue) -> None:
+    """A position XTB closed only for a stock split runs on until the shares are really sold (D-051).
+
+    On a split XTB closes the old position at its own open price, with no sale in Cash Operations,
+    and reopens the shares as a new position. When that new position is missing from the exports,
+    the shares would vanish from the portfolio until their sale. Such a "technical" close is moved
+    to the first day with sales of the same ticker on the account that no position claims; those
+    sales become its sale value. The valuation then counts the old lot (split-adjusted) until then.
+    """
+    paired = {id(op) for group in sell_for.values() for op in group}
+    for key, (p, file_id) in sorted(positions.items(), key=lambda kv: kv[1][0].close_time or datetime.max):
+        if p.close_time is None or sell_for.get(key) or not _technical_close(p):
+            continue
+        later = sorted(
+            (op for (account_id, _), group in sells.items() if account_id == key[0] for op in group
+             if id(op) not in paired and op.symbol == p.symbol and op.ts > p.close_time),
+            key=lambda op: op.ts,
+        )
+        if not later:
+            issue(None, key[0], "warning",
+                  f"{p.symbol} position {key[1]} was closed on {p.close_time:%Y-%m-%d} at its own open price "
+                  "with no sale: probably a stock split, but the reopened position is not in the exports")
+            continue
+        day = later[0].ts.date()
+        taken = [op for op in later if op.ts.date() == day]
+        paired.update(id(op) for op in taken)
+        sell_for[key] = taken
+        found = CLOSE_PRICE_RE.match(taken[0].comment or "")
+        positions[key] = (replace(p, close_time=taken[-1].ts, sale_value=round(sum(op.amount for op in taken), 2),
+                                  close_price=float(found["price"]) if found else None), file_id)
+        issue(None, key[0], "warning",
+              f"{p.symbol} position {key[1]}: closed by XTB on {p.close_time:%Y-%m-%d} only for a stock split; "
+              f"counted until its sale on {day:%Y-%m-%d}")
+
+
 def _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, sell_for) -> None:
     """Cross-check sheets and exports; findings are warnings, never silent fixes."""
-    paired_buys = {id(op) for op in buy_for.values()}
-    paired_sells = {id(op) for op in sell_for.values()}
-    for (account_id, position_id), op in buys.items():
-        if id(op) not in paired_buys:
-            issue(None, account_id, "warning",
-                  f"purchase {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no matching position; "
-                  "it was probably sold outside the exported date ranges")
-    for (account_id, position_id), op in sells.items():
-        if id(op) not in paired_sells:
-            issue(None, account_id, "warning",
-                  f"sale {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no closed position")
+    paired_buys = {id(op) for group in buy_for.values() for op in group}
+    paired_sells = {id(op) for group in sell_for.values() for op in group}
+    for (account_id, position_id), group in buys.items():
+        for op in group:
+            if id(op) not in paired_buys:
+                issue(None, account_id, "warning",
+                      f"purchase {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no matching position; "
+                      "it was probably sold outside the exported date ranges")
+    for (account_id, position_id), group in sells.items():
+        for op in group:
+            if id(op) not in paired_sells:
+                issue(None, account_id, "warning",
+                      f"sale {op.symbol} on {op.ts:%Y-%m-%d} (position {position_id}) has no closed position")
+    for key, group in buy_for.items():
+        p = positions[key][0]
+        volumes = [_fill(op)[0] for op in group]
+        if len(group) > 1 and None not in volumes and abs(sum(volumes) - p.volume) > 1e-6:
+            issue(None, key[0], "warning",
+                  f"{p.symbol} position {key[1]}: the purchases found add up to {sum(volumes):g} of "
+                  f"{p.volume:g} units, so its cost is incomplete")
     for (account_id, position_id), (p, _) in positions.items():
         _, open_now = latest_open.get(account_id, ("", set()))
-        if p.close_time is None and position_id not in open_now:
+        listed_id = position_id.removesuffix("/rest")  # the rest after a partial sale keeps XTB's ID (D-056)
+        if p.close_time is None and listed_id not in open_now:
             issue(None, account_id, "warning",
-                  f"{p.symbol} position {position_id} was open in {seen_open.get((account_id, position_id))} "
+                  f"{p.symbol} position {listed_id} was open in {seen_open.get((account_id, listed_id))} "
                   "but is missing from the newest export; export a range that covers its sale")

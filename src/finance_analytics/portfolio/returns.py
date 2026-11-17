@@ -27,12 +27,18 @@ DAYS_PER_YEAR = 365.25
 # ------------------------------------------------------------------------------------ TWR
 
 
+MIN_CAPITAL = 0.01  # PLN; less than a grosz of capital is rounding noise, not money at risk (D-062)
+MIN_DEPOSITS = 1.0  # PLN; profit vs deposits is meaningless below this (D-062)
+
+
 def daily_returns(values: pd.Series, flows: pd.Series) -> pd.Series:
     """Daily TWR sub-period returns. `values`: daily value; `flows`: external flow per day."""
     flows = flows.groupby(level=0).sum().reindex(values.index, fill_value=0.0)
     base = values.shift(1).fillna(0.0) + flows
     returns = values / base - 1
-    return returns.where(base > 0, 0.0)  # no capital at risk yet: no return
+    # No capital at risk: no return. "Capital" below a grosz is rounding noise, e.g. a deposit and a
+    # withdrawal of the same amount on one day that sum to 1e-13 instead of 0 (D-062).
+    return returns.where(base > MIN_CAPITAL, 0.0)
 
 
 def twr_index(values: pd.Series, flows: pd.Series) -> pd.Series:
@@ -142,6 +148,33 @@ def drawdown(index: pd.Series) -> Drawdown:
         recovered=back.index[0] if not back.empty else None,
         current=float(series.iloc[-1]),
     )
+
+
+@dataclass(frozen=True)
+class Underwater:
+    """How far the portfolio was below the money put in (D-049): (value - deposits) / deposits."""
+    series: pd.Series  # daily ratio; NaN while nothing is deposited
+    worst: float | None  # lowest ratio (negative when the portfolio was ever below its deposits)
+    day: pd.Timestamp | None  # when it was lowest
+    profit: float | None  # value - deposits on that day, PLN
+    current: float | None
+
+
+def underwater(values: pd.Series, contributed: pd.Series, start: pd.Timestamp | None = None) -> Underwater:
+    """Profit relative to deposits, day by day; the minimum from `start` (default: all history).
+
+    `contributed` is the running sum of external flows (deposits minus withdrawals) in PLN.
+    Example: 1000 PLN deposited, 800 at the lowest, 1200 today -> worst -20 %, current +20 %.
+    """
+    contributed = contributed.reindex(values.index).ffill().fillna(0.0)
+    profit = values - contributed
+    ratio = (profit / contributed).where(contributed > MIN_DEPOSITS)  # below 1 zł: nothing really put in
+    window = ratio[ratio.index >= start] if start is not None else ratio
+    window = window.dropna()
+    if window.empty:
+        return Underwater(ratio, None, None, None, None)
+    day = window.idxmin()
+    return Underwater(ratio, float(window.min()), day, float(profit[day]), float(window.iloc[-1]))
 
 
 # ----------------------------------------------------------------------- calendar returns

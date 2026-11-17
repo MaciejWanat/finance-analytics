@@ -20,6 +20,7 @@ from pathlib import Path
 from finance_analytics.sources.bonds import parse_date
 from finance_analytics.sources.manual_csv import append_row, dialect
 from finance_analytics.sources.manual_csv import delete_row as _delete_row
+from finance_analytics.sources.manual_csv import replace_row as _replace_row
 
 CASH_PARSER_VERSION = 1
 SNAPSHOT_COLUMNS = ["account_id", "date", "balance", "note"]
@@ -116,6 +117,52 @@ def parse_snapshots(text: str, name: str, kinds: dict[str, str], today: date | N
 def append_snapshot(path: Path, account_id: str, day: date, balance: Decimal, note: str = "") -> None:
     """Add one balance at the end of cash_balances.csv (created with a header when missing)."""
     append_row(path, SNAPSHOT_COLUMNS, [account_id, day.isoformat(), f"{balance:f}", note])
+
+
+def check_table(rows: list[tuple[str | None, date | None, object, str]], kinds: dict[str, str],
+                today: date | None = None) -> tuple[list[tuple[str, date, Decimal, str]], list[str]]:
+    """Validate a whole edited table of balances (account, day, balance, note), as on "Gotówka" (D-053).
+
+    Returns the clean rows and a Polish error per bad row (1-based as shown). Nothing is written.
+    """
+    clean, errors, seen = [], [], {}
+    for number, (account_id, day, balance, note) in enumerate(rows, start=1):
+        try:
+            if not account_id:
+                raise ValueError("wybierz konto")
+            if day is None:
+                raise ValueError("wpisz datę salda")
+            if balance is None or (isinstance(balance, float) and math.isnan(balance)):
+                raise ValueError("wpisz saldo")
+            amount = parse_balance(str(balance))
+            problem = check_snapshot(account_id, day, kinds, today)
+            if problem:
+                raise ValueError(problem)
+            if (account_id, day) in seen:
+                raise ValueError(f"to samo konto i dzień co w wierszu {seen[(account_id, day)]}")
+        except ValueError as exc:
+            errors.append(f"Wiersz {number}: {exc}.")
+            continue
+        seen[(account_id, day)] = number
+        clean.append((account_id, day, amount, (note or "").strip()))
+    return clean, errors
+
+
+def write_snapshots(path: Path, rows: list[tuple[str, date, Decimal, str]]) -> None:
+    """Replace cash_balances.csv with these rows, oldest first, keeping the file's separator."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=dialect(text) if text.strip() else ",", lineterminator="\n")
+    writer.writerow(SNAPSHOT_COLUMNS)
+    for account_id, day, balance, note in sorted(rows, key=lambda r: (r[1], r[0])):
+        writer.writerow([account_id, day.isoformat(), f"{balance:f}", note])
+    path.write_text(buffer.getvalue(), encoding="utf-8")
+
+
+def update_snapshot(path: Path, row: int, account_id: str, day: date, balance: Decimal, note: str = "") -> bool:
+    """Overwrite one balance in cash_balances.csv (row as numbered by read_snapshots)."""
+    return _replace_row(path, row, [account_id, day.isoformat(), f"{balance:f}", note])
 
 
 def delete_row(path: Path, row: int) -> bool:

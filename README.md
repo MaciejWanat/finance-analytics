@@ -65,7 +65,7 @@ fa demo        # builds data-demo/ (mock XTB export, bond purchases, bank balanc
 Then with your own data:
 
 ```bash
-fa import xtb <export folder>      # the folder xStation writes; the source is only read
+fa import xtb <folder or .zip>     # the zip xStation saves, or its folder; the source is only read
 fa import inbox                    # or: set an inbox folder on Ustawienia, new exports then import by themselves
 fa settings --online               # allow public market data downloads (offline by default)
 fa update-market                   # prices (Yahoo), FX rates (NBP) and CPI (GUS) into the local cache

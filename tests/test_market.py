@@ -292,3 +292,21 @@ def test_bank_balance_currency_needs_nbp_rates(conn):
     conn.execute("INSERT INTO cash_snapshots (account_id, date, balance, row_no) "
                  "VALUES ('bank-eur', '2025-03-01', 1, 1)")
     assert needed_currencies(conn, {}) == {"EUR": date(2025, 3, 1)}
+
+
+def test_symbol_without_history_for_the_period_is_reported_in_polish_and_not_asked_again(conn):
+    """D-046: e.g. a delisted share whose symbol now belongs to another company."""
+
+    class Empty(FakePriceClient):
+        def history(self, ticker, start, end):
+            self.calls.append((ticker, start, end))
+            return yahoo.History(prices=[], currency=None, name=ticker)
+
+    client = Empty()
+    sold = date(2022, 11, 10)
+    needed = {"OLD": date(2022, 8, 16)}
+    report = yahoo.update_prices(conn, needed, TODAY, client=client, until={"OLD": sold})
+    assert report.errors["OLD"].startswith("Brak notowań w Yahoo dla OLD w okresie 09.08.2022–10.11.2022 — ")
+    assert "z cen Twoich transakcji" in report.errors["OLD"]
+    again = yahoo.update_prices(conn, needed, TODAY, client=client, until={"OLD": sold})
+    assert len(client.calls) == 1 and again.errors["OLD"] == report.errors["OLD"]

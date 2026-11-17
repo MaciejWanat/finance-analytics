@@ -47,7 +47,7 @@ fa ui              # Streamlit UI on http://localhost:8501 (applies migrations f
 fa ui --dev        # plus auto-rerun on save and developer pages (style preview on synthetic data)
 fa demo [--no-ui]  # data-demo/ from a synthetic export, mock bond purchases and mock bank balances, then the UI on it
 fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
-fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
+fa import xtb <folder|zip>  # archive an export (folder, xStation zip or .xlsx) into data/raw/xtb and sync
 fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
 fa sync / fa rebuild    # rebuild projection tables when files changed / always
 fa reset [--keep-…] [--market] [--backup ZIP]   # delete source files in the data dir, rebuild (D-038)

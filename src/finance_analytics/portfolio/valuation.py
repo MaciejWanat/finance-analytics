@@ -26,7 +26,7 @@ import pandas as pd
 
 from finance_analytics.portfolio import bonds as bond_math
 
-MODEL_VERSION = 5  # bump when Valuation's fields or rules change, so UI caches are not reused
+MODEL_VERSION = 7  # bump when Valuation's fields or rules change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
 NO_RATES = "Brak kursów NBP dla"  # start of the warning for a currency without rates (the UI checks for it)
 
@@ -61,7 +61,7 @@ class BondInputs:
 @dataclass
 class Inputs:
     lots: pd.DataFrame  # account_id, instrument_id, symbol, name, asset_class, ticker, volume, open_date,
-    #                     close_date, open_price, purchase_value
+    #                     close_date, open_price, close_price, purchase_value
     ledger: pd.DataFrame  # account_id, date, type, amount
     accounts: pd.DataFrame  # account_id, alias, currency, tax_wrapper
     prices: pd.DataFrame  # ticker, date, close
@@ -85,6 +85,7 @@ class Valuation:
     prices: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x ticker, price currency (carried)
     fx: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x currency, PLN per unit used for values
     currencies: dict[str, str] = field(default_factory=dict)  # ticker -> price currency
+    cash_warnings: list[str] = field(default_factory=list)  # the subset about bank cash ("Gotówka" shows only these)
 
     @property
     def total(self) -> pd.Series:
@@ -103,7 +104,7 @@ def load_inputs(db_path: Path) -> Inputs:
             """
             SELECT p.account_id, p.instrument_id, i.xtb_symbol AS symbol, i.name, i.asset_class,
                    i.yahoo_ticker AS ticker, p.volume, substr(p.open_time, 1, 10) AS open_date,
-                   substr(p.close_time, 1, 10) AS close_date, p.open_price, p.purchase_value
+                   substr(p.close_time, 1, 10) AS close_date, p.open_price, p.close_price, p.purchase_value
             FROM positions p JOIN instruments i ON i.id = p.instrument_id
             """
         )
@@ -273,11 +274,36 @@ DAILY_COLUMNS = ["date", "account_id", "account", "kind", "symbol", "name", "ass
                  "price", "fx", "value_local", "value_pln", "priced"]
 
 
-def _empty_valuation(lots: pd.DataFrame, warnings: list[str]) -> Valuation:
+# Price currency by XTB ticker suffix, for instruments Yahoo has no data (and so no currency) for.
+SUFFIX_CURRENCY = {"US": "USD", "DE": "EUR", "PL": "PLN", "FR": "EUR", "NL": "EUR", "IT": "EUR", "ES": "EUR"}
+
+
+def _trade_prices(lots: pd.DataFrame, calendar: pd.DatetimeIndex) -> pd.DataFrame:
+    """Prices from the user's own trades, calendar x instrument_id, in the price currency (D-052).
+
+    Open price on the opening day, close price on the closing day (both per today's share),
+    straight lines in between, the last one carried on. Used only on days without a market price.
+    """
+    points = [
+        (row.instrument_id, day, price * row.volume / row.volume_adj)
+        for row in lots.itertuples(index=False)
+        for day, price in ((row.open_date, row.open_price), (row.close_date, getattr(row, "close_price", None)))
+        if pd.notna(day) and pd.notna(price) and price and row.volume_adj
+    ]
+    if not points:
+        return pd.DataFrame(index=calendar)
+    frame = pd.DataFrame(points, columns=["instrument_id", "date", "price"])
+    wide = frame.pivot_table(index="date", columns="instrument_id", values="price", aggfunc="mean")
+    wide = wide.reindex(wide.index.union(calendar)).sort_index()
+    filled = wide.interpolate(method="time", limit_area="inside").ffill()
+    return filled.where(wide.bfill().notna() | wide.ffill().notna()).reindex(calendar)
+
+
+def _empty_valuation(lots: pd.DataFrame, warnings: list[str], cash_warnings: list[str] | None = None) -> Valuation:
     """Nothing to value up to `end` (no data yet, or nothing that can be valued): pages show a note."""
     return Valuation(daily=pd.DataFrame(columns=DAILY_COLUMNS),
                      flows=pd.DataFrame(columns=["date", "account_id", "type", "amount", "currency", "amount_pln"]),
-                     lots=lots, warnings=sorted(set(warnings)))
+                     lots=lots, warnings=sorted(set(warnings)), cash_warnings=sorted(set(cash_warnings or [])))
 
 
 def value_portfolio(
@@ -348,17 +374,37 @@ def value_portfolio(
     held = held.merge(price_long, on=["date", "ticker"], how="left")
     held["currency"] = held["ticker"].map(inputs.currencies).astype(object)  # may stay all-empty
 
-    # Fallback for instruments without prices: value at cost (account currency).
-    unit_cost = lots.groupby(["account_id", "instrument_id"]).apply(
-        lambda g: g["purchase_value"].sum() / g["volume_adj"].sum(), include_groups=False
-    )
+    # Days without a market price: first the user's own trade prices (D-052), then cost.
     missing = held["price"].isna() | held["currency"].isna()
     if missing.any():
-        for symbol in sorted(held.loc[missing, "symbol"].unique()):
-            warnings.append(f"{symbol}: brak ceny rynkowej w części dni; w te dni wyceniony po koszcie zakupu")
-        keys = list(zip(held.loc[missing, "account_id"], held.loc[missing, "instrument_id"], strict=True))
-        held.loc[missing, "price"] = [unit_cost.get(k, np.nan) for k in keys]
-        held.loc[missing, "currency"] = held.loc[missing, "account_id"].map(accounts["currency"])
+        trade = _trade_prices(lots, calendar)
+        suffix_ccy = {
+            row.instrument_id: (inputs.currencies.get(row.ticker)
+                                or SUFFIX_CURRENCY.get(str(row.symbol).rsplit(".", 1)[-1]))
+            for row in lots.drop_duplicates("instrument_id").itertuples(index=False)
+        }
+        idx = held.index[missing]
+        from_trades = [
+            (trade.at[day, inst] if inst in trade.columns else np.nan, suffix_ccy.get(inst))
+            for day, inst in zip(held.loc[idx, "date"], held.loc[idx, "instrument_id"], strict=True)
+        ]
+        usable = [pd.notna(price) and ccy is not None for price, ccy in from_trades]
+        by_trade = idx[usable]
+        held.loc[by_trade, "price"] = [p for (p, _), ok in zip(from_trades, usable, strict=True) if ok]
+        held.loc[by_trade, "currency"] = [c for (_, c), ok in zip(from_trades, usable, strict=True) if ok]
+        for symbol in sorted(held.loc[by_trade, "symbol"].unique()):
+            warnings.append(f"{symbol}: brak ceny rynkowej w części dni; w te dni wyceniony z cen Twoich transakcji "
+                            "(zakup, sprzedaż i wartości pośrednie)")
+        at_cost = idx[[not ok for ok in usable]]
+        if len(at_cost):
+            unit_cost = lots.groupby(["account_id", "instrument_id"]).apply(
+                lambda g: g["purchase_value"].sum() / g["volume_adj"].sum(), include_groups=False
+            )
+            for symbol in sorted(held.loc[at_cost, "symbol"].unique()):
+                warnings.append(f"{symbol}: brak ceny rynkowej w części dni; w te dni wyceniony po koszcie zakupu")
+            keys = list(zip(held.loc[at_cost, "account_id"], held.loc[at_cost, "instrument_id"], strict=True))
+            held.loc[at_cost, "price"] = [unit_cost.get(k, np.nan) for k in keys]
+            held.loc[at_cost, "currency"] = held.loc[at_cost, "account_id"].map(accounts["currency"])
     held["priced"] = ~missing
 
     fx_value = fx.copy()  # rates used for values; today's may be a live market rate
@@ -395,11 +441,13 @@ def value_portfolio(
     bond_rows, bond_flows = _bond_rows(inputs, bond_lots, calendar, end, accounts, warnings)
 
     # --- cash at banks (D-027) -------------------------------------------------------------------------
-    bank_rows, bank_flows = _bank_rows(snapshots, accounts, calendar, fx_value, fx, warnings)
+    cash_warnings: list[str] = []
+    bank_rows, bank_flows = _bank_rows(snapshots, accounts, calendar, fx_value, fx, cash_warnings)
+    warnings += cash_warnings
 
     parts = [frame for frame in (held, cash, bond_rows, bank_rows) if not frame.empty]
     if not parts:  # e.g. only balances in a currency without NBP rates, or only unknown bond series
-        return _empty_valuation(lots, warnings)
+        return _empty_valuation(lots, warnings, cash_warnings)
     daily = pd.concat(parts, ignore_index=True)
     daily["account"] = daily["account_id"].map(accounts["alias"])
     daily = daily[DAILY_COLUMNS].sort_values(["date", "account", "symbol"])
@@ -417,4 +465,5 @@ def value_portfolio(
         frames = [frame for frame in (flows, *extra) if not frame.empty]
         flows = pd.concat(frames, ignore_index=True).sort_values("date", kind="stable")
     return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
-                     warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies))
+                     warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies),
+                     cash_warnings=sorted(set(cash_warnings)))

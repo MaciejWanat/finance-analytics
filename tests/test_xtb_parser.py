@@ -109,6 +109,36 @@ def test_rejects_unknown_cash_type(export, tmp_path):
         parse_file(_modified_copy(export, tmp_path, unknown))
 
 
+def test_sales_withdrawals_and_subaccount_transfers(export, tmp_path):
+    """Types seen in real exports (D-043, D-045): transfers count as a deposit or a withdrawal by their sign."""
+    layout = schema.CASH_OPERATIONS
+    amount_col = layout.columns.index("Amount") + 1
+    changed = {}
+
+    def edit(wb):
+        ws = wb[layout.name]
+        rows = range(layout.header_row + 1, ws.max_row)  # without the Total row
+        positive = [r for r in rows if (ws.cell(row=r, column=amount_col).value or 0) > 0]
+        negative = [r for r in rows if (ws.cell(row=r, column=amount_col).value or 0) < 0]
+        plan = {positive[0]: "Subaccount transfer", negative[0]: "Subaccount transfer", negative[1]: "Withdrawal",
+                negative[2]: "Stock sell", positive[1]: "IKE deposit", negative[3]: "IKZE deposit",
+                positive[2]: "Transfer", negative[4]: "SEC fee"}
+        for row, kind in plan.items():
+            ws.cell(row=row, column=1).value = kind
+            changed[ws.cell(row=row, column=layout.columns.index("ID") + 1).value] = kind
+
+    parsed = parse_file(_modified_copy(export, tmp_path, edit))
+    got = {op.operation_id: (op.broker_type, op.ledger_type, op.amount > 0) for op in parsed.cash
+           if op.operation_id in {str(k) for k in changed}}
+    assert sorted(got.values()) == sorted([
+        ("Subaccount transfer", "DEPOSIT", True), ("Subaccount transfer", "WITHDRAWAL", False),
+        ("Withdrawal", "WITHDRAWAL", False), ("Stock sell", "SELL", False),
+        ("IKE deposit", "DEPOSIT", True), ("IKZE deposit", "WITHDRAWAL", False),  # D-045: by sign, like transfers
+        ("Transfer", "DEPOSIT", True), ("SEC fee", "FEE", False),
+    ])
+    assert not any("assumed" in w for w in parsed.warnings if "cash operation types" in w)
+
+
 def test_rejects_cfd_category(export, tmp_path):
     def cfd(wb):
         wb[schema.OPEN_POSITIONS.name].cell(row=schema.OPEN_POSITIONS.header_row + 1, column=4).value = "CFD"

@@ -99,3 +99,38 @@ def test_xirr_differs_from_twr_when_timing_matters():
     result = returns_for(values, flows, D("2024-01-01"), D("2026-01-02"))
     assert result.twr == pytest.approx(0.8 * 1.2 - 1)  # -4%: the investments lost overall
     assert result.xirr > 0.15  # but most money came in before the good year: the saver gained
+
+
+def test_underwater_is_the_lowest_profit_relative_to_deposits():
+    """D-049, the user's example: 1000 PLN in, 800 at the lowest, 1200 today -> -20 %."""
+    from finance_analytics.portfolio.returns import underwater
+
+    days = pd.date_range("2026-01-01", periods=5, freq="D")
+    values = pd.Series([1000.0, 900.0, 800.0, 1100.0, 1200.0], index=days)
+    contributed = pd.Series([1000.0] * 5, index=days)
+    uw = underwater(values, contributed)
+    assert uw.worst == pytest.approx(-0.2) and uw.day == days[2] and uw.profit == pytest.approx(-200)
+    assert uw.current == pytest.approx(0.2)
+    # A later deposit raises the bar: 1000 + 1000 in, value 1500 -> -25 %.
+    more = underwater(pd.Series([1000.0, 1500.0], index=days[:2]), pd.Series([1000.0, 2000.0], index=days[:2]))
+    assert more.worst == pytest.approx(-0.25)
+    # Never below the deposits: the lowest ratio is positive.
+    assert underwater(values + 500, contributed).worst == pytest.approx(0.3)
+    # From a start day on, and nothing before the first deposit.
+    assert underwater(values, contributed, start=days[3]).worst == pytest.approx(0.1)
+    assert underwater(values, pd.Series(0.0, index=days)).worst is None
+
+
+def test_rounding_noise_is_not_capital():
+    """D-062: a deposit and a withdrawal that cancel on day one leave 1e-13, not money at risk."""
+    from finance_analytics.portfolio.returns import daily_returns, twr_index, underwater
+
+    days = pd.date_range("2020-01-06", periods=3, freq="D")
+    values = pd.Series([0.0, 1000.0, 1100.0], index=days)
+    noise = 1e-13
+    flows = pd.Series([noise, 1000.0], index=[days[0], days[1]])
+    assert daily_returns(values, flows).iloc[0] == 0.0  # not -100 %
+    assert twr_index(values, flows).iloc[-1] == pytest.approx(1.1)
+    contributed = flows.reindex(days, fill_value=0.0).cumsum()
+    uw = underwater(values, contributed)
+    assert uw.worst == pytest.approx(0.0) and uw.current == pytest.approx(0.1)  # day one is not -100 %

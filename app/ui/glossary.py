@@ -22,6 +22,31 @@ G: dict[str, str] = {
         "Spadek od szczytu: o ile procent portfel był poniżej swojego najwyższego wcześniejszego poziomu. "
         "Liczony na TWR, więc nowe wpłaty nie ukrywają spadków."
     ),
+    "profit_ratio": (
+        "Zysk całkowity jako procent wpłaconych pieniędzy: (wartość portfela − wpłaty) / wpłaty. Np. wpłaciłeś "
+        "1000 zł, masz 1250 zł: +25%. Pod spodem to samo po inflacji, z wpłatami w dzisiejszych złotych."
+    ),
+    "balance_edit": (
+        "Tabela działa jak arkusz: zmieniasz konto, datę, kwotę albo notatkę w komórce, dodajesz wiersz na dole "
+        "i usuwasz zaznaczony ikoną kosza. „Zapisz zmiany” sprawdza całą tabelę i nadpisuje plik "
+        "cash_balances.csv; wycena i wpłaty przeliczają się od nowa. Kwoty wpisuj z kropką (12345.67)."
+    ),
+    "fx_result": (
+        "Ile zarobiłeś (+) albo straciłeś (−) na samych kursach walut w wybranym okresie: akcje, ETF-y i gotówka "
+        "w USD, EUR i innych walutach. Każdego dnia wartość w walucie razy zmiana kursu NBP; od zakupu do dziś to "
+        "dokładnie różnica między dzisiejszym kursem a kursem z dnia zakupu. Po sprzedaży zostaje część zrealizowana. "
+        "Ruchy samych cen akcji tu nie wchodzą."
+    ),
+    "real_view": (
+        "Pokazuje całą stronę w dzisiejszych złotych: każdą wartość, wpłatę i koszt przeliczone wskaźnikiem cen GUS "
+        "od swojego dnia do dziś. Wynik, TWR i zysk do wpłat są wtedy realne, czyli po odjęciu inflacji."
+    ),
+    "real_view_no_cpi": "Brak danych o inflacji (CPI z GUS): pobierz je na stronie Dane rynkowe.",
+    "underwater": (
+        "Jak głęboko portfel był pod kreską względem wpłaconych pieniędzy: najniższa wartość "
+        "(wartość portfela − wpłaty) / wpłaty w wybranym okresie. Np. wpłaciłeś 1000 zł, najmniej miałeś 800 zł, "
+        "dziś 1200 zł: tu −20%. Wartość dodatnia znaczy, że portfel nigdy nie był poniżej wpłat."
+    ),
     "drawdown_current": "O ile procent portfel jest dziś poniżej swojego najwyższego poziomu w wybranym okresie.",
     "monthly_returns": "TWR całego portfela w każdym miesiącu kalendarzowym i w każdym roku.",
     "result_period": (
@@ -55,7 +80,7 @@ G: dict[str, str] = {
     "pnl": "Wartość dziś minus koszt zakupu (zysk lub strata niezrealizowana, przed podatkiem).",
     "share": "Jaką część wartości całego portfela stanowi ta pozycja.",
     "last_price": "Ostatnia cena zamknięcia w walucie instrumentu; w trybie online cena z ostatniego odświeżenia.",
-    "trend_90": "Wartość pozycji w PLN w ostatnich 90 dniach.",
+    "trend_90": "Wynik pozycji (wartość minus koszt) w PLN w ostatnich 90 dniach. Dokupienie akcji nie wygina linii.",
     "allocation": "Podział dzisiejszej wartości portfela według wybranej kategorii.",
     "composition": "Wartość każdej części portfela na koniec tygodnia lub miesiąca, ułożona w słupek.",
     "asset_class": (
@@ -248,6 +273,15 @@ G: dict[str, str] = {
     "csv_import": (
         "Wgrany plik jest najpierw sprawdzany i pokazany. Poprawne wiersze są dopisywane na koniec Twojego "
         "pliku; nic nie jest nadpisywane, a wiersze z błędami są pomijane."
+    ),
+    "import_folder": (
+        "Wskaż cały folder, który zapisał xStation (także z podfolderami kont). Aplikacja weźmie z niego pliki "
+        ".xlsx i .zip, pominie resztę i skopiuje eksporty do własnego katalogu danych. Folder źródłowy zostaje "
+        "nietknięty."
+    ),
+    "import_files": (
+        "Plik .zip dokładnie taki, jaki zapisuje xStation, albo wybrane pliki .xlsx. Zip jest rozpakowywany "
+        "w pamięci; nic nie trafia poza ten komputer."
     ),
     # --- inbox ----------------------------------------------------------------------------------
     "inbox": (

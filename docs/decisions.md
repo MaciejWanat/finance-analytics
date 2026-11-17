@@ -525,6 +525,172 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Not done: parallel Yahoo requests and the NBP whole-table endpoint. Tables are 0.3 s and 130 kB each against 0.17 s per currency, so they pay off only from three currencies, and only on the first fetch.
 - **Consequences:** a later update costs about 1 s plus 0.1-0.2 s per ticker still held, plus 0.2 s per currency (GUS once a day). Prices of a sold instrument are not refreshed after the sale, so a later split of it is not re-read; nothing values it after the sale.
 
+### D-043 Sales, withdrawals and sub-account transfers in Cash Operations
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** importing a real EUR export failed: `unknown cash operation types ['Stock sell', 'Subaccount transfer', 'Withdrawal']`. The file was rejected as a whole.
+- **Decision:**
+  - `Stock sell` is a sale (`SELL`), paired with closed positions by the same rules as purchases (D-032). The mock export now uses this label instead of the guessed `Stock sale`, so `CASH_TYPES_ASSUMED` is empty.
+  - `Withdrawal` is an external outflow (`WITHDRAWAL`).
+  - `Subaccount transfer` moves money between the user's own XTB accounts. It becomes `DEPOSIT` or `WITHDRAWAL` by its sign, so every account keeps correct flows for its own TWR. At portfolio level both sides cancel once both accounts are imported; the remainder is the currency conversion. The export's own label stays in `broker_type`.
+  - `PARSER_VERSION` 12.
+- **Consequences:** the comment formats of these types are still unconfirmed (Q-006). If only one side of a transfer is imported, the portfolio sees it as a real deposit or withdrawal until the other account is imported.
+
+### D-044 Import a folder or the zip xStation saves
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user wants to point at a folder, or better at the zip xStation produces, instead of picking files one by one.
+- **Decision:**
+  - `import_xtb` accepts a folder, a `.zip` or a single `.xlsx`; a folder may contain zips. The zip is read in memory and never extracted to disk; `__MACOSX`, `._*` and `~$*` entries are ignored, and an entry over 100 MB is refused.
+  - "Importy": two pickers side by side at the top, feeding one "Importuj" button: "Folder eksportu" (the default, a folder picker: `.xlsx` and `.zip` inside it, subfolders included) and "Pojedyncze pliki" (`.zip` or `.xlsx`). A browser's file dialog picks either a folder or files, never both at once, hence two pickers. `fa import xtb` takes a folder, a zip or a file path. The inbox folder (D-028) picks up zips too.
+  - A broken zip is reported and skipped; the other files are still imported.
+- **Consequences:** the inbox reads every zip in the folder once a minute; exports are small, so this stays cheap.
+
+### D-045 Transfers, IKE/IKZE deposits and the SEC fee
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the next real exports failed on `Transfer`, `IKE deposit`, `IKZE deposit` and `SEC fee`.
+- **Decision:**
+  - `Transfer`, `IKE deposit` and `IKZE deposit` follow the D-043 rule for `Subaccount transfer`: `DEPOSIT` when positive, `WITHDRAWAL` when negative. A payment into IKE/IKZE is then a deposit of that account, and if the same money leaves another imported XTB account, the two cancel at portfolio level.
+  - `SEC fee` (the US regulatory fee on sales of US shares) is a `FEE`: it lowers cash and returns, it is not an external flow.
+  - `PARSER_VERSION` 13. Unknown types still reject the file (D-007).
+- **Consequences:** an `IKE deposit` funded from a bank account outside XTB is a real deposit, as it should be.
+
+### D-046 A symbol Yahoo has no history for is reported once, in Polish
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** a share sold years ago has no Yahoo history for its holding period (the company left the exchange and the symbol now belongs to another one). The update showed a raw English message (`no prices between …`) and asked Yahoo again on every run. Two Warsaw-listed ETFs had XTB symbols that Yahoo knows under different names.
+- **Decision:**
+  - An empty Yahoo answer for a ticker with no cached prices gives a Polish message that names the period, says the position is valued at purchase cost on those days (the existing fallback in `valuation.py`), and points to `config/yahoo_tickers.yaml`. It starts with the D-039 prefix, so the ticker is not asked again for 7 days.
+  - Symbols that differ between XTB and Yahoo stay in the user's own `config/yahoo_tickers.yaml` (D-039), not in the code.
+- **Consequences:** a delisted holding shows flat at cost between purchase and sale; its result appears on the sale day.
+
+### D-047 "Maks. pod wodą" on Portfel; asset class first
+- **Date:** 2026-11-17 · **Status:** Accepted; the tile's measure superseded by D-049
+- **Context:** the user wants the portfolio's deepest fall on the start page, and the asset-class breakdown first and selected by default.
+- **Decision:**
+  - A fifth KPI tile "Maks. pod wodą": the maximum drawdown in the selected period, on the TWR index (as on "Zwroty", D-022), so deposits do not hide a fall. The delta shows the peak and trough months; the help adds the exact dates, whether it was recovered and today's distance from the peak. "Pełny wykres" opens the daily drawdown curve.
+  - Five tiles fit at common desktop widths once the value tile's delta drops "w okresie" (the help already says it is for the period). The KPI row may hold up to five tiles.
+  - The breakdown control lists "Klasa aktywów" first, and it is the default.
+- **Consequences:** the tile and "Największy spadek" on "Zwroty" agree for the same period.
+
+### D-048 Orders filled in parts: a position's cost is the sum of its purchases
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** an account showed an absurd position result (hundreds of thousands of percent) and a strongly negative TWR on its first day. A masked diagnosis (counts and ratios only) showed more purchases than positions: XTB fills an order for fractional shares in parts (the whole shares and the fraction), with comments `OPEN BUY <part>/<order> @ <price>` and no ticker. The parts may share the position's ID or carry another one. The sync paired one purchase per position, so a position's cost was often just its fraction; with no price on a day, the value at cost was too low as well.
+- **Decision:**
+  - The comment format is `OPEN BUY [<ticker>] <volume>[/<order volume>] @ <price>`; the ticker is optional.
+  - Purchases and sales are grouped per position: all operations with the position's ID, then each remaining part by account, ticker, order volume equal to the position's volume and time within 10 minutes, while the parts' volumes still fit the position. The purchase value is the sum of the parts.
+  - A position whose paired parts do not add up to its volume gets an import warning.
+  - `PARSER_VERSION` 14: `fa rebuild` recomputes all positions.
+- **Consequences:** position results, cost-based values and the account's TWR use the full cost. Q-006 (c) gains a confirmed purchase comment format.
+
+### D-049 "Maks. pod wodą" means below the money put in
+- **Date:** 2026-11-17 · **Status:** Accepted (supersedes the tile's measure in D-047)
+- **Context:** the user meant "pod wodą" as being below the deposits, not a fall from a peak: "if I deposited 1000 PLN, have 1200 today and had 800 at the lowest, I want to see -20 %". The peak-to-trough drawdown (D-022) stays on "Zwroty" as "Największy spadek".
+- **Decision:**
+  - `portfolio.returns.underwater(values, contributed, start)`: daily `(value - deposits) / deposits`, with deposits = running deposits minus withdrawals in PLN (the same as "Wpłacony kapitał"), and its minimum from the period's start. Days before the first deposit are left out.
+  - The tile shows that minimum; the delta gives the amount below the deposits and the month, or "nigdy poniżej wpłat" when the minimum is positive. The help adds the date and today's ratio. "Pełny wykres" opens the daily ratio.
+- **Consequences:** a new deposit raises the bar at once, so the ratio drops on the deposit day only if the value does not follow; with deposits counted at face value, inflation is not included (D-041 has the real view).
+
+### D-050 "Zysk względem wpłat" tile; Portfel KPIs in two rows of three
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user wants today's `(value - deposits) / deposits` (the "Dziś" figure from the "Maks. pod wodą" help) as a tile of its own. Six tiles do not fit one row.
+- **Decision:**
+  - New tile "Zysk względem wpłat": today's ratio from `underwater()` (D-049); the delta is the same after inflation (`real_profit().pct`, D-041). "Pełny wykres" opens the daily ratio.
+  - The Portfel KPIs are two rows of three: value, period result, deposits; then total profit, profit vs deposits, maximum under water. The UI guideline allows up to five tiles per row; two rows are the way to show more.
+- **Consequences:** "Maks. pod wodą" and the new tile share one series, so the lowest point and today's value are read off the same curve.
+
+### D-051 A close made only for a stock split runs on until the real sale
+- **Date:** 2026-11-17 · **Status:** Accepted; applies only when the reopened position is missing (D-056)
+- **Context:** a masked diagnosis of a stock split showed how XTB books it: the old position is closed on the split day at its own open price, with no sale in Cash Operations, and the shares are reopened as a new position. When the reopened position is missing from the exports (here it was sold later), the shares vanished from the valuation until the sale (the holding's value collapsed overnight), and their later sale had no position to pair with.
+- **Decision:**
+  - In the sync, a closed position with close price equal to its open price, sale value equal to its purchase value (or none) and no paired sale is a technical split close.
+  - It is moved to the first later day with sales of the same ticker on the same account that no position claims; those sales are its sale value and their comment gives the close price. The valuation keeps the old lot, split-adjusted (Q-001 rule), until then.
+  - Without such sales the close stays and an import warning says the reopened position is missing.
+  - A sale at exactly the purchase price that has its own cash operation is not touched. `PARSER_VERSION` 15.
+- **Consequences:** the portfolio value, TWR and "Maks. pod wodą" no longer drop at a split. If the reopened position is in the exports, nothing changes: its own sale pairs with it.
+
+### D-052 Days without a market price use the user's own trade prices
+- **Date:** 2026-11-17 · **Status:** Accepted (refines the cost fallback of D-019 and D-046)
+- **Context:** Yahoo has no history for a delisted share whose symbol now belongs to another company, so the position sat at purchase cost until the sale day.
+- **Decision:** on days without a market price, a lot is priced from its own trades: the open price on the opening day, the close price on the closing day (both per today's share), a straight line between them and the last one carried on, in the instrument currency at that day's NBP rate. The currency comes from Yahoo or, for an unknown ticker, from the XTB suffix (`.US` USD, `.DE` EUR, `.PL` PLN, ...). Only when that is impossible the old fallback (purchase cost in the account currency) applies. The warning on "Portfel" says which method was used.
+- **Consequences:** a delisted holding moves gradually from its buy to its sale price instead of jumping on the sale day. The path in between is an estimate; the real one (e.g. a short spike) is not known without market data.
+
+### D-053 Saved balances are edited in the table; sparklines are never grey
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user wants to edit bank balances like a spreadsheet (click a cell, type, save) instead of picking a row and filling a form. Grey sparklines on neutral KPI tiles looked dull.
+- **Decision:**
+  - "Gotówka" shows the saved balances as `st.data_editor`: account (from the bank accounts), date, balance and note are editable in place; rows can be added and deleted. "Zapisz zmiany" checks the whole table (`cash.check_table`: account, date not in the future, a number, one balance per account and day) and, only if every row is fine, rewrites `cash_balances.csv` (`cash.write_snapshots`, oldest first, the file's separator kept). "Cofnij zmiany" restores the table.
+  - When the file has rows that do not parse, the table is read-only, so saving cannot drop them silently.
+  - Sparklines of neutral tiles use the first palette colour instead of grey. "Maks. pod wodą" fills from the zero line: red below it, green above it.
+- **Consequences:** the add form stays for a quick new balance; the row-by-row edit form is gone.
+
+### D-054 The positions table's 90-day sparkline shows the result
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the "90 dni" sparkline in "Bieżące pozycje" showed the position's value, so every purchase bent it upwards.
+- **Decision:** it shows the result instead: daily value minus the cost of the lots held that day (cost added on the opening day, removed on the closing day, in PLN at the opening day's rate as in the "Koszt" column). A lot without a known cost counts as zero cost.
+- **Consequences:** buying more no longer moves the line; selling at a profit lowers it by the realised part, which leaves the position.
+
+### D-055 One tile for profit vs deposits, with its lowest point
+- **Date:** 2026-11-17 · **Status:** Accepted (supersedes the separate "Maks. pod wodą" tile of D-049 and the two-row layout of D-050)
+- **Context:** "Zysk względem wpłat" and "Maks. pod wodą" were two points (today and the lowest) of one curve, `(value - deposits) / deposits`, with the same full chart.
+- **Decision:** a single tile "Zysk do wpłat": today's ratio as the value, "min. X% (MM.YYYY)" as the delta, the inflation-adjusted ratio and the exact lowest date in the help, the zero-line (water) sparkline, and the daily curve under "Pełny wykres". The Portfel KPIs are back to one row of five.
+- **Consequences:** `underwater()` (D-049) is unchanged; the peak-to-trough drawdown stays on "Zwroty".
+
+### D-056 A position listed open after its close is still open
+- **Date:** 2026-11-17 · **Status:** Accepted (narrows D-051)
+- **Context:** an export lists a position opened before a stock split under Open Positions, while the app showed it closed. XTB keeps a position's ID across a stock split: the same ID is in Closed Positions (the technical close on the split day) and in Open Positions (the shares in post-split units, still dated 2022). The sync always let the closed record win, so the shares disappeared. D-051 then wrongly assumed the reopened position was missing from the exports.
+- **Decision:**
+  - Open and closed records are merged per position ID after all files are read (`_merge_open_and_closed`). The newest export listing it open wins among open records.
+  - If an export that ends on or after the close date still lists the position open, it is open: a technical (split) close is dropped; after any other close (a partial sale) the closed record stays as the sold part and the open record becomes a separate lot `<ID>/rest`.
+  - An open record from an export that ended before the close is out of date and ignored.
+  - D-051 still applies to a technical close with no open record. `PARSER_VERSION` 16.
+- **Consequences:** split positions keep their history from the original purchase date. Online refresh: a fetch during a full app run (e.g. a click) no longer triggers a second rerun; only the fragment's own timer run reloads the page (`app/main.py`).
+
+### D-057 Tables filter while you type
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user wants a table search that keeps only matching rows as they type ("am" -> AMD). Streamlit's own table search only highlights, and `st.text_input` sends its value on Enter or blur.
+- **Decision:**
+  - `table(..., search=key)` adds a search field above the table; rows stay when any text column contains the text, ignoring case (`filter_rows`). Used on "Bieżące pozycje" and on the three tables of "Importy".
+  - The field is a small inline Streamlit v2 component (`app/ui/live_search.py`): plain HTML, CSS and JS in the app, styled with the theme's CSS variables, sending the text 250 ms after the last keystroke. No package, no CDN, no network (D-011).
+- **Consequences:** each pause in typing reruns the page once; the field keeps its focus and text across reruns.
+
+### D-058 One "Po inflacji" switch for the whole Portfel page; no "Zysk całkowity" tile
+- **Date:** 2026-11-17 · **Status:** Accepted (supersedes the Portfel parts of D-041: the "realnie" delta on "Zysk całkowity" and the chart's own "W dzisiejszych złotych" switch)
+- **Context:** with the "Maks." period, "Wynik w okresie" and "Zysk całkowity" show the same number by definition. The user does not need the latter and wants one switch that shows everything it can after inflation.
+- **Decision:**
+  - The "Zysk całkowity" tile is gone; Portfel has four tiles.
+  - A "Po inflacji" switch next to "Okres" restates every amount on the page in the złoty of the last day: daily values, deposits and withdrawals, and each lot's cost, each times `level(last day) / level(its day)` from the GUS CPI (D-025, unpublished months extrapolated as in D-041). The page's formulas stay as they are; only their inputs change, so the result, TWR (then real TWR), deposits, profit vs deposits with its lowest point, the value and composition charts and the positions' cost and result are all real.
+  - Without saved CPI the switch is disabled with a hint to "Dane rynkowe".
+- **Consequences:** today's value and the allocation do not change (today's złoty are today's złoty). Other pages keep their own real figures ("Zwroty", "Obligacje").
+
+### D-059 "Wynik na walutach" tile: what foreign holdings earned or lost on exchange rates
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user holds positions in foreign currencies and wants to know whether, overall, the exchange rates put them ahead or behind, using the daily rate and the rate of the purchase day.
+- **Decision:**
+  - `attribution.fx_pnl(v)`: the daily currency gain in PLN per currency, from the D-023 attribution: what was held overnight, valued in its own currency, times the change of the NBP rate; shares, ETFs and foreign cash (broker and bank) together. Summed from a purchase to today it equals "today's rate vs the purchase day's rate"; after a sale the realised part stays.
+  - Portfel tile "Wynik na walutach" (after "Wynik w okresie"): the sum over the selected period; the delta names the currency that mattered most, the help lists every currency; the water sparkline and "Pełny wykres" show the running total. With "Po inflacji" each day's amount is restated in today's złoty like everything else (D-058).
+- **Consequences:** five tiles in the row again. The share of the period result due to prices vs currencies stays on "Zwroty" (D-023).
+
+### D-060 Switches never move the page; a floating "Przeliczam…" pill while it recalculates
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** flipping "Po inflacji" made the page jump. The recalculation itself takes a fraction of a second; the jump came from a note line that appeared only with the switch on (and later a caption that wrapped to a second line), plus Streamlit fading the page during the rerun.
+- **Decision:**
+  - Nothing appears or disappears with a switch: notes that depend on it go into its help ("?") or into text that is always there and keeps its length.
+  - App-wide CSS (`ui/components.py`): while Streamlit runs the script (`data-test-script-state="running"`), a small dark pill with a spinner and "Przeliczam…" floats at the top centre, over the content. It fades in only after 0.4 s, so quick reruns (live search, the 30-second background check) do not flash it.
+- **Consequences:** checked in the browser: section headings keep the same position with the switch off and on.
+
+### D-061 Cost of the rest after a partial sale; two coloured currency badges
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** a position showed "+∞" in "Wynik %". A masked check (yes/no facts only) showed the open lot was the rest after a partial sale (D-056): XTB keeps the ID, so the purchase paired with the sold part and the rest had no cost; pandas then summed the unknown cost as 0.
+- **Decision:**
+  - The rest's cost is all purchases of the position minus the sold part's purchase value (Closed Positions); without it, the purchases are split by volume. `PARSER_VERSION` 17.
+  - In "Bieżące pozycje" an all-unknown cost stays unknown (`sum(min_count=1)`), and a cost of zero or less shows the result % as "–", never ±∞.
+  - KPI tiles can carry several small badges instead of the one delta (`Kpi.badges`), each green or red by its own sign; "Wynik na walutach" shows its two biggest currencies this way.
+- **Consequences:** none for positions without partial sales.
+
+### D-062 Capital below a grosz is rounding noise
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** with "Po inflacji" the TWR showed −100 % and profit vs deposits a minimum of −100 %. A masked re-run of the page maths found it on the first day: value 0 and same-day flows that cancel exactly; nominally they summed to 0 (or a hair below), so the day was skipped, but times the inflation factor the rounding left a positive 1e-13, and a zero value on that "capital" gave a −100 % day that zeroed the whole index.
+- **Decision:** `daily_returns` treats capital at risk below 0.01 PLN as none (no return that day), and `underwater` ignores days with deposits below 1 PLN.
+- **Consequences:** real and nominal TWR agree in shape; amounts that small never come from real money.
+
 ---
 
 ## Open questions
@@ -537,7 +703,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Resolved 2026-11-16 by D-030 |
 | Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
-| Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) cash operation types and comment formats for sales, withdrawals, fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
+| Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) ~~cash operation types for sales and withdrawals~~ resolved 2026-11-17 by D-043 (`Stock sell`, `Withdrawal`, `Subaccount transfer`); still open: their comment formats, types for fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |
 
 ---
 

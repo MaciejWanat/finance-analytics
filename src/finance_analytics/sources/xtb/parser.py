@@ -18,13 +18,18 @@ from openpyxl import load_workbook
 
 from finance_analytics.sources.xtb import schema
 
-PARSER_VERSION = 11  # bump when parsing or projection changes; `fa sync` then rebuilds everything
+PARSER_VERSION = 17  # bump when parsing or projection changes; `fa sync` then rebuilds everything
 
 FILE_NAME_RE = re.compile(
     r"^(?P<prefix>IKZE|IKE|PLN|EUR|USD)_(?P<number>\d+)_(?P<start>\d{4}-\d{2}-\d{2})_(?P<end>\d{4}-\d{2}-\d{2})"
     r"(?:__[0-9a-f]+)?\.xlsx$"
 )
-OPEN_BUY_RE = re.compile(r"^OPEN BUY (?P<ticker>\S+) (?P<volume>[\d.]+) @ (?P<price>[\d.]+)$")
+# "OPEN BUY [<ticker>] <volume>[/<order volume>] @ <price>". Real exports omit the ticker on some
+# accounts, and an order for fractional shares is filled in parts (whole shares, then the
+# fraction), each part showing "<part>/<whole order>" (D-048).
+OPEN_BUY_RE = re.compile(
+    r"^OPEN BUY (?:(?P<ticker>\S+\.\S+) )?(?P<volume>[\d.]+)(?:/(?P<order>[\d.]+))? @ (?P<price>[\d.]+)$"
+)
 
 # Export label -> ledger type. Labels in ASSUMED are accepted with a warning.
 CASH_TYPE_MAP = {
@@ -34,7 +39,18 @@ CASH_TYPE_MAP = {
     "Withholding tax": "WHT",
     "Free funds interest": "INTEREST",
     "Free funds interest tax": "INTEREST_TAX",
-    "Stock sale": "SELL",  # assumed (schema.CASH_TYPES_ASSUMED)
+    "Stock sell": "SELL",
+    "Withdrawal": "WITHDRAWAL",
+    # Money moved between the user's own XTB accounts (e.g. the main account and a currency or IKE
+    # sub-account): an external flow for each account, by its sign; at portfolio level both sides
+    # cancel out apart from the currency conversion (D-043).
+    "Subaccount transfer": "TRANSFER",
+    "Transfer": "TRANSFER",
+    # Money paid into IKE / IKZE: positive on the IKE/IKZE account, negative if it leaves
+    # another account for it (D-045).
+    "IKE deposit": "TRANSFER",
+    "IKZE deposit": "TRANSFER",
+    "SEC fee": "FEE",  # US regulatory fee on sales of US shares
 }
 CATEGORY_TO_ASSET_CLASS = {"ETF": "etf", "STOCK": "stock", "ETC": "other", "ETN": "other"}
 ACCOUNT_CURRENCY = {"PLN": "PLN", "EUR": "EUR", "USD": "USD", "IKE": "PLN", "IKZE": "PLN"}
@@ -218,6 +234,13 @@ def _open_positions_header_row(rows: list[tuple]) -> int | None:
     return None
 
 
+def _ledger_type(broker_type: str, amount: float) -> str:
+    kind = CASH_TYPE_MAP[broker_type]
+    if kind == "TRANSFER":
+        return "DEPOSIT" if amount >= 0 else "WITHDRAWAL"
+    return kind
+
+
 def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
     layout = schema.CASH_OPERATIONS
     _check_header(rows, layout)
@@ -246,9 +269,9 @@ def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
         parsed.cash.append(
             CashOperation(
                 broker_type=str(r["Type"]),
-                ledger_type=CASH_TYPE_MAP[str(r["Type"])],
+                ledger_type=_ledger_type(str(r["Type"]), amount := _number(r["Amount"], f"{where} Amount")),
                 ts=_moment(r["Time"], f"{where} Time"),
-                amount=_number(r["Amount"], f"{where} Amount"),
+                amount=amount,
                 operation_id=operation_id,
                 symbol=symbol,
                 position_id=_id(r["Position ID"]),
@@ -395,8 +418,9 @@ def parse_file(path: Path) -> ParsedFile:
         if op.ledger_type != "BUY":
             continue
         match = OPEN_BUY_RE.match(op.comment or "")
-        if not match or match["ticker"] != op.symbol:
+        if not match or match["ticker"] not in (None, op.symbol):
             parsed.warnings.append(
-                f"purchase {op.operation_id}: comment does not follow 'OPEN BUY <ticker> <volume> @ <price>'"
+                f"purchase {op.operation_id}: comment does not follow "
+                "'OPEN BUY [<ticker>] <volume>[/<order>] @ <price>'"
             )
     return parsed

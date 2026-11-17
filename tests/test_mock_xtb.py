@@ -102,7 +102,7 @@ def test_open_positions(export, account):
     assert {r[OPEN["Ticker"]].rsplit(".", 1)[1] for r in rows} <= {s[1:] for s in schema.TICKER_SUFFIXES_OBSERVED}
     # Open positions = everything bought minus everything sold.
     bought = {r[CASH["Position ID"]] for r in cash_rows if r[CASH["Type"]] == "Stock purchase"}
-    sold = {r[CASH["Position ID"]] for r in cash_rows if r[CASH["Type"]] == "Stock sale"}
+    sold = {r[CASH["Position ID"]] for r in cash_rows if r[CASH["Type"]] == "Stock sell"}
     assert {p[OPEN["Instrument/Position"]] for p in positions} == bought - sold
 
 
@@ -118,7 +118,7 @@ def test_closed_positions_match_sales(export):
         sales = {
             r[CASH["Position ID"]]: r
             for r in _rows(path, schema.CASH_OPERATIONS)
-            if r[CASH["Type"]] == "Stock sale"
+            if r[CASH["Type"]] == "Stock sell"
         }
         assert {r[CLOSED["Position ID"]] for r in closed} == set(sales)
         for r in closed:
@@ -188,7 +188,7 @@ def test_amounts_are_consistent_across_sheets(export, account):
     opened = _rows(path, schema.OPEN_POSITIONS)
     closed = _rows(path, schema.CLOSED_POSITIONS)[:-1]
     buys = {r[CASH["Position ID"]]: r for r in cash if r[CASH["Type"]] == "Stock purchase"}
-    sales = {r[CASH["Position ID"]]: r for r in cash if r[CASH["Type"]] == "Stock sale"}
+    sales = {r[CASH["Position ID"]]: r for r in cash if r[CASH["Type"]] == "Stock sell"}
 
     # Cash never goes negative.
     balance = 0.0

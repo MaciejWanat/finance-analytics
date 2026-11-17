@@ -43,6 +43,38 @@ def append_row(path: Path, columns: Sequence[str], values: Sequence[object]) -> 
         handle.write(prefix + buffer.getvalue())
 
 
+def _rows(path: Path) -> tuple[list[list[str]], str, dict[int, int]]:
+    """All CSV rows, the separator, and data row number -> index in the rows list."""
+    text = path.read_text(encoding="utf-8-sig")
+    delimiter = dialect(text)
+    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    data_index = [i for i, r in enumerate(rows) if i > 0 and r]
+    return rows, delimiter, {n: i for n, i in enumerate(data_index, start=1)}
+
+
+def _write(path: Path, rows: list[list[str]], delimiter: str) -> None:
+    buffer = io.StringIO()
+    csv.writer(buffer, delimiter=delimiter, lineterminator="\n").writerows(rows)
+    path.write_text(buffer.getvalue(), encoding="utf-8")
+
+
+def replace_row(path: Path, row: int, values: Sequence[object]) -> bool:
+    """Overwrite data row `row` in place (same numbering as delete_row). Returns whether it existed.
+
+    Values follow the file's columns; extra columns a user added by hand keep their content.
+    """
+    if not path.exists():
+        return False
+    rows, delimiter, numbered = _rows(path)
+    if row not in numbered:
+        return False
+    old = rows[numbered[row]]
+    new = [str(v) for v in values]
+    rows[numbered[row]] = new + old[len(new):]
+    _write(path, rows, delimiter)
+    return True
+
+
 def delete_row(path: Path, row: int) -> bool:
     """Remove data row `row` (numbered as read_* functions do). Returns whether it existed."""
     if not path.exists():

@@ -54,6 +54,9 @@ def test_empty_state_then_add_an_account_and_a_balance(settings):
     assert (snapshot.day, snapshot.balance) == (date.today(), Decimal("2500.5"))
     assert [m.label for m in at.metric] == ["Gotówka razem", "Konta bankowe", "Ostatnia aktualizacja"]
 
+    # The saved balances are an editable table (D-053); saving is tested in test_cash.py.
+    assert any(b.label == "Zapisz zmiany" and b.disabled for b in at.button)
+
 
 def test_page_with_demo_balances_flags_stale_ones(settings):
     write_mock_cash(settings.accounts_file, cash_file(settings.manual_dir))

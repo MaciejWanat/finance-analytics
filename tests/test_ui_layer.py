@@ -119,3 +119,29 @@ def test_table_can_label_an_unknown_numeric_value():
 
     at = AppTest.from_function(page, default_timeout=30).run()
     assert not at.exception
+
+
+def test_detail_chart_opens_on_the_period_and_formats_the_hover():
+    import pandas as pd
+    from ui.charts import detail_chart
+
+    days = pd.date_range("2024-01-01", "2026-11-13", freq="D")
+    series = pd.Series(range(len(days)), index=days, dtype=float)
+    start = pd.Timestamp("2026-01-01")
+    fig = detail_chart(series, name="Wynik", mode="dark", start=start)
+    assert fig.layout.xaxis.rangeslider.visible and len(fig.layout.xaxis.rangeselector.buttons) == 6
+    assert pd.Timestamp(fig.layout.xaxis.range[0]) == start
+    assert fig.data[0].hovertemplate.startswith("%{y:,.2f} zł")
+    pct = detail_chart(series / 100, name="TWR", mode="light", kind="pct")
+    assert pct.data[0].hovertemplate.startswith("%{y:+.2%}") and pct.layout.xaxis.range is None
+
+
+def test_table_search_keeps_matching_rows_only():
+    from ui.components import filter_rows
+
+    df = pd.DataFrame({"symbol": ["XYZ.US", "AMD.US", "VUAA.UK"], "name": ["Xyz Corp", "Advanced Micro", "S&P 500"],
+                       "value": [1.0, 2.0, 3.0], "trend": [[1, 2], [3, 4], [5, 6]]})
+    assert filter_rows(df, "xy")["symbol"].tolist() == ["XYZ.US"]
+    assert filter_rows(df, ".us")["symbol"].tolist() == ["XYZ.US", "AMD.US"]
+    assert filter_rows(df, "micro")["symbol"].tolist() == ["AMD.US"]
+    assert filter_rows(df, "zzz").empty

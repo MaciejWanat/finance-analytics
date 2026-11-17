@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import zipfile
 from contextlib import closing
 
 import pytest
@@ -222,3 +223,144 @@ def test_user_yahoo_overrides_file(tmp_path):
     assert load_yahoo_overrides(config) == {"PKN.PL": "PKN.WA"}
     yahoo_tickers_file(config).write_text("[broken: yaml", encoding="utf-8")
     assert load_yahoo_overrides(config) == {}
+
+
+def _zip_of(folder, target, prefix="xStation5_export/"):
+    with zipfile.ZipFile(target, "w") as archive:
+        for path in sorted(folder.rglob("*.xlsx")):
+            archive.write(path, prefix + path.relative_to(folder).as_posix())
+        archive.writestr("__MACOSX/._junk.xlsx", b"junk")
+    return target
+
+
+def test_import_from_the_zip_xstation_saves(settings, export, tmp_path):
+    from_folder = Settings(data_dir=tmp_path / "folder")
+    expected = {p.relative_to(from_folder.raw_dir).as_posix() for p in import_xtb(export, from_folder).copied}
+    archive = _zip_of(export, tmp_path / "export.zip")
+    result = import_xtb(archive, settings)
+    assert {p.relative_to(settings.raw_dir).as_posix() for p in result.copied} == expected and not result.skipped
+    assert import_xtb(archive, settings).unchanged  # importing the same zip again changes nothing
+    assert archive.exists()  # the source is only read
+
+
+def test_folder_with_a_zip_and_a_broken_zip(settings, export, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    _zip_of(export, inbox / "export.zip")
+    (inbox / "broken.zip").write_bytes(b"not a zip")
+    result = import_xtb(inbox, settings)
+    assert len(result.copied) == len(list(export.rglob("*.xlsx")))
+    assert [p.name for p, _ in result.skipped] == ["broken.zip"]
+
+
+def test_split_fractional_order_adds_every_part_to_the_position_cost():
+    """D-048: XTB fills 12.3456 shares as 12 + 0.3456; the parts may carry different IDs and no ticker."""
+    from datetime import datetime
+    from types import SimpleNamespace as NS
+
+    from finance_analytics.sources.sync import _fill, _match
+
+    when = datetime(2026, 6, 8, 8, 30)
+    position = NS(symbol="AAA.US", volume=12.3456, open_time=when)
+    positions = {("acc", "P1"): (position, 1)}
+    fraction = NS(symbol="AAA.US", ts=when, amount=-40.0, comment="OPEN BUY 0.3456/12.3456 @ 100.00")
+    whole = NS(symbol="AAA.US", ts=when, amount=-1200.0, comment="OPEN BUY 12/12.3456 @ 100.00")
+    other = NS(symbol="AAA.US", ts=when, amount=-500.0, comment="OPEN BUY 5 @ 100.00")  # another order
+    ops = {("acc", "P1"): [fraction], ("acc", "X9"): [whole, other]}
+    matched = _match(positions, ops, lambda p: p.open_time)
+    assert [op.amount for op in matched[("acc", "P1")]] == [-40.0, -1200.0]
+    assert _fill(fraction) == (0.3456, 12.3456) and _fill(other) == (5.0, 5.0)
+    assert _fill(NS(comment="OPEN BUY VUAA.UK 1.5 @ 121.34")) == (1.5, 1.5)  # the format with a ticker
+
+
+def test_two_positions_opened_together_do_not_steal_each_others_parts():
+    from datetime import datetime
+    from types import SimpleNamespace as NS
+
+    from finance_analytics.sources.sync import _match
+
+    when = datetime(2026, 7, 8, 18, 1)
+    small = NS(symbol="BBB.US", volume=2.5, open_time=when)
+    big = NS(symbol="BBB.US", volume=7.25, open_time=when)
+    positions = {("acc", "S"): (small, 1), ("acc", "B"): (big, 1)}
+    parts = [NS(symbol="BBB.US", ts=when, amount=-a, comment=c) for a, c in (
+        (2.5, "OPEN BUY 0.25/7.25 @ 1.00"), (7.0, "OPEN BUY 7/7.25 @ 1.00"), (2.5, "OPEN BUY 2.5 @ 1.00"))]
+    matched = _match(positions, {("acc", None): parts}, lambda p: p.open_time)
+    assert sorted(op.comment for op in matched[("acc", "B")]) == ["OPEN BUY 0.25/7.25 @ 1.00", "OPEN BUY 7/7.25 @ 1.00"]
+    assert [op.comment for op in matched[("acc", "S")]] == ["OPEN BUY 2.5 @ 1.00"]
+
+
+def test_a_close_made_only_for_a_split_runs_until_the_real_sale():
+    """D-051: XTB closes the old lot at its own open price, no sale; the shares are sold later."""
+    from datetime import datetime
+    from types import SimpleNamespace as NS
+
+    from finance_analytics.sources.sync import _continue_split_closes
+    from finance_analytics.sources.xtb.parser import Position
+
+    old = Position("A1", "XYZ.US", 3.0, datetime(2019, 5, 2, 15), 420.0, close_time=datetime(2023, 3, 15),
+                   close_price=420.0, purchase_value=1260.0, sale_value=1260.0)
+    other = Position("B2", "XYZ.US", 1.0, datetime(2023, 8, 1, 15), 55.0, close_time=None)
+    positions = {("usd", "A1"): (old, 1), ("usd", "B2"): (other, 1)}
+    sale = NS(symbol="XYZ.US", ts=datetime(2024, 10, 7, 16), amount=1950.0, comment="CLOSE BUY 30 @ 65.00")
+    elsewhere = NS(symbol="XYZ.US", ts=datetime(2024, 10, 9, 16), amount=60.0, comment="CLOSE BUY 1 @ 60.00")
+    sell_for: dict = {}
+    issues = []
+    _continue_split_closes(positions, {("usd", "X"): [sale, elsewhere]}, sell_for,
+                           lambda *args: issues.append(args[-1]))
+    moved = positions[("usd", "A1")][0]
+    assert (moved.close_time, moved.sale_value, moved.close_price) == (sale.ts, 1950.0, 65.0)
+    assert sell_for[("usd", "A1")] == [sale]  # only the first day's sales
+    assert any("stock split" in text for text in issues)
+    # A real sale at the same price as the purchase, with its cash operation, is left alone.
+    real = Position("C3", "AAA.US", 1.0, datetime(2025, 1, 2), 10.0, close_time=datetime(2025, 2, 2), close_price=10.0)
+    kept = {("usd", "C3"): (real, 1)}
+    _continue_split_closes(kept, {}, {("usd", "C3"): [NS()]}, lambda *args: None)
+    assert kept[("usd", "C3")][0] is real
+
+
+def test_position_listed_open_after_its_close_stays_open():
+    """D-056: XTB keeps the position ID across a split (technical close) or a partial sale."""
+    from datetime import date, datetime
+
+    from finance_analytics.sources.sync import _merge_open_and_closed
+    from finance_analytics.sources.xtb.parser import Position
+
+    opened = datetime(2019, 5, 2, 15)
+    technical = Position("A", "XYZ.US", 3.0, opened, 420.0, close_time=datetime(2023, 3, 15), close_price=420.0,
+                         purchase_value=1260.0, sale_value=1260.0)
+    after_split = Position("A", "XYZ.US", 30.0, opened, 42.0, purchase_value=1260.0)
+    merged = _merge_open_and_closed({("usd", "A"): (after_split, 2, date(2026, 11, 15))},
+                                    {("usd", "A"): (technical, 1)})
+    assert merged == {("usd", "A"): (after_split, 2)}  # the split close is dropped, the shares stay
+
+    partial = Position("B", "AAA.US", 4.0, opened, 10.0, close_time=datetime(2025, 3, 1), close_price=15.0,
+                       purchase_value=40.0, sale_value=60.0)
+    rest = Position("B", "AAA.US", 6.0, opened, 10.0, purchase_value=60.0)
+    merged = _merge_open_and_closed({("usd", "B"): (rest, 2, date(2026, 11, 15))}, {("usd", "B"): (partial, 1)})
+    assert merged[("usd", "B")][0] is partial and merged[("usd", "B/rest")][0].volume == 6.0
+
+    # An open record from an export that ended before the sale is just out of date.
+    sold = Position("C", "AAA.US", 1.0, opened, 10.0, close_time=datetime(2025, 3, 1), close_price=12.0)
+    old_open = Position("C", "AAA.US", 1.0, opened, 10.0)
+    merged = _merge_open_and_closed({("usd", "C"): (old_open, 1, date(2024, 12, 31))}, {("usd", "C"): (sold, 2)})
+    assert merged == {("usd", "C"): (sold, 2)}
+
+
+def test_rest_after_a_partial_sale_gets_the_rest_of_the_cost():
+    """D-061: the purchase pairs with the sold part (same ID); what is left costs the remainder."""
+    from datetime import datetime
+    from types import SimpleNamespace as NS
+
+    from finance_analytics.sources.sync import _rest_cost
+    from finance_analytics.sources.xtb.parser import Position
+
+    opened = datetime(2023, 3, 1)
+    sold = Position("A", "ABC.US", 4.0, opened, 150.0, close_time=datetime(2025, 1, 2), close_price=240.0,
+                    purchase_value=600.0, sale_value=960.0)
+    rest = Position("A/rest", "ABC.US", 6.0, opened, 150.0)
+    buy = NS(amount=-1500.0)
+    assert _rest_cost({("usd", "A"): (sold, 1)}, {("usd", "A"): [buy]}, ("usd", "A"), rest) == 900.0
+    unknown = Position("A", "ABC.US", 4.0, opened, 150.0, close_time=datetime(2025, 1, 2), close_price=240.0)
+    assert _rest_cost({("usd", "A"): (unknown, 1)}, {("usd", "A"): [buy]}, ("usd", "A"), rest) == 900.0  # by volume
+    assert _rest_cost({("usd", "A"): (sold, 1)}, {}, ("usd", "A"), rest) is None

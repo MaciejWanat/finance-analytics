@@ -21,8 +21,8 @@ Assumptions (not seen in the real sample, see Q-006 in docs/decisions.md):
   fee) while prices and comments stay in the instrument currency.
 - Open Positions `Value` and profits are in the account currency.
 - Sales: a whole single-stock position is closed now and then. The cash-operation type
-  ("Stock sale"), its comment ("CLOSE BUY …") and the Closed Positions values are
-  guesses: the real sample had no sale (schema.CASH_TYPES_ASSUMED).
+  `Stock sell` is real (D-043); its comment ("CLOSE BUY …") and the Closed Positions values
+  are still guesses (Q-006).
 """
 
 from __future__ import annotations
@@ -242,7 +242,7 @@ class _Simulation:
         closed_at = _moment(day, self.rng, (14, 20))
         self.ledger.positions.remove(p)
         self._cash_row(
-            "Stock sale", p.instrument, closed_at, sale,
+            "Stock sell", p.instrument, closed_at, sale,
             f"CLOSE BUY {p.instrument.ticker} {p.volume:g} @ {price:.2f}", p.position_id,
         )
         self.ledger.closed.append([

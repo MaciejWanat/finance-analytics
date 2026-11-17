@@ -10,7 +10,7 @@ import streamlit as st
 from ui.charts import area_total, category_bars, current_mode, line_chart, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
 from ui.data import load_valuation, require_database
-from ui.fmt import fmt_date, fmt_money, fmt_money_compact
+from ui.fmt import fmt_date, fmt_money_compact
 from ui.glossary import G
 from ui.theme import color_map
 
@@ -153,7 +153,9 @@ kpi_row(
         Kpi("Gotówka razem", fmt_money_compact(float(total.iloc[-1])),
             delta="w PLN, po kursie NBP", delta_color="off",
             help=G["cash_total"], trend=weekly(total)),
-        Kpi("Konta bankowe", str(len(accounts)), delta=", ".join(sorted(accounts["currency"].unique())),
+        Kpi("Konta bankowe", str(len(accounts)),
+            delta=(f"wszystkie w {currencies[0]}" if len(currencies := sorted(accounts["currency"].unique())) == 1
+                   else "waluty: " + ", ".join(currencies)),
             delta_color="off", help=G["bank_account"], trend=weekly(total)),
         Kpi("Ostatnia aktualizacja", fmt_date(newest),
             delta=f"{int((today - newest).days)} dni temu" if newest < today else "dziś", delta_color="off",
@@ -216,39 +218,54 @@ account_form()
 balance_form(accounts)
 st.caption(":material/table_view: Salda możesz też pobrać i wgrać jako plik CSV na stronie **Importy**.")
 
-with st.expander(f":material/list: Zapisane salda ({len(snapshots)})"):
-    st.caption(f"Plik `{csv_path}`. Usuń wiersz, jeśli wpisałeś go przez pomyłkę.")
-    listing = snapshots.sort_values("date", ascending=False).assign(day=lambda d: d["date"].map(fmt_date))
-    table(
-        listing[["row_no", "account", "day", "balance", "currency", "note"]],
-        numbers={"row_no": 0, "balance": 2},
-        labels={"row_no": "Wiersz", "account": "Konto", "day": "Data salda", "balance": "Saldo", "currency": "Waluta",
-                "note": "Notatka"},
-        helps={"balance": G["balance"], "day": G["balance_snapshot"]},
-    )
-    labels = {int(r.row_no): f"wiersz {r.row_no}: {r.account}, {fmt_date(r.date)}, {fmt_money(r.balance, r.currency)}"
-              for r in snapshots.itertuples(index=False)}
-    left, right = st.columns([3, 1], vertical_alignment="bottom")
-    chosen = left.selectbox("Wiersz do usunięcia", list(labels), format_func=labels.get, index=None,
-                            placeholder="Wybierz wiersz")
-    if right.button("Usuń", icon=":material/delete:", disabled=chosen is None):
-        st.session_state["cash_delete"] = chosen
-    pending = st.session_state.get("cash_delete")
-    if pending is not None and pending in labels:
-        st.warning(f"Usunąć {labels[pending]} z pliku cash_balances.csv? Tego nie da się cofnąć z poziomu aplikacji.",
-                   icon=":material/warning:")
-        yes, no, _ = st.columns([1, 1, 4])
-        if yes.button("Tak, usuń", type="primary"):
-            st.session_state.pop("cash_delete", None)
-            if cash_files.delete_row(csv_path, pending):
-                run_sync(f"Usunięto {labels[pending]}.")
-            else:
-                st.error("Nie znaleziono tego wiersza w pliku; odśwież stronę.", icon=":material/error:")
-        if no.button("Anuluj"):
-            st.session_state.pop("cash_delete", None)
-            st.rerun()
+section("Zapisane salda", "Kliknij komórkę, żeby ją zmienić. Wiersz dodasz na dole tabeli, a usuniesz, zaznaczając "
+        "go i klikając ikonę kosza. Potem „Zapisz zmiany”.", help=G["balance_edit"])
+options = dict(zip(accounts["alias"] + " (" + accounts["currency"] + ")", accounts["id"], strict=True))
+names = {v: k for k, v in options.items()}
+original = snapshots.sort_values(["date", "account"]).assign(
+    konto=lambda d: d["account_id"].map(names), data=lambda d: d["date"].dt.date,
+    saldo=lambda d: d["balance"].astype(float), notatka=lambda d: d["note"].fillna(""),
+)[["konto", "data", "saldo", "notatka"]].reset_index(drop=True)
+file_errors = cash_files.read_snapshots(csv_path, reports.account_kinds(settings.db_path)).errors
+edit_round = st.session_state.get("cash_edit_round", 0)
+edited = st.data_editor(
+    original, key=f"cash_editor_{edit_round}", num_rows="dynamic", hide_index=True, width="stretch",
+    disabled=bool(file_errors),
+    column_config={
+        "konto": st.column_config.SelectboxColumn("Konto", options=list(options), required=True,
+                                                  help=G["bank_account"]),
+        "data": st.column_config.DateColumn("Data salda", format="DD.MM.YYYY", max_value=date.today(),
+                                            required=True, help=G["balance_snapshot"]),
+        "saldo": st.column_config.NumberColumn("Saldo (waluta konta)", format="%.2f", required=True,
+                                               help=G["balance"]),
+        "notatka": st.column_config.TextColumn("Notatka", max_chars=120),
+    },
+)
+changed = not edited.reset_index(drop=True).equals(original)
+if file_errors:
+    st.warning("Plik z saldami ma błędne wiersze (szczegóły na dole strony). Popraw je w pliku CSV albo wgraj plik "
+               "na stronie Importy; do tego czasu edycja w tabeli jest wyłączona, żeby ich nie skasować.",
+               icon=":material/warning:")
+with st.container(horizontal=True):  # buttons sized to their labels, side by side
+    save = st.button("Zapisz zmiany", type="primary", icon=":material/save:", disabled=not changed or bool(file_errors))
+    undo = st.button("Cofnij zmiany", icon=":material/undo:", disabled=not changed)
+if save:
+    rows = [(options.get(r.konto), r.data if pd.notna(r.data) else None, r.saldo,
+             r.notatka if isinstance(r.notatka, str) else "") for r in edited.itertuples(index=False)]
+    clean, errors = cash_files.check_table(rows, reports.account_kinds(settings.db_path), date.today())
+    if errors:
+        for message in errors:
+            st.error(message, icon=":material/error:")
+    else:
+        cash_files.write_snapshots(csv_path, clean)
+        st.session_state["cash_edit_round"] = edit_round + 1
+        run_sync(f"Zapisano salda: {len(clean)} {'wiersz' if len(clean) == 1 else 'wierszy'}.")
+if undo:
+    st.session_state["cash_edit_round"] = edit_round + 1
+    st.rerun()
+st.caption(f"Plik `{csv_path}`.")
 
-notes = list(v.warnings)
+notes = list(v.cash_warnings)  # only notes about bank cash; positions have their own pages
 if notes or not issues.empty:
     with st.expander(f":material/warning: Uwagi do gotówki ({len(notes) + len(issues)})"):
         for text in issues["message"]:

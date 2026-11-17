@@ -86,6 +86,7 @@ def test_missing_price_falls_back_to_cost_with_warning():
     row = positions_on(v, "2026-01-06")
     assert row["value_pln"].item() == pytest.approx(1000 * 4.1) and not row["priced"].item()
     assert any("XYZ.US: brak ceny rynkowej" in w for w in v.warnings)
+    assert v.cash_warnings == []  # a position note is not shown on "Gotówka"
 
 
 def test_split_after_purchase():
@@ -152,6 +153,7 @@ def test_only_bank_balances_without_rates_give_an_empty_valuation_not_a_crash():
     v = value_portfolio(inputs, date(2026, 1, 8))
     assert v.total.empty and v.daily[v.daily["kind"] == "cash"].empty  # pages filter an empty frame safely
     assert v.warnings == ["Brak kursów NBP dla EUR: wartości w tej walucie nie są wyceniane"]
+    assert v.cash_warnings == v.warnings  # a bank-cash note: shown on "Gotówka"
 
 
 def test_end_before_the_first_event_gives_an_empty_valuation():
@@ -163,3 +165,16 @@ def test_flows_after_the_end_day_are_left_out():
     ledger = [("pln", D("2026-01-05"), "DEPOSIT", 100.0), ("pln", D("2026-02-05"), "DEPOSIT", 50.0)]
     v = value_portfolio(make_inputs(ledger=ledger), date(2026, 1, 8))
     assert v.flows["date"].tolist() == [D("2026-01-05")]
+
+
+def test_missing_prices_come_from_the_users_trades():
+    """D-052: a delisted share bought at 10, sold at 6 (no market prices): straight line in between, at the day's FX."""
+    inputs = make_inputs(lots=[lot(ticker="OLD", open_date="2026-01-05", close_date="2026-01-09", open_price=10.0,
+                                   purchase_value=100.0)],
+                         fx=[("USD", D("2026-01-05"), 4.0)], currencies={})
+    inputs.lots["close_price"] = [6.0]
+    v = value_portfolio(inputs, date(2026, 1, 9))
+    by_day = positions_on(v, "2026-01-07")
+    assert by_day["price"].item() == pytest.approx(8.0)  # halfway between 10 and 6
+    assert by_day["value_pln"].item() == pytest.approx(10 * 8.0 * 4.0) and not by_day["priced"].item()
+    assert any("OLD.US: brak ceny rynkowej" in w and "transakcji" in w for w in v.warnings)

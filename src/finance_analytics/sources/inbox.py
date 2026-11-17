@@ -1,6 +1,6 @@
 """XTB inbox folder: exports saved there are imported by themselves (D-028).
 
-The folder is set in preferences (`inbox_dir`). New .xlsx files are copied into
+The folder is set in preferences (`inbox_dir`). New .xlsx files (also inside .zip exports) are copied into
 data/raw/xtb by the same code as `fa import xtb`; the source folder is only read.
 Local only: no network, so it works offline.
 """

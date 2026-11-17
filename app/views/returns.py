@@ -61,7 +61,7 @@ kpi_row(
         Kpi("TWR w okresie", fmt_pct(portfolio.twr),
             delta=f"{fmt_pct(portfolio.twr_annual)} rocznie" if portfolio.twr_annual is not None else None,
             help=G["twr"],
-            trend=(portfolio.index - 1).resample("W-FRI").last().round(4).tolist()),
+            trend=(portfolio.index - 1).resample("W-FRI").last().round(4).tolist(), trend_kind="pct"),
         Kpi("XIRR (rocznie)", fmt_pct(portfolio.xirr) if portfolio.xirr is not None else "–",
             delta_color="off",
             delta=None if portfolio.xirr is not None else "dla okresów od roku",
@@ -72,10 +72,10 @@ kpi_row(
             delta_color="off",
             help=G["drawdown"] + " "
                  + (f"Odrobiony {fmt_date(dd.recovered)}." if dd.recovered is not None else "Jeszcze nieodrobiony."),
-            trend=dd.series.resample("W-FRI").min().round(4).tolist()),
+            trend=dd.series.resample("W-FRI").min().round(4).tolist(), trend_kind="pct"),
         Kpi("Obecnie od szczytu", fmt_pct(dd.current), delta_color="off",
             help=G["drawdown_current"],
-            trend=dd.series.resample("W-FRI").last().round(4).tolist()),
+            trend=dd.series.resample("W-FRI").last().round(4).tolist(), trend_kind="pct"),
     ]
 )
 

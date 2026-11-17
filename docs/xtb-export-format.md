@@ -65,7 +65,7 @@ row. Value types of real closed positions are still unknown (Q-006).
 
 | Column | Type | Notes |
 |---|---|---|
-| Type | text | seen: `Deposit`, `Stock purchase`, `Dividend`, `Withholding tax`, `Free funds interest`, `Free funds interest tax` |
+| Type | text | seen: `Deposit`, `Stock purchase`, `Dividend`, `Withholding tax`, `Free funds interest`, `Free funds interest tax`; in later exports also `Stock sell`, `Withdrawal`, `Subaccount transfer` (D-043), `Transfer`, `IKE deposit`, `IKZE deposit`, `SEC fee` (D-045); comment formats not confirmed |
 | Instrument | text | instrument name; empty for deposits and interest |
 | Ticker | text | `XXXX.US`, `XXXX.UK` |
 | Category | text | `ETF`, `STOCK` |
@@ -83,7 +83,7 @@ Comment formats (placeholder values):
 
 | Type | Comment |
 |---|---|
-| Stock purchase | `OPEN BUY VUAA.UK 1.2345 @ 121.34` (volume may be fractional) |
+| Stock purchase | `OPEN BUY VUAA.UK 1.2345 @ 121.34` (volume may be fractional); on some accounts without the ticker, and an order for fractional shares filled in parts shows `OPEN BUY 0.3456/12.3456 @ 121.34` and `OPEN BUY 12/12.3456 @ 121.34` (part / whole order, D-048) |
 | Dividend | `AAPL.US USD 0.26/ SHR` |
 | Withholding tax | `AAPL.US USD WHT 15%` |
 | Free funds interest | `Free-funds Interest 2026-10` |
@@ -138,7 +138,7 @@ The mock export (`fa mock-xtb`) fills all five accounts and makes these assumpti
 - Prices and comments stay in the instrument currency.
 - IKE/IKZE get no `Free funds interest tax`.
 - Sales close a whole stock position:
-  - cash operation type `Stock sale`, comment `CLOSE BUY <ticker> <volume> @ <price>`;
+  - cash operation type `Stock sell` (seen in a real EUR export, D-043), comment `CLOSE BUY <ticker> <volume> @ <price>` (assumed);
   - Closed Positions row with `Purchase Value`/`Sale Value`/`Profit/Loss` in the account currency and the open/close conversion rates;
   - commission 0.
 

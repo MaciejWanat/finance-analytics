@@ -179,7 +179,7 @@ def import_() -> None:
 @import_.command("xtb")
 @click.argument("source", type=click.Path(exists=True, path_type=Path))
 def import_xtb_command(source: Path) -> None:
-    """Import an xStation export folder (or one .xlsx file). The source is only read."""
+    """Import an xStation export: a folder, the .zip xStation saves, or one .xlsx file. The source is only read."""
     from finance_analytics.sources.sync import import_xtb
     from finance_analytics.sources.sync import sync as run_sync
 

@@ -67,6 +67,20 @@ def _pnl_tables(v: Valuation) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
     return pnl_price, pnl_fx, cash_fx, symbol_currency, symbol_ticker, qty
 
 
+def fx_pnl(v: Valuation) -> pd.DataFrame:
+    """Daily currency gain or loss in PLN, date x currency, positions and foreign cash together (D-059).
+
+    Per day: what was held overnight, valued in its own currency, times the change of the NBP rate.
+    Summed from a purchase to today this is exactly "today's rate vs the rate on the purchase day";
+    after a sale it keeps the realised part. PLN holdings add nothing.
+    """
+    _, pnl_fx, cash_fx, symbol_currency, _, _ = _pnl_tables(v)
+    by_currency = pnl_fx.T.groupby(pd.Series(symbol_currency)).sum().T if not pnl_fx.empty else pd.DataFrame(
+        index=v.total.index)
+    combined = by_currency.add(cash_fx, fill_value=0.0).fillna(0.0)
+    return combined.drop(columns=["PLN"], errors="ignore")
+
+
 def attribute(v: Valuation, start: pd.Timestamp, end: pd.Timestamp) -> Attribution:
     pnl_price, pnl_fx, cash_fx, symbol_currency, symbol_ticker, qty = _pnl_tables(v)
     values = v.total

@@ -1,8 +1,10 @@
-"""Imports: add XTB exports, see accounts, operations, positions and import issues."""
+"""Imports: add XTB exports (a folder, a zip or single files, D-044), see accounts, operations, positions and issues."""
 
 from __future__ import annotations
 
+import zipfile
 from datetime import date
+from pathlib import PurePosixPath
 
 import streamlit as st
 from ui.components import empty_state, page_header, section, table
@@ -15,7 +17,7 @@ from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.preferences import PreferencesError, load_preferences
 from finance_analytics.sources.inbox import InboxResult, check_inbox
-from finance_analytics.sources.sync import store_xtb_file, sync
+from finance_analytics.sources.sync import is_export_name, store_xtb_file, sync, zip_export_files
 from finance_analytics.sources.xtb.parser import XtbFormatError
 
 LEDGER_LABELS = {
@@ -61,15 +63,25 @@ def _report_sync(result) -> None:
 with st.container(border=True):
     st.markdown("#### :material/upload_file: Dodaj eksport XTB")
     st.caption(
-        "Wskaż pliki .xlsx z folderu eksportu xStation (np. `USD_…xlsx`, `IKE_…xlsx`). "
-        "Pliki zostają na tym komputerze: trafiają do `data/raw/xtb/` i do lokalnej bazy."
+        "Wskaż folder eksportu z xStation albo pojedyncze pliki: .zip zapisany przez xStation lub pliki .xlsx "
+        "(np. `USD_…xlsx`). Pliki zostają na tym komputerze: trafiają do `data/raw/xtb/` i do lokalnej bazy."
     )
-    # A new widget key after each import empties the picker: imported files disappear from it.
+    # A new widget key after each import empties the pickers: imported files disappear from them.
     upload_round = st.session_state.get("xtb_upload_round", 0)
-    uploads = st.file_uploader(
-        "Pliki eksportu", type="xlsx", accept_multiple_files=True, label_visibility="collapsed",
-        key=f"xtb_upload_{upload_round}",
-    )
+    folder_col, files_col = st.columns(2, gap="medium")
+    with folder_col:
+        folder_uploads = st.file_uploader(
+            ":material/folder_open: Folder eksportu", type=["xlsx", "zip"], accept_multiple_files="directory",
+            key=f"xtb_folder_{upload_round}", help=G["import_folder"],
+        )
+    with files_col:
+        file_uploads = st.file_uploader(
+            ":material/draft: Pojedyncze pliki (.zip lub .xlsx)", type=["xlsx", "zip"], accept_multiple_files=True,
+            key=f"xtb_upload_{upload_round}", help=G["import_files"],
+        )
+    uploads = [*(folder_uploads or []), *(file_uploads or [])]
+    if summary := st.session_state.pop("xtb_upload_summary", None):
+        st.success(summary, icon=":material/check_circle:")
     for message in st.session_state.pop("xtb_upload_failed", []):
         st.error(message, icon=":material/error:")
     left, right = st.columns([2, 3])
@@ -85,16 +97,32 @@ with st.container(border=True):
         on_click=lambda: st.session_state.update(xtb_importing=True),
     )
     if importing:
-        stored, failed = 0, []
+        stored, known, failed = 0, 0, []
         try:
             for upload in uploads:
+                base = PurePosixPath(upload.name.replace("\\", "/")).name  # a folder upload may carry its path
+                if not is_export_name(base):
+                    continue  # e.g. an Excel lock file inside the folder
                 try:
-                    _, written = store_xtb_file(upload.name, upload.getvalue(), settings)
-                    stored += written
-                except XtbFormatError as exc:
-                    failed.append(f"{upload.name}: {exc}. Ten plik nie został zaimportowany.")
+                    files = (list(zip_export_files(upload.getvalue(), base)) if base.lower().endswith(".zip")
+                             else [(base, base, upload.getvalue())])
+                except (zipfile.BadZipFile, XtbFormatError) as exc:
+                    failed.append(f"{base}: to nie jest poprawny plik .zip z eksportem ({exc}).")
+                    continue
+                if not files:
+                    failed.append(f"{base}: w pliku .zip nie ma plików .xlsx.")
+                for shown, name, data in files:
+                    try:
+                        _, written = store_xtb_file(name, data, settings)
+                        stored += written
+                        known += not written
+                    except XtbFormatError as exc:
+                        failed.append(f"{shown}: {exc}. Ten plik nie został zaimportowany.")
             st.session_state["last_sync"] = sync(settings)
-            st.session_state["last_stored"] = stored
+            if stored or known:
+                st.session_state["xtb_upload_summary"] = (
+                    f"Nowe: {plural(stored, 'plik', 'pliki', 'plików')}; już zaimportowane wcześniej: {known}."
+                )
             st.session_state["xtb_upload_failed"] = failed
             st.session_state["xtb_upload_round"] = upload_round + 1
         finally:
@@ -183,6 +211,7 @@ with ops_tab:
             "amount": f"Kwota ({currency})", "comment": "Komentarz",
         },
         helps={"symbol": G["ticker"], "amount": "Wpływ (+) lub wypływ (−) gotówki w walucie rachunku."},
+        search="cash_operations",
     )
 
 position_labels = {
@@ -199,6 +228,7 @@ with open_tab:
         labels=position_labels,
         helps={"symbol": G["ticker"], "purchase_value": G["cost"]},
         missing_labels={"purchase_value": "unknown"},
+        search="open_positions",
     )
 with closed_tab:
     closed = reports.positions(settings.db_path, account_id, open_only=False)
@@ -214,4 +244,5 @@ with closed_tab:
             signed=["result"],
             datetimes=["open_time", "close_time"],
             labels=position_labels,
+            search="closed_positions",
         )

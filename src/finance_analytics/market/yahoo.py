@@ -52,6 +52,14 @@ def no_quotes_message(ticker: str) -> str:
             "config/yahoo_tickers.yaml (np. ABC.DE: ABC.L) i zsynchronizuj dane.")
 
 
+def no_history_message(ticker: str, start: date, end: date) -> str:
+    """Starts with NO_QUOTES_PREFIX, so the ticker is not asked again for NO_QUOTES_RETRY_DAYS."""
+    return (f"{NO_QUOTES_PREFIX} {ticker} w okresie {start:%d.%m.%Y}–{end:%d.%m.%Y} — Yahoo nie ma historii "
+            "tego instrumentu (np. spółka zeszła z giełdy, a symbol dostała inna). W te dni pozycja jest wyceniana "
+            "z cen Twoich transakcji (zakup, sprzedaż i wartości pośrednie). Jeśli Yahoo zna go pod innym "
+            "symbolem, wpisz go w config/yahoo_tickers.yaml.")
+
+
 def _is_no_quotes(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(marker in text for marker in _NO_QUOTES_MARKERS)
@@ -176,8 +184,8 @@ def update_prices(
                 history = client.history(ticker, range_start, range_end)
                 if not history.prices:
                     cached = conn.execute("SELECT 1 FROM prices WHERE ticker = ? LIMIT 1", (ticker,)).fetchone()
-                    if cached is None:
-                        raise YahooError(f"{ticker}: no prices between {range_start} and {range_end}")
+                    if cached is None:  # Yahoo knows the symbol but has no history for the period (D-046)
+                        raise YahooError(no_history_message(ticker, range_start, range_end))
                     if range_start <= final_until:  # e.g. a weekend: nothing to add, but checked
                         cache.record(conn, "yahoo", ticker, range_start, min(range_end, final_until))
                     continue

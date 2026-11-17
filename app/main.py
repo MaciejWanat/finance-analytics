@@ -7,7 +7,7 @@ import time
 from datetime import timedelta
 
 import streamlit as st
-from ui.components import apply_global_styles
+from ui.components import DIALOG_OPEN, apply_global_styles
 from ui.fmt import plural
 
 from finance_analytics.config import get_settings
@@ -114,12 +114,19 @@ def network_status() -> None:
     _, _, fetched = read_live(settings.db_path, timedelta(hours=12)) if settings.db_path.exists() else (0, 0, None)
     when = f" · ceny z {fetched.astimezone():%H:%M}" if fetched else ""
     st.caption(f":material/cloud_done: **Online**{when}")
-    if changed:
+    # Rerun the whole app only when this was the fragment's own timer run: in a full run (a click, a page
+    # change) the page renders after this fragment and already reads the new data, so a second rerun would
+    # only cost time and could swallow the click. A full rerun would also close an open dialog (KPI chart).
+    if changed and not st.session_state.get(FULL_RUN) and not st.session_state.get(DIALOG_OPEN):
         st.rerun()
 
 
-with st.sidebar:
-    network_status()
-    st.caption(":material/lock: Dane zostają na tym komputerze.")
-
-navigation.run()
+FULL_RUN = "full_app_run"  # True while the whole script runs; a fragment's timer rerun sees False
+st.session_state[FULL_RUN] = True
+try:
+    with st.sidebar:
+        network_status()
+        st.caption(":material/lock: Dane zostają na tym komputerze.")
+    navigation.run()
+finally:  # also after st.stop() in a page
+    st.session_state[FULL_RUN] = False
