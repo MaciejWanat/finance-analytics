@@ -35,7 +35,7 @@ Every page in `app/views/` follows this order (skip what does not apply):
 | 1 | Title + one-line purpose | `page_header(title, caption)` |
 | 2 | Guard states (no DB, no data, missing prerequisite) | `empty_state(...)` + `st.page_link` to the page that fixes it, then `st.stop()` |
 | 3 | Page-wide filter | `st.segmented_control`, one row, label in Polish |
-| 4 | KPI row (≤ 5 tiles; keep deltas short so they do not wrap) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
+| 4 | KPI row (≤ 5 tiles, Portfel has 6 by request (D-063); keep deltas short so they do not wrap; values shrink to fit a narrow tile) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
 | 5 | Main chart | `section(...)` + one builder from `ui/charts.py` |
 | 6 | Block filter + detail charts | control directly above `st.columns([3, 2])` |
 | 7 | Table | `table(...)`, sorted by the most important column |

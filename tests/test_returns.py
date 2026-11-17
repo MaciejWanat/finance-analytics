@@ -134,3 +134,19 @@ def test_rounding_noise_is_not_capital():
     contributed = flows.reindex(days, fill_value=0.0).cumsum()
     uw = underwater(values, contributed)
     assert uw.worst == pytest.approx(0.0) and uw.current == pytest.approx(0.1)  # day one is not -100 %
+
+
+def test_change_since_the_previous_close_ignores_deposits():
+    """D-063: today's result is the value change minus today's deposit; the % is the TWR of the day."""
+    from finance_analytics.portfolio.returns import change_since
+
+    amount, pct = change_since(VALUES, FLOWS, D("2026-01-03"))
+    assert amount == pytest.approx(210.0) and pct == pytest.approx(0.10)
+    # Day 3: the 1000 deposit is not a gain.
+    amount, pct = change_since(VALUES.loc[:"2026-01-03"], FLOWS, D("2026-01-02"))
+    assert amount == pytest.approx(0.0) and pct == pytest.approx(0.0)
+    # Over a weekend-like span (two days back) both days count.
+    amount, pct = change_since(VALUES, FLOWS, D("2026-01-02"))
+    assert amount == pytest.approx(210.0) and pct == pytest.approx(0.10)
+    # No close before the first day: nothing to compare with.
+    assert change_since(VALUES, FLOWS, D("2025-12-31")) is None

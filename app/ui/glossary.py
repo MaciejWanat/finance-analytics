@@ -54,6 +54,11 @@ G: dict[str, str] = {
         "w złotych. Procent obok to TWR."
     ),
     "total_gain": "Wartość portfela minus wpłacony kapitał: łączny zysk od początku historii.",
+    "today": (
+        "Dzisiejszy zysk lub strata: zmiana wartości portfela od zamknięcia poprzedniej sesji, bez wpłat i wypłat. "
+        "Duża liczba to procent (TWR dnia), plakietka to kwota w złotych. W weekend, w święto i zanim pobierzesz "
+        "dzisiejsze notowania widać ostatnią sesję; jej datę pokazuje szara plakietka."
+    ),
     "contributed": "Suma wszystkich wpłat minus wypłaty, przeliczona na PLN po kursie NBP z dnia operacji.",
     "portfolio_value": "Wartość wszystkich pozycji i gotówki na wszystkich rachunkach, w PLN.",
     # --- stocks vs currency -----------------------------------------------------------------

@@ -92,6 +92,20 @@ class Valuation:
         return self.daily.groupby("date")["value_pln"].sum()
 
 
+def market_days(v: Valuation) -> pd.DatetimeIndex:
+    """Days on which some price or exchange rate moved: trading sessions, and today with live quotes.
+
+    Weekends, holidays and days whose quotes are not fetched yet carry the previous values, so they
+    are not market days (D-063). Empty for a portfolio without prices or foreign currencies.
+    """
+    frames = [frame for frame in (v.prices, v.fx.drop(columns="PLN", errors="ignore")) if not frame.empty]
+    if not frames:
+        return pd.DatetimeIndex([])
+    wide = pd.concat(frames, axis=1)
+    moved = (wide.diff().abs() > 0).any(axis=1)
+    return pd.DatetimeIndex(wide.index[moved])
+
+
 # ------------------------------------------------------------------------- load
 
 

@@ -15,7 +15,8 @@ from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
-from finance_analytics.portfolio.returns import period_return, twr_index, underwater
+from finance_analytics.portfolio.returns import change_since, daily_returns, period_return, twr_index, underwater
+from finance_analytics.portfolio.valuation import market_days
 
 BREAKDOWNS = {"Klasa aktywów": "asset_class", "Rachunek": "account", "Instrument": "symbol", "Waluta": "currency"}
 # Fixed order = fixed palette slot per class, so a class keeps its colour whatever else the portfolio holds.
@@ -129,7 +130,21 @@ def _short(amount: float) -> str:
 fx_badges = [(f"{currency} {_short(amount)}", float(amount)) for currency, amount in fx_by_currency.head(2).items()]
 fx_help = G["fx_result"] + "".join(
     f" {currency}: {fmt_money(amount, decimals=0, signed=True)}." for currency, amount in fx_by_currency.items())
-# One row: value, period result, currencies, deposits, profit vs deposits with its lowest point (D-055, D-059).
+# Today (D-063): from the close before the last session to now. On a weekend, a holiday or before today's quotes
+# are fetched the last session is an earlier day, named on a grey badge, so the tile never shows a false +0,00%.
+sessions = market_days(v)
+session = sessions[-1] if len(sessions) else end
+today = change_since(total, flows, session - pd.Timedelta(days=1))
+session_returns = daily_returns(total, flows)
+if len(sessions):
+    session_returns = session_returns[session_returns.index.isin(sessions)]
+today_badges = [(fmt_money(today[0], decimals=0, signed=True), today[0])] if today else []
+if session < end:
+    today_badges.append((f"sesja {session:%d.%m}", 0.0))
+today_help = (G["today"] + (f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at
+                            else " Ceny z ostatnich pobranych notowań.")
+              + (" Kwota w dzisiejszych złotych." if real_view else ""))
+# One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
 kpi_row(
     [
         Kpi("Wartość portfela", fmt_money_compact(value_now),
@@ -137,6 +152,13 @@ kpi_row(
             help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
                  "małej wartości startowej).", trend=trend(total),
             series=total, series_start=start, series_note=f"Wartość wszystkich rachunków {UNIT}, dzień po dniu."),
+        Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
+            delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
+            help=today_help,
+            trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
+            trend_kind="pct", trend_water=True, series=session_returns, series_start=start,
+            series_note="Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań "
+                        "(weekendy, święta) są pominięte. Na kafelku: ostatni miesiąc."),
         Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
             delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
             help=G["result_period"],

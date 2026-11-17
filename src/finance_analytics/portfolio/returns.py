@@ -52,6 +52,23 @@ def period_return(index: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> f
     return float(index.asof(end) / first - 1)
 
 
+def change_since(values: pd.Series, flows: pd.Series, base: pd.Timestamp) -> tuple[float, float] | None:
+    """Result from the close of `base` to the last day, e.g. since the previous session (D-063).
+
+    (PLN, return): the PLN amount is the change of value minus deposits plus withdrawals made after
+    `base`; the return chains the daily TWR sub-periods over the same days, so a deposit is not a
+    gain. None when there is no close at `base` (it is before the first day).
+    """
+    if values.empty or base < values.index[0]:
+        return None
+    end = values.index[-1]
+    added = flows[(flows.index > base) & (flows.index <= end)].sum()
+    amount = float(values.iloc[-1] - values.asof(base) - added)
+    index = twr_index(values, flows)
+    start = index.asof(base)
+    return amount, float(index.iloc[-1] / start - 1) if start > 0 else 0.0
+
+
 def annualize(total_return: float, days: float) -> float | None:
     """Annualized rate; None for periods under a year (annualizing them exaggerates)."""
     if days < 365 or total_return <= -1:

@@ -691,6 +691,16 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Decision:** `daily_returns` treats capital at risk below 0.01 PLN as none (no return that day), and `underwater` ignores days with deposits below 1 PLN.
 - **Consequences:** real and nominal TWR agree in shape; amounts that small never come from real money.
 
+### D-063 "Dzisiaj" tile: the result since the previous session's close
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user wants today's gain or loss on Portfel, both as a percentage and as an amount: the percentage as the tile's number, the amount on a badge.
+- **Decision:**
+  - The day is the last market day: `valuation.market_days(v)` lists the days on which some price or exchange rate moved (sessions, and today with live quotes). Weekends, holidays and days whose quotes are not fetched yet carry the previous values and are skipped, so the tile shows the last session instead of a false +0,00 %; a grey badge "sesja dd.mm" names it when it is not today. A portfolio without prices or foreign currencies uses the last day.
+  - `returns.change_since(values, flows, base)`: from the close of the day before that session to now. The amount is the value change minus deposits plus withdrawals (as "Wynik w okresie"); the percentage chains the daily TWR, so a deposit is not a gain.
+  - Tile "Dzisiaj" (second, after "Wartość portfela"): the percentage with two decimals, the amount as a green or red badge (D-061); the water sparkline shows each session's return over the last month, "Pełny wykres" all sessions. It does not follow the period filter. With "Po inflacji" the amount is in today's złoty.
+  - Six tiles in the row. Each tile is a CSS size container and its value shrinks with the tile (never below 1 rem) instead of losing digits to an ellipsis; at about 1280 px with the sidebar open the values are smaller, from about 1600 px they are full size.
+- **Consequences:** none for other pages beyond the shrinking values, which only apply to tiles too narrow for them.
+
 ---
 
 ## Open questions

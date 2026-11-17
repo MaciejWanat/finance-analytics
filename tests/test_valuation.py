@@ -178,3 +178,23 @@ def test_missing_prices_come_from_the_users_trades():
     assert by_day["price"].item() == pytest.approx(8.0)  # halfway between 10 and 6
     assert by_day["value_pln"].item() == pytest.approx(10 * 8.0 * 4.0) and not by_day["priced"].item()
     assert any("OLD.US: brak ceny rynkowej" in w and "transakcji" in w for w in v.warnings)
+
+
+def test_market_days_skip_days_without_quotes_and_include_live_today():
+    """D-063: a market day is one on which some price or rate moved; carried days are not."""
+    from finance_analytics.portfolio.valuation import market_days
+
+    inputs = make_inputs(lots=[lot()], prices=PRICES, fx=FX)
+    v = value_portfolio(inputs, date(2026, 1, 9))
+    # 6th: new USD rate; 7th: new NVDA price; 8th and 9th: nothing new yet.
+    assert list(market_days(v)) == [D("2026-01-06"), D("2026-01-07")]
+    live = value_portfolio(inputs, date(2026, 1, 9), live_prices={"NVDA": 111.0})
+    assert market_days(live)[-1] == D("2026-01-09")
+
+
+def test_market_days_empty_without_prices_or_foreign_currencies():
+    from finance_analytics.portfolio.valuation import market_days
+
+    ledger = [("pln", D("2026-01-05"), "DEPOSIT", 1000.0)]
+    v = value_portfolio(make_inputs(ledger=ledger), date(2026, 1, 9))
+    assert len(market_days(v)) == 0

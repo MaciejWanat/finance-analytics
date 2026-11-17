@@ -40,6 +40,10 @@ _CSS = """
 /* KPI tiles: values like "205,4 tys. zł" must fit four tiles in a row. */
 [data-testid="stMetricValue"] { font-size: 1.7rem; font-weight: 600; }
 [data-testid="stMetricLabel"] p { font-size: 0.85rem; }
+/* Each tile is a size container, so a narrow tile (six in a row, a smaller window) shrinks its value
+   instead of cutting digits off ("+78 1…"): full size from about 150 px of tile width, never below 1 rem. */
+[class*="st-key-kpi_tile"] { container-type: inline-size; }
+[class*="st-key-kpi_tile"] [data-testid="stMetricValue"] { font-size: clamp(1rem, 18cqi, 1.7rem); }
 
 /* While the page recalculates (D-060): a small floating pill with a spinner at the top, over the
    content, so nothing moves. It appears only after 0.4 s, so quick reruns (typing in a search
@@ -117,7 +121,7 @@ def kpi_row(kpis: Sequence[Kpi]) -> None:
     for column, kpi in zip(st.columns(len(kpis)), kpis, strict=True):
         # Streamlit reads the delta's direction from a leading ASCII "-".
         delta = kpi.delta.replace(MINUS, "-") if kpi.delta else None
-        with column.container(border=True, height="stretch", gap="small"):
+        with column.container(border=True, height="stretch", gap="small", key=f"kpi_tile_{kpi.label}"):
             st.metric(
                 kpi.label,
                 kpi.value,
