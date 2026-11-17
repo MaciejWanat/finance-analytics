@@ -77,20 +77,46 @@ live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M
 section("Wartość portfela", f"W PLN, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}.{live_note}",
         help=G["portfolio_value"])
 cpi = reports.cpi_monthly(settings.db_path)
-real_view = st.toggle(
-    "W dzisiejszych złotych", value=False, key="todays_pln", help=G["todays_pln"], disabled=cpi.empty,
-)
-shown = window
-if cpi.empty:
-    st.caption("Brak danych o inflacji (CPI z GUS): pobierz je w trybie online na stronie Dane rynkowe.")
-elif real_view:
-    levels = inflation.price_level_index(cpi.set_index("month")["mom"])
-    daily_cpi = inflation.daily_levels(levels, total.index)
-    shown = inflation.todays_zloty(window, daily_cpi)
-    estimated = " (miesiąc bez opublikowanego CPI: ostatni znany poziom cen)" if daily_cpi["estimated"].iloc[-1] else ""
-    st.caption(f"Wartości w złotych z {end:%m.%Y}, czyli po uwzględnieniu wzrostu cen od danego dnia{estimated}.",
-               help=G["cpi_estimated"] if estimated else None)
-show(area_total(shown, name="Portfel", mode=mode, height=340), key="total")
+CHART_HEIGHT = 340
+NOTE_HEIGHT = 48
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def _real_series(_total: pd.Series, _cpi: pd.DataFrame, start: pd.Timestamp, key: tuple) -> tuple[pd.Series, bool]:
+    """Window of the portfolio value in today's złoty. `key` (data fingerprint + period) keys the cache."""
+    levels = inflation.price_level_index(_cpi.set_index("month")["mom"])
+    daily_cpi = inflation.daily_levels(levels, _total.index)
+    window_ = _total[_total.index >= start]
+    return inflation.todays_zloty(window_, daily_cpi), bool(daily_cpi["estimated"].iloc[-1])
+
+
+@st.fragment
+def value_over_time() -> None:
+    """Toggle + chart in a fragment: flipping the toggle reruns only this block, so the rest of the page stays
+    put. The chart slot has a fixed height and the note line is always present, so the layout never shifts."""
+    real_view = st.toggle(
+        "W dzisiejszych złotych", value=False, key="todays_pln", help=G["todays_pln"], disabled=cpi.empty,
+    )
+    note, note_help = "Wartości nominalne, w złotych z danego dnia.", None
+    shown = window
+    note_slot = st.container(height=NOTE_HEIGHT, border=False)  # reserves two lines whatever the note says
+    slot = st.container(height=CHART_HEIGHT + 16, border=False)
+    if cpi.empty:
+        note = "Brak danych o inflacji (CPI z GUS): pobierz je w trybie online na stronie Dane rynkowe."
+    elif real_view:
+        with slot, st.spinner("Przeliczam na dzisiejsze złote…"):
+            shown, estimated = _real_series(total, cpi, start, (settings.db_path.as_posix(), str(end), len(cpi)))
+        note = f"Wartości w złotych z {end:%m.%Y}, czyli po uwzględnieniu wzrostu cen od danego dnia."
+        if estimated:
+            note += " (miesiąc bez opublikowanego CPI: ostatni znany poziom cen)"
+            note_help = G["cpi_estimated"]
+    with note_slot:
+        st.caption(note, help=note_help)
+    with slot:
+        show(area_total(shown, name="Portfel", mode=mode, height=CHART_HEIGHT), key="total")
+
+
+value_over_time()
 
 # ---------------------------------------------------------------------------- composition and parts
 # The breakdown filter sits right above the charts it changes.
