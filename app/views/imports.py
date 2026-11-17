@@ -72,19 +72,33 @@ with st.container(border=True):
     )
     for message in st.session_state.pop("xtb_upload_failed", []):
         st.error(message, icon=":material/error:")
-    left, right = st.columns([1, 4])
-    if left.button("Importuj", type="primary", disabled=not uploads, icon=":material/download:"):
+    left, right = st.columns([2, 3])
+    # Two runs: the click only flips a flag, so the button redraws as a disabled spinner
+    # before the import starts; the next run imports and redraws it back.
+    importing = st.session_state.get("xtb_importing", False)
+    left.button(
+        "Importuję…" if importing else "Importuj",
+        type="primary",
+        disabled=importing or not uploads,
+        icon="spinner" if importing else ":material/download:",
+        key="xtb_import",
+        on_click=lambda: st.session_state.update(xtb_importing=True),
+    )
+    if importing:
         stored, failed = 0, []
-        for upload in uploads:
-            try:
-                _, written = store_xtb_file(upload.name, upload.getvalue(), settings)
-                stored += written
-            except XtbFormatError as exc:
-                failed.append(f"{upload.name}: {exc}. Ten plik nie został zaimportowany.")
-        st.session_state["last_sync"] = sync(settings)
-        st.session_state["last_stored"] = stored
-        st.session_state["xtb_upload_failed"] = failed
-        st.session_state["xtb_upload_round"] = upload_round + 1
+        try:
+            for upload in uploads:
+                try:
+                    _, written = store_xtb_file(upload.name, upload.getvalue(), settings)
+                    stored += written
+                except XtbFormatError as exc:
+                    failed.append(f"{upload.name}: {exc}. Ten plik nie został zaimportowany.")
+            st.session_state["last_sync"] = sync(settings)
+            st.session_state["last_stored"] = stored
+            st.session_state["xtb_upload_failed"] = failed
+            st.session_state["xtb_upload_round"] = upload_round + 1
+        finally:
+            st.session_state["xtb_importing"] = False
         st.rerun()
     if right.button("Przebuduj bazę z plików", icon=":material/sync:", help="fa rebuild"):
         st.session_state["last_sync"] = sync(settings, force=True)
