@@ -204,6 +204,9 @@ def detect_header(rows: Sequence[tuple]) -> int | None:
 
 
 def load_sheet(ws) -> Sheet:
+    # xStation exports can declare a stale used range (e.g. A1) although the
+    # worksheet contains data. In read-only mode OpenPyXL otherwise trusts it.
+    ws.reset_dimensions()
     rows = [tuple(row) for row in ws.iter_rows(values_only=True)]
     width = max((max((i + 1 for i, c in enumerate(r) if cell_kind(c) != "empty"), default=0) for r in rows), default=0)
     rows = [tuple(r[:width]) + (None,) * (width - len(r[:width])) for r in rows]

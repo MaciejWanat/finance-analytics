@@ -76,7 +76,8 @@ row. Value types of real closed positions are still unknown (Q-006).
 | Product | text | `My Trades` |
 | Position ID | text, 10 digits | only on `Stock purchase` |
 
-The last row is a total: `Type` = `Total`, only `Amount` filled.
+The last row is a total: `Type` = `Total`, normally only `Amount` filled. For an
+account with no cash operations it can be the only data row and its amount can be blank.
 
 Comment formats (placeholder values):
 
@@ -89,13 +90,12 @@ Comment formats (placeholder values):
 | Free funds interest tax | `Free-funds Interest Tax 2026-10` |
 | Deposit | free text from the payment provider with a transaction id; contains personal data |
 
-### Open Positions (header row 9)
+### Open Positions (header row 9 or later)
 
-Rows 3–8 above the header:
+Rows above the header:
 - row 3: report timestamp (A: label, B: datetime);
-- rows 4–6: a small table `Product | <metric> | Amount | Currency`, with metrics `Open position value` and `Open position profit`;
-- row 7: empty;
-- row 8: `Note` with the text "Summary values and open positions are shown as of the report generation time".
+- rows 4 onward: a small table `Product | <metric> | Amount | Currency`, with metrics `Open position value` and `Open position profit`; its number of rows varies by product;
+- an empty row, then `Note` with the text "Summary values and open positions are shown as of the report generation time".
 
 Columns: `Product`, `Instrument/Position`, `Ticker`, `Category`, `Type`, `Volume`,
 `Value`, `Current price`, `Open price`, `Open time (UTC)`, `Stop Loss`, `Take Profit`,
@@ -107,6 +107,10 @@ Two kinds of rows:
 - **position:** `Instrument/Position` holds the position ID (text, 9–10 digits), `Type` = `BUY`, `Category` is empty.
 
 Each summary row comes first, followed by its instrument's positions.
+
+Observed `Product` values include `My Trades`, `Investment Plan`, `IKE` and `IKZE`.
+Observed categories include `ETF`, `STOCK`, `ETC` and `ETN`; observed ticker suffixes include
+`.US`, `.UK`, `.DE` and `.PL`.
 
 ## Styling
 
@@ -125,7 +129,6 @@ The parser ignores styling; the mock reproduces it so the files look like the re
 The following have not appeared in a real export yet:
 - sales and closed positions;
 - withdrawals, fees and commissions, currency conversions;
-- tickers other than `.US` and `.UK` (e.g. Warsaw);
 - the content of IKE/IKZE/PLN/EUR accounts, including how USD instruments bought on a PLN or EUR account are reported.
 
 The parser rejects unknown cash operation types loudly instead of guessing.

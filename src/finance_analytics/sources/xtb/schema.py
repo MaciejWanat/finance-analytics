@@ -77,9 +77,9 @@ CASH_TYPES_ASSUMED = ("Stock sale",)
 CLOSED_TOTAL_ROW = "Profit/loss"  # last row of Closed Positions (seen with no closed positions)
 CASH_TOTAL_ROW = "Total"  # last row of Cash Operations: Type="Total", only Amount filled
 
-CATEGORIES_OBSERVED = ("ETF", "STOCK")
+CATEGORIES_OBSERVED = ("ETF", "STOCK", "ETC", "ETN")
 OPEN_POSITION_TYPES_OBSERVED = ("BUY",)
-TICKER_SUFFIXES_OBSERVED = (".UK", ".US")
+TICKER_SUFFIXES_OBSERVED = (".UK", ".US", ".DE", ".PL")
 
 # Comment formats seen in Cash Operations (values here are placeholders):
 #   Stock purchase:            "OPEN BUY VUAA.UK 1.2345 @ 121.34"

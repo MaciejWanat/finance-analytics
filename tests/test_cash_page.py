@@ -42,6 +42,11 @@ def test_empty_state_then_add_an_account_and_a_balance(settings):
     assert (account.kind, account.currency, account.alias) == ("bank", "PLN", "Konto osobiste")
     assert any("Nie masz jeszcze zapisanych sald" in m.value for m in at.markdown)
 
+    assert at.number_input[0].value is None  # empty field: typing starts from scratch, not after 0.00
+    next(b for b in at.button if b.label == "Zapisz saldo").click().run()
+    assert any("Wpisz saldo" in e.value for e in at.error)
+    assert not cash_file(settings.manual_dir).exists()
+
     at.number_input[0].set_value(2500.5)
     next(b for b in at.button if b.label == "Zapisz saldo").click().run()
     assert not at.exception and not at.error, [e.value for e in at.error]

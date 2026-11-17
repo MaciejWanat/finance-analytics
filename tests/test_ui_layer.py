@@ -96,3 +96,16 @@ def test_table_renders_numeric_columns_that_are_all_empty():
 
     at = AppTest.from_function(page, default_timeout=30).run()
     assert not at.exception
+
+
+def test_table_can_label_an_unknown_numeric_value():
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import pandas as pd
+        from ui.components import table
+
+        table(pd.DataFrame({"cost": [None, 123.0]}), numbers={"cost": 2}, missing_labels={"cost": "unknown"})
+
+    at = AppTest.from_function(page, default_timeout=30).run()
+    assert not at.exception

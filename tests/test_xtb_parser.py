@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import shutil
+import zipfile
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -49,7 +51,7 @@ def test_parses_every_row(export, prefix):
         _rows(path, schema.CASH_OPERATIONS)[-1][5], abs=0.01
     )
     assert all(isinstance(op.operation_id, str) for op in parsed.cash)
-    assert {i.category for i in parsed.instruments.values()} <= {"ETF", "STOCK"}
+    assert {i.category for i in parsed.instruments.values()} <= {"ETF", "ETC", "STOCK"}
     # Only the assumed-format notices; no structural warnings on a consistent export.
     assert all("assumed" in w for w in parsed.warnings), parsed.warnings
 
@@ -74,6 +76,23 @@ def _modified_copy(export, tmp_path, edit):
     return target
 
 
+def _stale_dimensions_copy(export, tmp_path):
+    """Simulate an xlsx with a wrong used-range declaration in every sheet XML."""
+    target = tmp_path / export["USD"].name
+    with zipfile.ZipFile(export["USD"]) as source, zipfile.ZipFile(target, "w") as output:
+        for info in source.infolist():
+            content = source.read(info.filename)
+            if info.filename.startswith("xl/worksheets/") and info.filename.endswith(".xml"):
+                content = re.sub(rb'<dimension ref="[^"]+"/>', b'<dimension ref="A1:A1"/>', content, count=1)
+            output.writestr(info, content)
+    return target
+
+
+def test_reads_an_export_with_stale_worksheet_dimensions(export, tmp_path):
+    parsed = parse_file(_stale_dimensions_copy(export, tmp_path))
+    assert parsed.cash and parsed.open_positions and parsed.closed_positions
+
+
 def test_rejects_changed_header(export, tmp_path):
     def rename(wb):
         wb[schema.CASH_OPERATIONS.name].cell(row=schema.CASH_OPERATIONS.header_row, column=6).value = "Kwota"
@@ -96,6 +115,16 @@ def test_rejects_cfd_category(export, tmp_path):
 
     with pytest.raises(XtbFormatError, match="unsupported instrument category 'CFD'"):
         parse_file(_modified_copy(export, tmp_path, cfd))
+
+
+@pytest.mark.parametrize("category", ["ETC", "ETN"])
+def test_supports_observed_exchange_traded_categories(export, tmp_path, category):
+    def change_category(wb):
+        ws = wb[schema.OPEN_POSITIONS.name]
+        ws.cell(row=schema.OPEN_POSITIONS.header_row + 1, column=4).value = category
+
+    parsed = parse_file(_modified_copy(export, tmp_path, change_category))
+    assert category in {instrument.category for instrument in parsed.instruments.values()}
 
 
 def test_sub_account_keeps_its_file_name_number_and_records_the_main_account(export, tmp_path):
@@ -135,3 +164,33 @@ def test_header_without_operations_and_without_total_is_fine(export, tmp_path):
 
     parsed = parse_file(_modified_copy(export, tmp_path, only_header))
     assert not parsed.cash and parsed.open_positions  # the other sheets are still read
+
+
+def test_blank_cash_total_means_no_operations(export, tmp_path):
+    def blank_total(wb):
+        ws = wb[schema.CASH_OPERATIONS.name]
+        ws.delete_rows(schema.CASH_OPERATIONS.header_row + 1, ws.max_row)
+        ws.append([schema.CASH_TOTAL_ROW])
+
+    parsed = parse_file(_modified_copy(export, tmp_path, blank_total))
+    assert not parsed.cash and parsed.open_positions
+
+
+def test_open_positions_header_follows_a_variable_length_summary_table(export, tmp_path):
+    """Some accounts add summary rows before the position table (e.g. Investment Plan)."""
+
+    def add_summary_rows(wb):
+        ws = wb[schema.OPEN_POSITIONS.name]
+        ws.insert_rows(schema.OPEN_POSITIONS.header_row, amount=2)
+        ws.cell(row=schema.OPEN_POSITIONS.header_row, column=1).value = "Investment Plans"
+        ws.cell(row=schema.OPEN_POSITIONS.header_row, column=2).value = "Open position value"
+        ws.cell(row=schema.OPEN_POSITIONS.header_row, column=3).value = 123.45
+        ws.cell(row=schema.OPEN_POSITIONS.header_row, column=4).value = "EUR"
+        ws.cell(row=schema.OPEN_POSITIONS.header_row + 1, column=1).value = "Investment Plans"
+        ws.cell(row=schema.OPEN_POSITIONS.header_row + 1, column=2).value = "Open position profit"
+        ws.cell(row=schema.OPEN_POSITIONS.header_row + 1, column=3).value = 12.34
+        ws.cell(row=schema.OPEN_POSITIONS.header_row + 1, column=4).value = "EUR"
+
+    path = _modified_copy(export, tmp_path, add_summary_rows)
+    parsed = parse_file(path)
+    assert parsed.open_positions

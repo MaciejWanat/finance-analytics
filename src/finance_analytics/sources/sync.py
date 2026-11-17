@@ -19,6 +19,7 @@ from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
 from finance_analytics.sources import bonds as bond_files
 from finance_analytics.sources import cash as cash_files
+from finance_analytics.sources import instruments as instrument_files
 from finance_analytics.sources.accounts import (
     load_accounts,
     register_bond_accounts,
@@ -26,7 +27,6 @@ from finance_analytics.sources.accounts import (
     xtb_account_id,
 )
 from finance_analytics.sources.xtb.parser import (
-    CATEGORY_TO_ASSET_CLASS,
     OPEN_BUY_RE,
     PARSER_VERSION,
     ParsedFile,
@@ -40,7 +40,7 @@ PROJECTION_TABLES = (
     "cash_snapshots", "bond_lots", "bond_rates", "bond_series", "bond_reference_rate",
     "import_issues", "cash_ledger", "positions", "instruments", "accounts", "source_files",
 )
-YAHOO_SUFFIX = {".US": "", ".UK": ".L"}  # XTB suffix -> Yahoo suffix; only suffixes seen so far
+YAHOO_SUFFIX = {".US": "", ".UK": ".L", ".DE": ".DE", ".PL": ".WA"}  # XTB suffix -> Yahoo suffix
 
 
 def yahoo_ticker(xtb_symbol: str) -> str | None:
@@ -159,6 +159,9 @@ def _source_state(settings: Settings) -> dict[str, tuple[str, int]]:
         )
     for path in _bond_sources(settings):
         state[path.relative_to(settings.data_dir).as_posix()] = (_sha256(path), bond_files.BONDS_PARSER_VERSION)
+    overrides_path = instrument_files.instruments_file(settings.config_dir)
+    if overrides_path.exists():
+        state[overrides_path.relative_to(settings.data_dir).as_posix()] = (_sha256(overrides_path), 1)
     cash_path = cash_files.cash_file(settings.manual_dir)
     if cash_path.exists():
         state[cash_path.relative_to(settings.data_dir).as_posix()] = (_sha256(cash_path),
@@ -333,12 +336,19 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
         )
         (result.errors if severity == "error" else result.warnings).append(message)
 
-    accounts_file = settings.accounts_file
-    if accounts_file.exists():
-        conn.execute(
-            "INSERT INTO source_files (kind, path, sha256, parser_version, imported_at) VALUES ('config', ?, ?, 1, ?)",
-            (accounts_file.relative_to(settings.data_dir).as_posix(), _sha256(accounts_file), now),
-        )
+    overrides_path = instrument_files.instruments_file(settings.config_dir)
+    for config_file in (settings.accounts_file, overrides_path):
+        if config_file.exists():
+            conn.execute(
+                "INSERT INTO source_files (kind, path, sha256, parser_version, imported_at) "
+                "VALUES ('config', ?, ?, 1, ?)",
+                (config_file.relative_to(settings.data_dir).as_posix(), _sha256(config_file), now),
+            )
+    try:
+        overrides = instrument_files.load_overrides(overrides_path)
+    except instrument_files.InstrumentsFileError as exc:
+        overrides = {}
+        issue(None, None, "error", f"{exc}; the class overrides are ignored until the file is fixed")
 
     # Merge all files; later exports (by end date) win for the state of a position.
     instruments: dict[str, dict] = {}
@@ -400,9 +410,10 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
     for symbol, info in sorted(instruments.items()):
         category = info["category"]
         ticker = yahoo_ticker(symbol)
+        asset_class = instrument_files.classify(symbol, info["name"], category, overrides)
         instrument_ids[symbol] = conn.execute(
             "INSERT INTO instruments (xtb_symbol, name, category, asset_class, yahoo_ticker) VALUES (?, ?, ?, ?, ?)",
-            (symbol, info["name"], category, CATEGORY_TO_ASSET_CLASS.get(category or "", "other"), ticker),
+            (symbol, info["name"], category, asset_class, ticker),
         ).lastrowid
         if ticker is None:
             issue(None, None, "warning", f"{symbol}: no rule maps this ticker to Yahoo yet (YAHOO_SUFFIX in "
@@ -431,6 +442,14 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             (account_id, position_id, instrument_ids[p.symbol], p.volume, _iso(p.open_time), p.open_price,
              _iso(p.close_time), p.close_price, purchase, sale, file_id),
         )
+        if p.close_time is None and purchase is None:
+            issue(
+                file_id,
+                account_id,
+                "warning",
+                f"{p.symbol} position {position_id} has no purchase value; export a range that includes its purchase "
+                "to calculate cost",
+            )
     _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, sell_for)
 
 

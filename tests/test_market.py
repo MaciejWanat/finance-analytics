@@ -189,7 +189,7 @@ def test_update_market_on_imported_mock_export(tmp_path):
     )
     assert not report.errors and not report.unresolved
     assert set(report.prices.fetched) == {"NVDA", "TSLA", "AMD", "MSFT", "AAPL", "GOOGL", "AMZN", "META",
-                                          "VUAA.L", "IWDA.L", "VWRA.L", "EIMI.L"}
+                                          "VUAA.L", "IWDA.L", "VWRA.L", "EIMI.L", "SGLN.L"}
     assert set(report.fx.fetched) == {"USD", "EUR"}  # account + price currencies, never PLN
     with closing(sqlite3.connect(settings.db_path)) as c:
         first_fx = c.execute("SELECT MIN(date) FROM fx_rates WHERE currency = 'USD'").fetchone()[0]

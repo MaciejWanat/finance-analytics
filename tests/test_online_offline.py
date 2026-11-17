@@ -70,7 +70,7 @@ class FakeQuotes:
         tickers = list(tickers)
         self.calls.append(tickers)
         return {t: (4.0 if t.endswith("PLN=X") else 123.0, "PLN" if t.endswith("PLN=X") else "USD")
-                for t in tickers if t != "AMD"}
+                for t in tickers if t != "VUAA.L"}
 
 
 def _seed_ticker_info(settings):
@@ -88,7 +88,7 @@ def test_update_live_polls_held_tickers_and_fx_with_throttle(imported):
     client = FakeQuotes()
     report = live.update_live(imported, now=MONDAY_NOON, client=client)
     assert report.updated and "USDPLN=X" in client.calls[0] and "EURPLN=X" in client.calls[0]
-    assert "AMD" in report.missing  # reported, not fatal
+    assert "VUAA.L" in report.missing  # reported, not fatal (bought every month, always held)
     # Within the refresh interval nothing is fetched again; after it, it is.
     assert not live.update_live(imported, now=MONDAY_NOON + timedelta(minutes=2), client=client).updated
     assert live.update_live(imported, now=MONDAY_NOON + timedelta(minutes=6), client=client).updated

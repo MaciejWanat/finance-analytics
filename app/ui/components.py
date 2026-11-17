@@ -80,6 +80,7 @@ def table(
     trends: Sequence[str] = (),
     labels: dict[str, str] | None = None,
     helps: dict[str, str] | None = None,
+    missing_labels: dict[str, str] | None = None,
 ) -> None:
     """A dataframe with Polish number formatting that still sorts numerically.
 
@@ -87,7 +88,8 @@ def table(
     datetimes: columns shown as YYYY-MM-DD HH:MM; percents: fractions shown as +3,4%;
     trends: columns holding lists of numbers, drawn as sparklines;
     labels: column -> header text; helps: column -> tooltip on the header (texts from
-    ui/glossary.py). Empty cells show as "–" instead of None/NaN.
+    ui/glossary.py). Empty cells show as "–" instead of None/NaN, unless a column has
+    an explicit label in missing_labels.
     """
     tokens = TOKENS[current_mode()]
     labels = labels or {}
@@ -99,13 +101,19 @@ def table(
     datetimes = [labels.get(col, col) for col in datetimes]
     percents = [labels.get(col, col) for col in percents]
     trends = [labels.get(col, col) for col in trends]
+    missing_labels = {labels.get(col, col): text for col, text in (missing_labels or {}).items()}
+    for column, text in missing_labels.items():
+        if column in df:
+            df[column] = df[column].astype(object).where(df[column].notna(), text)
     # Streamlit paints empty text cells as a grey "None"; show a dash instead. Numeric columns
     # keep their gaps (na_rep below): a column of only None is object-typed but is not text.
     formatted = {*numbers, *datetimes, *percents, *trends}
     text_columns = [col for col in df.select_dtypes(include=["object", "string"]).columns if col not in formatted]
     df[text_columns] = df[text_columns].astype(object).where(df[text_columns].notna(), "–")
     # One format() call: each call with a dict resets every column it does not name.
-    formatters: dict[str, object] = {col: (lambda v, d=d: fmt_number(v, d)) for col, d in numbers.items()}
+    formatters: dict[str, object] = {
+        col: (lambda v, d=d: v if isinstance(v, str) else fmt_number(v, d)) for col, d in numbers.items()
+    }
     formatters |= {col: (lambda v: v.strftime("%Y-%m-%d %H:%M")) for col in datetimes}
     formatters |= {col: (lambda v, sg=col in signed: fmt_pct(v, 1, signed=sg)) for col in percents}
     formatters |= {col: (lambda v: str(v)) for col in df.columns if col not in formatters and col not in trends}

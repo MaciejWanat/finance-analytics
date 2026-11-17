@@ -65,12 +65,16 @@ def balance_form(accounts: pd.DataFrame) -> None:
             account = left.selectbox("Konto", list(options), format_func=options.get, help=G["bank_account"])
             day = middle.date_input("Data salda", value=date.today(), max_value=date.today(), format="DD.MM.YYYY",
                                     help=G["balance_snapshot"])
-            amount = right.number_input("Saldo", value=0.0, step=100.0, format="%.2f", help=G["balance"])
+            amount = right.number_input(
+                "Saldo", value=None, step=100.0, format="%.2f", placeholder="np. 12345.67 (kropka)", help=G["balance"],
+            )
             note = st.text_input("Notatka (opcjonalnie)", max_chars=120)
             submitted = st.form_submit_button("Zapisz saldo", type="primary", icon=":material/add:")
         if submitted:
             kinds = reports.account_kinds(settings.db_path)
             problem = cash_files.check_snapshot(account, day, kinds, date.today())
+            if amount is None:
+                problem = "wpisz saldo konta"
             taken = {(s.account_id, s.day) for s in cash_files.read_snapshots(csv_path, kinds).snapshots}
             if not problem and (account, day) in taken:
                 problem = f"saldo tego konta na dzień {fmt_date(day)} już jest zapisane; usuń je i wpisz ponownie"

@@ -18,7 +18,7 @@ from openpyxl import load_workbook
 
 from finance_analytics.sources.xtb import schema
 
-PARSER_VERSION = 4  # bump when parsing or projection changes; `fa sync` then rebuilds everything
+PARSER_VERSION = 11  # bump when parsing or projection changes; `fa sync` then rebuilds everything
 
 FILE_NAME_RE = re.compile(
     r"^(?P<prefix>IKZE|IKE|PLN|EUR|USD)_(?P<number>\d+)_(?P<start>\d{4}-\d{2}-\d{2})_(?P<end>\d{4}-\d{2}-\d{2})"
@@ -36,7 +36,7 @@ CASH_TYPE_MAP = {
     "Free funds interest tax": "INTEREST_TAX",
     "Stock sale": "SELL",  # assumed (schema.CASH_TYPES_ASSUMED)
 }
-CATEGORY_TO_ASSET_CLASS = {"ETF": "etf", "STOCK": "stock"}
+CATEGORY_TO_ASSET_CLASS = {"ETF": "etf", "STOCK": "stock", "ETC": "other", "ETN": "other"}
 ACCOUNT_CURRENCY = {"PLN": "PLN", "EUR": "EUR", "USD": "USD", "IKE": "PLN", "IKZE": "PLN"}
 
 
@@ -139,21 +139,37 @@ def _moment(value: object, what: str) -> datetime:
     return value
 
 
-def _check_header(sheet_rows: list[tuple], layout: schema.SheetLayout) -> None:
-    if len(sheet_rows) < layout.header_row:
-        raise XtbFormatError(f"sheet {layout.name!r}: no header row {layout.header_row}")
-    found = tuple(_text(c) for c in sheet_rows[layout.header_row - 1])
+def _sheet_rows(sheet) -> list[tuple]:
+    """Read all populated cells even when an export declares a stale worksheet dimension.
+
+    Some xStation exports declare their used range as A1 despite containing data.
+    Read-only OpenPyXL otherwise trusts that metadata and yields only an empty cell.
+    """
+    sheet.reset_dimensions()
+    return [tuple(row) for row in sheet.iter_rows(values_only=True)]
+
+
+def _check_header(sheet_rows: list[tuple], layout: schema.SheetLayout, header_row: int | None = None) -> int:
+    """Validate a header and return its 1-based row number."""
+    header_row = header_row or layout.header_row
+    if len(sheet_rows) < header_row:
+        raise XtbFormatError(f"sheet {layout.name!r}: no header row {header_row}")
+    found = tuple(_text(c) for c in sheet_rows[header_row - 1])
     found = tuple(c for c in found if c is not None)
     if found != layout.columns:
         missing = [c for c in layout.columns if c not in found]
         extra = [c for c in found if c not in layout.columns]
         detail = f"missing {missing}, unexpected {extra}" if missing or extra else "same columns, different order"
-        raise XtbFormatError(f"sheet {layout.name!r}: header row {layout.header_row} does not match ({detail})")
+        raise XtbFormatError(f"sheet {layout.name!r}: header row {header_row} does not match ({detail})")
+    return header_row
 
 
-def _records(sheet_rows: list[tuple], layout: schema.SheetLayout) -> list[dict[str, object]]:
+def _records(
+    sheet_rows: list[tuple], layout: schema.SheetLayout, header_row: int | None = None,
+) -> list[dict[str, object]]:
+    header_row = header_row or layout.header_row
     records = []
-    for row in sheet_rows[layout.header_row :]:
+    for row in sheet_rows[header_row:]:
         if all(_text(c) is None for c in row):
             continue
         padded = tuple(row) + (None,) * (len(layout.columns) - len(row))
@@ -185,6 +201,23 @@ def _has_table(rows: list[tuple], layout: schema.SheetLayout) -> bool:
     return len(rows) >= layout.header_row and any(_text(c) is not None for c in rows[layout.header_row - 1])
 
 
+def _open_positions_header_row(rows: list[tuple]) -> int | None:
+    """Find the position-table header after its variable-length summary table.
+
+    XTB puts a Product / Metric / Amount / Currency summary before this table. Its
+    number of rows varies by account, so the position-table header cannot be tied to
+    a fixed row number. The first two header cells distinguish it from the summary.
+    """
+    layout = schema.OPEN_POSITIONS
+    for row_number, row in enumerate(rows, start=1):
+        first = _text(row[0]) if len(row) > 0 else None
+        second = _text(row[1]) if len(row) > 1 else None
+        if first != layout.columns[0] or second != layout.columns[1]:
+            continue
+        return _check_header(rows, layout, row_number)
+    return None
+
+
 def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
     layout = schema.CASH_OPERATIONS
     _check_header(rows, layout)
@@ -194,6 +227,8 @@ def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
     if records[-1]["Type"] != schema.CASH_TOTAL_ROW:
         raise XtbFormatError(f"sheet {layout.name!r}: missing the {schema.CASH_TOTAL_ROW!r} row at the end")
     *operations, total = records
+    if not operations and total["Amount"] is None:
+        return  # an empty account can still carry a blank Total row
     unknown = sorted({str(r["Type"]) for r in operations if r["Type"] not in CASH_TYPE_MAP})
     if unknown:
         raise XtbFormatError(f"unknown cash operation types {unknown}; the parser must learn them first (Q-006)")
@@ -227,10 +262,12 @@ def _parse_cash(parsed: ParsedFile, rows: list[tuple]) -> None:
 
 def _parse_open(parsed: ParsedFile, rows: list[tuple]) -> None:
     layout = schema.OPEN_POSITIONS
-    _check_header(rows, layout)
+    header_row = _open_positions_header_row(rows)
+    if header_row is None:
+        return
     current: dict[str, object] | None = None
     summaries: list[tuple[dict[str, object], list[Position]]] = []
-    for i, r in enumerate(_records(rows, layout), start=layout.header_row + 1):
+    for i, r in enumerate(_records(rows, layout, header_row), start=header_row + 1):
         where = f"{layout.name} row {i}"
         symbol = _text(r["Ticker"])
         if not symbol:
@@ -317,7 +354,7 @@ def parse_file(path: Path) -> ParsedFile:
         expected = [layout.name for layout in schema.SHEETS]
         if names != expected:
             raise XtbFormatError(f"sheets {names} do not match the expected {expected}")
-        sheets = {ws.title: [tuple(r) for r in ws.iter_rows(values_only=True)] for ws in workbook.worksheets}
+        sheets = {ws.title: _sheet_rows(ws) for ws in workbook.worksheets}
     finally:
         workbook.close()
 
@@ -346,7 +383,12 @@ def parse_file(path: Path) -> ParsedFile:
         (schema.OPEN_POSITIONS, _parse_open),
         (schema.CLOSED_POSITIONS, _parse_closed),
     ):
-        if _has_table(sheets[layout.name], layout):
+        has_table = (
+            _open_positions_header_row(sheets[layout.name]) is not None
+            if layout is schema.OPEN_POSITIONS
+            else _has_table(sheets[layout.name], layout)
+        )
+        if has_table:
             parse(parsed, sheets[layout.name])
 
     for op in parsed.cash:

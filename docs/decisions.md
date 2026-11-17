@@ -441,6 +441,29 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A header that is present but different still fails the file (D-006).
   - `PARSER_VERSION` 4.
 
+### D-035 XTB export variants: worksheet dimensions, product summaries and traded categories
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** a fresh masked inspector report of five real exports showed that some files declare an empty worksheet range even though Excel displays data. It also confirmed that the Open Positions summary has a variable number of rows, and that current holdings include categories `ETC` and `ETN` and ticker suffixes `.DE` and `.PL`.
+- **Decision:**
+  - The XTB parser and masked inspector reset a worksheet's declared dimensions before reading it, so they scan actual cells rather than stale XLSX metadata.
+  - Open Positions finds its table by the complete header, after the variable-length product summary. `Product` remains informational; its value is not restricted.
+  - `ETC` and `ETN` are accepted and use the existing `other` asset class (shown as "Inne") until a future dedicated classification is requested.
+  - XTB `.DE` maps to Yahoo `.DE`; XTB `.PL` maps to Yahoo `.WA`. Existing `.US` and `.UK` mappings remain unchanged.
+  - `PARSER_VERSION` 8 rebuilds projections on the next sync.
+- **Consequences:** accounts containing ETC or ETN positions are imported instead of being rejected as a whole. They appear in the portfolio and receive market-price updates where Yahoo recognises the mapped ticker; an unmapped or unavailable quote remains visible as an import/valuation warning rather than silently using a fabricated price.
+
+### D-036 Blank Cash Operations total means no cash activity
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** a fresh masked inspector report showed accounts whose Cash Operations sheet contains only the `Total` row, with an empty amount.
+- **Decision:** treat that exact shape as an empty cash-operations table. A blank amount remains invalid when actual operations precede the total. `PARSER_VERSION` 9 re-parses exports on the next sync.
+- **Consequences:** an account that only has open positions is imported instead of being rejected because it has no cash history in the selected export range.
+
+### D-037 Unknown purchase cost is visible, never estimated
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** an export range can contain an open position but not its `Stock purchase` cash operation. The Open Positions sheet exposes the opening price and volume, but not a verified total cost in the account currency after conversion and fees.
+- **Decision:** preserve the missing purchase value rather than infer it. The importer emits a warning for every open position without a matching purchase value, explaining that an export covering its purchase is needed. The UI renders the cost as `unknown` rather than `None`.
+- **Consequences:** portfolio value can still use market prices, while cost, unrealised profit and return based on that cost remain unavailable until the earlier history is imported.
+
 ### D-038 Resetting data from the app
 - **Date:** 2026-11-17 · **Status:** Accepted
 - **Context:** the user asked for a button that resets the database by deleting all source files, for example to start over after a test import.
@@ -450,6 +473,17 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - The page offers a zip backup of exports, manual files and configuration first, and the delete button stays disabled until the user types `USUŃ`. The CLI asks for confirmation unless `--yes` is given and writes a backup with `--backup`.
   - After deleting, the projection is rebuilt from the remaining files (D-002), so the database never shows data whose source is gone.
 - **Consequences:** the user can start over without hunting for files; nothing outside the data directory can be removed.
+
+### D-040 Precious metals asset class and per-symbol overrides
+- **Date:** 2026-11-17 · **Status:** Accepted (refines D-035)
+- **Context:** the user wants gold, silver and other precious metals as their own asset class. Until now every `ETC` and `ETN` fell into `other` ("Inne"), together with crypto and oil notes (for example a bitcoin ETP), and nothing in the UI said which instruments that class held. For the user what matters is the metal that drives the price, so a fund holding gold counts as gold whatever its wrapper.
+- **Decision:**
+  - New asset class `precious_metals` ("Metale szlachetne"). Migration `0009_precious_metals.sql` recreates the `instruments` projection table with the wider CHECK (SQLite cannot alter it in place), empties `positions` and `cash_ledger` that reference it, and forgets the shipped files' fingerprint so the next sync rebuilds (as in 0007). `PARSER_VERSION` = 11.
+  - Rule (`sources/instruments.py`): an instrument of XTB category `ETC`, `ETN` or `ETF` whose name contains a precious metal as a whole word (gold, silver, platinum, palladium, precious, bullion, XAU, XAG, złoto, srebro, platyna, pallad) is `precious_metals`, unless the name says it is a fund of mining companies (miner, mining, producer, explorer, górnicz…), which stays `etf`. Single stocks are never classified by name. Everything else keeps the category mapping of D-035 (`ETC`/`ETN` without a metal name stay `other`).
+  - Overrides: optional `data/config/instruments.yaml` (private), `instruments: {SYMBOL: {asset_class: stock | etf | precious_metals | other}}`. An override wins over the rule. The file is part of the sync fingerprint, so editing it rebuilds; a malformed file is reported as an import error and ignored, the rest of the import still works.
+  - UI: the class colour follows a fixed class order (Akcje, ETF, Obligacje, Metale szlachetne, Gotówka → palette slots 1–5; "Inne" keeps the neutral colour), so adding a class never repaints the others. "Bieżące pozycje" on Portfel gains a "Klasa" column, and a tooltip (`G["asset_class"]`) explains what each class holds, what "Inne" means and where to override it.
+  - The synthetic XTB export holds a gold ETC (`SGLN.UK`, "Physical Gold ETC") on the PLN account.
+- **Consequences:** gold and silver ETCs and gold ETFs show as their own slice of the portfolio; crypto and commodity notes still show as "Inne" and are now listed with their class in the holdings table. A wrong guess is fixed by one line in `instruments.yaml`; editing it from the UI is I-002.
 
 ---
 
@@ -475,6 +509,7 @@ Not part of the current plan. Pick them up after a working prototype exists, wit
 | ID | Idea | Notes | Added |
 |---|---|---|---|
 | I-001 | **Customisable home page from modules.** The user builds their own start page from tiles placed on a grid, e.g. KPI, value chart, allocation, dividends or holdings, and arranges them as they like. The result is a personal dashboard with exactly what they want to see. | Every existing view would need to be packaged as a self-contained module with its own settings. The layout would be stored locally (e.g. `data/config/dashboard.yaml`), in line with D-002 and R-015. Streamlit has no built-in drag-and-drop grid: a vetted component or a custom one would be needed, and it must not load anything from the internet (D-011). | 2026-11-16 |
+| I-002 | **Edit the asset class of an instrument in the UI.** A select box per ticker (e.g. on Importy or in the holdings table) that writes `data/config/instruments.yaml` (D-040). | Today the overrides file is edited by hand. Maybe also more classes then, e.g. crypto or commodities for the other ETC/ETN. | 2026-11-17 |
 
 ---
 

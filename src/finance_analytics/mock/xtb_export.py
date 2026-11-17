@@ -6,7 +6,8 @@ real export. Every value is invented: account numbers, IDs, prices, FX rates, th
 deposit text.
 
 The simulated saver has five accounts (USD, PLN, EUR, IKE, IKZE) and on each one:
-- deposits money every month and buys index ETFs (S&P 500, MSCI World, …);
+- deposits money every month and buys index ETFs (S&P 500, MSCI World, …), and on the
+  PLN account also a physically backed gold ETC (asset class "precious_metals", D-040);
 - buys single stocks (NVDA, TSLA, AMD, MSFT, …) a few times a year and sells some later;
 - receives quarterly dividends with 15% US withholding tax;
 - earns interest on free funds; the 19% tax on it is skipped on IKE/IKZE.
@@ -43,7 +44,7 @@ from finance_analytics.sources.xtb import schema
 class Instrument:
     ticker: str
     name: str
-    category: str  # ETF | STOCK
+    category: str  # ETF | ETC | STOCK
     start_price: float  # in USD, at the start of the mock period
     drift: float  # yearly
     volatility: float  # amplitude of the deterministic price wave
@@ -55,6 +56,7 @@ ETFS = {
     "IWDA.UK": Instrument("IWDA.UK", "Core MSCI World", "ETF", 98.0, 0.09, 0.05),
     "VWRA.UK": Instrument("VWRA.UK", "FTSE All-World", "ETF", 128.0, 0.08, 0.05),
     "EIMI.UK": Instrument("EIMI.UK", "Core MSCI EM IMI", "ETF", 33.0, 0.05, 0.07),
+    "SGLN.UK": Instrument("SGLN.UK", "Physical Gold ETC", "ETC", 52.0, 0.07, 0.05),
 }
 
 STOCKS = {
@@ -88,7 +90,7 @@ class AccountFile:
 
 ACCOUNTS = (
     AccountFile("50000001", "USD", "1000001", "USD", 800.0, ("VUAA.UK", "VWRA.UK"), 4),
-    AccountFile("50000002", "PLN", "1000002", "PLN", 3000.0, ("VUAA.UK", "IWDA.UK", "EIMI.UK"), 5),
+    AccountFile("50000002", "PLN", "1000002", "PLN", 3000.0, ("VUAA.UK", "IWDA.UK", "EIMI.UK", "SGLN.UK"), 5),
     AccountFile("50000002", "IKE", "20000003", "PLN", 2000.0, ("VWRA.UK", "EIMI.UK"), 3),
     AccountFile("50000002", "IKZE", "20000004", "PLN", 900.0, ("VUAA.UK",), 2),
     AccountFile("50000003", "EUR", "1000005", "EUR", 700.0, ("IWDA.UK", "VUAA.UK"), 4),
@@ -204,7 +206,7 @@ class _Simulation:
         price = price_usd(instrument, day, self.start)
         unit_cost = self._to_account(price, day, fee=True)
         budget = min(budget, self.ledger.cash)
-        if instrument.category == "ETF":
+        if instrument.category in ("ETF", "ETC"):
             volume = round(budget / unit_cost, self.rng.choice([2, 3, 4]))
             volume = math.floor(volume * 10_000) / 10_000
         else:

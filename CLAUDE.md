@@ -72,12 +72,13 @@ report, never from memory.
   - `cli.py`: the `fa` command.
   - `config.py`: data directory layout (`FA_DATA_DIR`, default `./data`).
   - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`).
-  - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0008_*.sql`, version in `PRAGMA user_version`.
+  - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0009_*.sql`, version in `PRAGMA user_version`.
   - `sources/`: files → projection tables. Contents:
     - `xtb/schema.py` and `xtb/parser.py` for the export;
     - `accounts.py` for `accounts.yaml` (XTB, bonds and bank accounts);
     - `bonds.py` for `manual/bonds.csv`, `config/bond_series.yaml` and the shipped series files (D-026);
     - `cash.py` for `manual/cash_balances.csv` (bank balances, D-027);
+    - `instruments.py`: asset class of an instrument (rules plus `config/instruments.yaml` overrides, D-040);
     - `manual_csv.py`: shared helpers for the hand-edited CSV files (separator, append, delete, templates);
     - `inbox.py`: the XTB inbox folder (D-028);
     - `sync.py` for import, rebuild (fingerprint of every source file) and reconciliation.
@@ -153,3 +154,4 @@ The single place for requirements (`R-xxx`), decisions (`D-xxx`) and open questi
 
 - `/ui-page`: design rules for building or changing pages in `app/`. It points to `docs/ui-guidelines.md` and ends with a browser check in light and dark mode.
 - `/grill-me [topic]`: interviews the user one question at a time, with a recommended answer for each, until a plan or design is fully resolved. Then it offers to record the outcome in `docs/decisions.md`. Use it before starting a new view or integration.
+- `/orchestrate [tasks]`: splits a batch of independent tasks into separate sessions, one per task, each on its own worktree, with a model picked by difficulty (Haiku mechanical, Sonnet standard, the strongest for maths, performance and data model). Briefs restate the privacy and commit rules.

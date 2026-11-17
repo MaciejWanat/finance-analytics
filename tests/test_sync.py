@@ -102,7 +102,8 @@ def test_broken_file_is_reported_not_imported(settings, export):
 def test_yahoo_ticker_rules():
     assert yahoo_ticker("NVDA.US") == "NVDA"
     assert yahoo_ticker("VUAA.UK") == "VUAA.L"
-    assert yahoo_ticker("PKN.PL") is None  # not seen yet: unresolved, reported as a warning
+    assert yahoo_ticker("SXR8.DE") == "SXR8.DE"
+    assert yahoo_ticker("PKN.PL") == "PKN.WA"
 
 
 def _edit_usd_export(export, tmp_path, edit):
@@ -156,6 +157,20 @@ def test_purchase_with_a_different_position_id_is_paired_by_time_and_volume(sett
     result = sync(settings)
     assert not [w for w in result.warnings if "no matching position" in w], result.warnings
     assert _count(settings, "positions", "purchase_value IS NULL") == 0
+
+
+def test_warns_when_an_open_position_has_no_purchase_history(settings, export, tmp_path):
+    from finance_analytics.sources.xtb import schema
+
+    def keep_only_blank_total(wb):
+        ws = wb[schema.CASH_OPERATIONS.name]
+        ws.delete_rows(schema.CASH_OPERATIONS.header_row + 1, ws.max_row)
+        ws.append([schema.CASH_TOTAL_ROW])
+
+    import_xtb(_edit_usd_export(export, tmp_path, keep_only_blank_total), settings)
+    result = sync(settings)
+    assert any("has no purchase value" in warning for warning in result.warnings)
+    assert _count(settings, "positions", "close_time IS NULL AND purchase_value IS NULL") > 0
 
 
 def test_reports_read_mixed_timestamp_formats_already_in_the_database(settings, export):

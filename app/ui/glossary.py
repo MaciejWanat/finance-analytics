@@ -58,7 +58,12 @@ G: dict[str, str] = {
     "trend_90": "Wartość pozycji w PLN w ostatnich 90 dniach.",
     "allocation": "Podział dzisiejszej wartości portfela według wybranej kategorii.",
     "composition": "Wartość każdej części portfela na koniec tygodnia lub miesiąca, ułożona w słupek.",
-    "asset_class": "Rodzaj aktywa: akcje, ETF (fundusz notowany na giełdzie), gotówka, obligacje.",
+    "asset_class": (
+        "Rodzaj aktywa: akcje, ETF (fundusz notowany na giełdzie), metale szlachetne, obligacje, gotówka. "
+        "Metale szlachetne to ETC, ETN i ETF z nazwą kruszcu (złoto, srebro, platyna, pallad); fundusze "
+        "spółek wydobywczych zostają w ETF. Inne to pozostałe ETC i ETN, np. na bitcoina albo ropę. "
+        "Klasę pojedynczego tickera zmienisz w pliku config/instruments.yaml w katalogu danych."
+    ),
     "etf": "ETF to fundusz notowany na giełdzie, zwykle odwzorowujący indeks (np. S&P 500, MSCI World).",
     "cash": "Wolne środki na rachunku maklerskim, w walucie rachunku.",
     # --- periods ------------------------------------------------------------------------------

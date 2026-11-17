@@ -183,7 +183,8 @@ with open_tab:
         numbers={"volume": 4, "open_price": 2, "purchase_value": 2},
         datetimes=["open_time"],
         labels=position_labels,
-        helps={"symbol": G["ticker"], "purchase_value": "Ile zapłaciłeś, w walucie rachunku (z przewalutowaniem)."},
+        helps={"symbol": G["ticker"], "purchase_value": G["cost"]},
+        missing_labels={"purchase_value": "unknown"},
     )
 with closed_tab:
     closed = reports.positions(settings.db_path, account_id, open_only=False)

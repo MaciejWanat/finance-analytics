@@ -17,7 +17,12 @@ from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.returns import period_return, twr_index
 
 BREAKDOWNS = {"Rachunek": "account", "Klasa aktywów": "asset_class", "Instrument": "symbol", "Waluta": "currency"}
-ASSET_CLASS_LABELS = {"stock": "Akcje", "etf": "ETF", "bond": "Obligacje", "cash": "Gotówka", "other": "Inne"}
+# Fixed order = fixed palette slot per class, so a class keeps its colour whatever else the portfolio holds.
+# "other" is shown as OTHER_LABEL and gets the neutral colour.
+ASSET_CLASS_LABELS = {
+    "stock": "Akcje", "etf": "ETF", "bond": "Obligacje", "precious_metals": "Metale szlachetne", "cash": "Gotówka",
+    "other": OTHER_LABEL,
+}
 MAX_PARTS = 8
 
 page_header("Portfel", "Wartość wszystkich rachunków w PLN, dzień po dniu.")
@@ -95,7 +100,7 @@ show(area_total(shown, name="Portfel", mode=mode, height=340), key="total")
 # ---------------------------------------------------------------------------- composition and parts
 # The breakdown filter sits right above the charts it changes.
 breakdown = st.segmented_control(
-    "Podział", list(BREAKDOWNS), default="Rachunek", key="breakdown", required=True, help=G["breakdown"]
+    "Podział", list(BREAKDOWNS), default="Klasa aktywów", key="breakdown", required=True, help=G["breakdown"]
 )
 column = BREAKDOWNS[breakdown]
 labelled = daily.assign(part=daily[column])
@@ -108,7 +113,10 @@ if len(parts) > MAX_PARTS:
     kept = sorted(latest.index[: MAX_PARTS - 1])
     wide[OTHER_LABEL] = wide.drop(columns=kept).sum(axis=1)
     wide, parts = wide[kept + [OTHER_LABEL]], kept + [OTHER_LABEL]
-colors = color_map([p for p in parts if p != OTHER_LABEL], mode)
+if column == "asset_class":
+    colors = color_map([label for label in ASSET_CLASS_LABELS.values() if label != OTHER_LABEL], mode)
+else:
+    colors = color_map([p for p in parts if p != OTHER_LABEL], mode)
 
 window_days = (end - start).days
 frequency, frequency_label = ("W-FRI", "tygodnia") if window_days <= 100 else ("ME", "miesiąca")
@@ -120,7 +128,8 @@ with left:
             help=G["composition"])
     show(stacked_bars(bars, mode=mode, colors=colors, height=340), key="composition")
 with right:
-    section("Alokacja dziś", f"{breakdown}: udział w wartości portfela.", help=G["allocation"])
+    section("Alokacja dziś", f"{breakdown}: udział w wartości portfela.",
+            help=G["asset_class"] if column == "asset_class" else G["allocation"])
     today_parts = wide.iloc[-1][parts]
     show(segmented_bar(today_parts.sort_values(ascending=False), mode=mode, colors=colors), key="allocation")
     shares = today_parts.sort_values(ascending=False)
@@ -136,7 +145,7 @@ with right:
 section("Bieżące pozycje", "Wartość po ostatnim kursie zamknięcia i kursie NBP; koszt po kursie z dnia zakupu.",
         help=G["position"])
 last_day = daily[(daily["date"] == end) & (daily["kind"] == "position")]
-holdings = last_day.groupby(["account", "symbol", "name", "currency"], as_index=False).agg(
+holdings = last_day.groupby(["account", "symbol", "name", "asset_class", "currency"], as_index=False).agg(
     qty=("qty", "sum"), price=("price", "last"), value=("value_pln", "sum")
 )
 open_lots = v.lots[v.lots["close_date"].isna()].assign(account=lambda d: d["account_id"].map(
@@ -150,21 +159,24 @@ recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedel
 trend = recent.groupby(["account", "symbol", "date"])["value_pln"].sum()
 holdings["trend"] = [trend.loc[(a, s)].round(0).tolist() for a, s in zip(holdings["account"], holdings["symbol"],
                                                                           strict=True)]
+holdings["asset_class"] = holdings["asset_class"].map(ASSET_CLASS_LABELS).fillna(holdings["asset_class"])
 holdings = holdings.sort_values("value", ascending=False)
 table(
-    holdings[["symbol", "account", "name", "qty", "price", "currency", "value", "share", "cost", "pnl", "pnl_pct",
-              "trend"]],
+    holdings[["symbol", "account", "name", "asset_class", "qty", "price", "currency", "value", "share", "cost", "pnl",
+              "pnl_pct", "trend"]],
     numbers={"qty": 4, "price": 2, "value": 2, "cost": 2, "pnl": 2},
     percents=["share", "pnl_pct"],
     signed=["pnl", "pnl_pct"],
     trends=["trend"],
+    missing_labels={"cost": "unknown"},
     labels={
-        "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "qty": "Ilość", "price": "Kurs",
+        "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "asset_class": "Klasa", "qty": "Ilość",
+        "price": "Kurs",
         "currency": "Waluta", "value": "Wartość (zł)", "share": "Udział", "cost": "Koszt (zł)",
         "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "trend": "90 dni",
     },
-    helps={"symbol": G["ticker"], "price": G["last_price"], "cost": G["cost"], "pnl": G["pnl"],
-           "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
+    helps={"symbol": G["ticker"], "asset_class": G["asset_class"], "price": G["last_price"], "cost": G["cost"],
+           "pnl": G["pnl"], "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
 )
 
 if v.warnings:
