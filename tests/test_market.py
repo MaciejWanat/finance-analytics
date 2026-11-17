@@ -145,6 +145,32 @@ def test_update_prices_records_errors_and_continues(conn):
     assert "not found" in error
 
 
+def test_unknown_ticker_gives_polish_warning_and_is_not_asked_again(monkeypatch, conn):
+    import yfinance
+
+    calls = []
+
+    class FakeTicker:
+        history_metadata: dict = {}
+
+        def __init__(self, ticker):
+            calls.append(ticker)
+
+        def history(self, **kwargs):
+            raise RuntimeError("$COIN.DE: possibly delisted; no timezone found")
+
+    monkeypatch.setattr(yfinance, "Ticker", FakeTicker)
+    needed = {"COIN.DE": date(2026, 9, 1)}
+    report = yahoo.update_prices(conn, needed, TODAY)
+    assert report.errors["COIN.DE"].startswith("Brak notowań w Yahoo dla COIN.DE — ")
+    assert "delisted" not in report.errors["COIN.DE"] and len(calls) == 1
+    again = yahoo.update_prices(conn, needed, TODAY)  # fresh error: no new request
+    assert len(calls) == 1 and again.errors["COIN.DE"] == report.errors["COIN.DE"]
+    conn.execute("UPDATE fetch_log SET fetched_at = '2000-01-01T00:00:00+00:00'")  # old error: tried again
+    yahoo.update_prices(conn, needed, TODAY)
+    assert len(calls) == 2
+
+
 def test_yahoo_client_converts_pence_and_reads_actions(monkeypatch):
     import yfinance
 

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import yaml
+
 from finance_analytics.config import Settings
 from finance_analytics.db import connect, migrate
 from finance_analytics.sources import bonds as bond_files
@@ -41,9 +43,31 @@ PROJECTION_TABLES = (
     "import_issues", "cash_ledger", "positions", "instruments", "accounts", "source_files",
 )
 YAHOO_SUFFIX = {".US": "", ".UK": ".L", ".DE": ".DE", ".PL": ".WA"}  # XTB suffix -> Yahoo suffix
+# A symbol whose Yahoo ticker is not the suffix rule's result is mapped by the user in config/yahoo_tickers.yaml
+# (`XTB_SYMBOL: YAHOO_TICKER`, D-039). No built-in list: it would reveal which instruments the author holds.
 
 
-def yahoo_ticker(xtb_symbol: str) -> str | None:
+def yahoo_tickers_file(config_dir: Path) -> Path:
+    return config_dir / "yahoo_tickers.yaml"
+
+
+def load_yahoo_overrides(config_dir: Path) -> dict[str, str]:
+    """User overrides from config/yahoo_tickers.yaml; a broken file is ignored (the built-in rules still apply)."""
+    path = yahoo_tickers_file(config_dir)
+    if not path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k).strip(): str(v).strip() for k, v in data.items() if k and v}
+
+
+def yahoo_ticker(xtb_symbol: str, overrides: dict[str, str] | None = None) -> str | None:
+    if overrides and xtb_symbol in overrides:
+        return overrides[xtb_symbol]
     base, dot, suffix = xtb_symbol.rpartition(".")
     if not dot or f".{suffix}" not in YAHOO_SUFFIX:
         return None
@@ -157,6 +181,9 @@ def _source_state(settings: Settings) -> dict[str, tuple[str, int]]:
         state[settings.accounts_file.relative_to(settings.data_dir).as_posix()] = (
             _sha256(settings.accounts_file), 1,
         )
+    overrides_path = yahoo_tickers_file(settings.config_dir)
+    if overrides_path.exists():
+        state[overrides_path.relative_to(settings.data_dir).as_posix()] = (_sha256(overrides_path), 1)
     for path in _bond_sources(settings):
         state[path.relative_to(settings.data_dir).as_posix()] = (_sha256(path), bond_files.BONDS_PARSER_VERSION)
     overrides_path = instrument_files.instruments_file(settings.config_dir)
@@ -407,9 +434,10 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             latest_open[account_id] = (data.date_to.isoformat(), open_ids)
 
     instrument_ids = {}
+    ticker_overrides = load_yahoo_overrides(settings.config_dir)
     for symbol, info in sorted(instruments.items()):
         category = info["category"]
-        ticker = yahoo_ticker(symbol)
+        ticker = yahoo_ticker(symbol, ticker_overrides)
         asset_class = instrument_files.classify(symbol, info["name"], category, overrides)
         instrument_ids[symbol] = conn.execute(
             "INSERT INTO instruments (xtb_symbol, name, category, asset_class, yahoo_ticker) VALUES (?, ?, ?, ?, ?)",
@@ -417,7 +445,8 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
         ).lastrowid
         if ticker is None:
             issue(None, None, "warning", f"{symbol}: no rule maps this ticker to Yahoo yet (YAHOO_SUFFIX in "
-                  "sources/sync.py), so it has no market price and is valued at purchase cost")
+                  "sources/sync.py or config/yahoo_tickers.yaml), so it has no market price and is valued at "
+                  "purchase cost")
 
     buys = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "BUY"}
     sells = {(acc, op.position_id): op for (acc, _), (op, _) in cash.items() if op.ledger_type == "SELL"}
