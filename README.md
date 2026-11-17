@@ -9,7 +9,8 @@ Everything runs on your own computer, and it works fully offline.
 
 - [What it does](#what-it-does)
 - [Core principles](#core-principles)
-- [Local setup](#local-setup)
+- [Install](#install)
+- [First steps](#first-steps)
 - [Everyday use](#everyday-use)
 - [Troubleshooting](#troubleshooting)
 - [Command reference](#command-reference)
@@ -68,35 +69,71 @@ Under the hood:
 6. **Your data never enters the repository.** The data folder is git-ignored, and a pre-commit
    hook blocks exports, databases and anything that looks like an account or card number.
 
-## Local setup
+## Install
 
-### Requirements
+There are two ways in: install a **release** to use the app, or install **from source** to work on it.
 
-- **Python 3.11 or newer.** Check with `python --version` (on Windows, `py --version` also works).
-- **Git**, to clone the repository. It also lets `fa init` enable the privacy hook.
-- Windows, macOS or Linux. Commands below are given for Windows PowerShell and for macOS / Linux.
-- Network access only to install packages from PyPI and, when you ask for it, to fetch market data.
+### Install a release (recommended)
 
-### 1. Get the code
+Each [GitHub release](https://github.com/MaciejWanat/finance-analytics/releases) has the app
+attached as one file, a wheel named like `finance_analytics-0.10.0-py3-none-any.whl`. You install
+it with [uv](https://docs.astral.sh/uv/), a free, open-source installer for Python programs:
+it puts the app in its own isolated environment, adds the `fa` command, and downloads a suitable
+Python by itself if your computer has none. You need neither git nor Python beforehand.
+
+1. **Install uv** (once). On Windows:
+
+   ```powershell
+   winget install astral-sh.uv
+   ```
+
+   On macOS `brew install uv`; on any system with Python `pip install uv`. Other ways are listed in
+   the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
+2. **Download the wheel** of the version you want from the release page, under *Assets*. While
+   the repository is private you must be signed in to GitHub with access to it; from a terminal,
+   with the GitHub CLI:
+
+   ```bash
+   gh release download v0.10.0 --repo MaciejWanat/finance-analytics --pattern "*.whl"
+   ```
+
+3. **Install it:**
+
+   ```bash
+   uv tool install finance_analytics-0.10.0-py3-none-any.whl
+   ```
+
+   If the terminal then does not recognise `fa`, run `uv tool update-shell` once and open a new
+   terminal.
+
+4. **Initialise and start:**
+
+   ```bash
+   fa init        # your data folder and the database
+   fa demo        # optional: look around on synthetic data first
+   fa ui          # the app, on http://localhost:8501
+   ```
+
+If you have git, steps 2 and 3 can be one command that builds the release straight from its tag:
+`uv tool install "git+https://github.com/MaciejWanat/finance-analytics@v0.10.0"`.
+
+### Install from source (development)
+
+Requires Python 3.11 or newer and git.
 
 ```bash
 git clone https://github.com/MaciejWanat/finance-analytics.git
 cd finance-analytics
 ```
 
-This gives you the latest code on `main`. To stay on a released version instead, check out its
-tag, for example `git checkout v0.9.0`; what changed in each release is in [CHANGELOG.md](CHANGELOG.md).
-
-Run every `fa` command from this folder (see [where your data lives](#where-your-data-lives)).
-
-### 2. Create a virtual environment and install
-
 Windows (PowerShell):
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -e .
+pip install -e ".[dev]"
+fa init
 ```
 
 macOS / Linux:
@@ -104,43 +141,29 @@ macOS / Linux:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-```
-
-- The install must be **editable** (`-e`): `fa ui` starts the Streamlit app from the `app/`
-  folder of this checkout.
-- Use `pip install -e ".[dev]"` instead if you also want the tests, `ruff` and fast auto-rerun.
-- If PowerShell refuses to run `Activate.ps1`, allow scripts for this window only with
-  `Set-ExecutionPolicy -Scope Process RemoteSigned`, or skip activation and call
-  `.venv\Scripts\fa.exe` directly.
-- The virtual environment must be active (or `fa` called by its full path) in every new terminal.
-
-### 3. Initialise
-
-```bash
+pip install -e ".[dev]"
 fa init
 ```
 
-This creates the data folder, the database and its tables, and enables the privacy pre-commit
-hook (`git config core.hooksPath .githooks`). It is safe to run again.
+- `-e` (editable) makes your code changes take effect without reinstalling; `[dev]` adds the
+  tests, `ruff` and fast auto-rerun.
+- If PowerShell refuses to run `Activate.ps1`, allow scripts for this window only with
+  `Set-ExecutionPolicy -Scope Process RemoteSigned`, or call `.venv\Scripts\fa.exe` directly.
+- From source, `fa init` also enables the privacy pre-commit hook
+  (`git config core.hooksPath .githooks`), and the data folder is `data/` in the repository.
+- `main` holds the latest code; `git checkout v0.10.0` gives a released version. What changed in
+  each release is in [CHANGELOG.md](CHANGELOG.md).
 
-```
-data/
-  finance.db        the database: rebuilt from the files below, plus the market data cache
-  raw/xtb/          archived XTB exports, one folder per account
-  manual/           bonds.csv, cash_balances.csv
-  config/           accounts.yaml, settings.yaml and optional overrides
-  samples/          masked inspector reports
-```
+## First steps
 
-### 4. Try the demo (optional)
+### Try the demo
 
 ```bash
 fa demo
 ```
 
-It builds a separate `data-demo/` folder from a synthetic XTB export, mock bond purchases and
-mock bank balances, then opens the UI at http://localhost:8501. Your own `data/` is not touched.
+It builds a separate demo folder from a synthetic XTB export, mock bond purchases and mock bank
+balances, then opens the UI at http://localhost:8501. Your own data is not touched.
 
 - The demo prints warnings about an assumed export format; they are expected.
 - The demo starts without market data. To see prices and currency values, open *Dane rynkowe*
@@ -148,7 +171,7 @@ mock bank balances, then opens the UI at http://localhost:8501. Your own `data/`
 - The demo runs in developer mode, so it also shows a *Deweloper* page with the style preview.
 - Stop it with `Ctrl+C`. `fa demo --no-ui` only prepares the files.
 
-### 5. Load your own data
+### Load your own data
 
 **XTB.** In xStation, export the account history to xlsx. Choose the whole period since the
 account was opened: the cash balance and the cost of each position come from that history, and
@@ -160,15 +183,15 @@ fa import xtb "C:\Users\me\Downloads\export.zip"
 ```
 
 or use **Importuj** on the *Importy* page. The source is only read: the files are copied into
-`data/raw/xtb/`, and files already imported are skipped. New accounts appear in
-`data/config/accounts.yaml` as "XTB PLN", "XTB IKE" and so on; change `alias` there to rename them.
+`raw/xtb/` in the data folder, and files already imported are skipped. New accounts appear in
+`config/accounts.yaml` as "XTB PLN", "XTB IKE" and so on; change `alias` there to rename them.
 
 **Treasury bonds.** On *Obligacje*, add each purchase with the form (series such as `EDO0736`,
-purchase date, number of bonds). You can also edit `data/manual/bonds.csv` or upload a CSV on
+purchase date, number of bonds). You can also edit `manual/bonds.csv` or upload a CSV on
 *Importy*.
 
 **Cash at banks.** On *Gotówka*, add a bank account, then save its balance whenever you like.
-The file behind it is `data/manual/cash_balances.csv`.
+The file behind it is `manual/cash_balances.csv`.
 
 **Market data.** Fetch prices, NBP rates and CPI once:
 
@@ -180,13 +203,14 @@ or click **Pobierz brakujące dane** on *Dane rynkowe*. Only missing days are do
 next runs take seconds. If you want prices kept up to date while the app is open, switch to
 online mode on *Ustawienia* or with `fa settings --online`.
 
-### 6. Start the app
+### Start the app
 
 ```bash
 fa ui
 ```
 
-The UI opens at http://localhost:8501 and listens on this computer only. Stop it with `Ctrl+C`.
+The UI opens at http://localhost:8501 and listens on this computer only. The terminal shows which
+data folder it uses. Stop it with `Ctrl+C`.
 
 ## Everyday use
 
@@ -196,24 +220,32 @@ The UI opens at http://localhost:8501 and listens on this computer only. Stop it
   imported by themselves about once a minute. `fa import inbox` checks it once from the terminal.
 - **Prices:** in offline mode, click **Pobierz brakujące dane** (or run `fa update-market`)
   when you want fresh prices. In online mode they refresh on their own.
-- **Updating the app:**
-
-  ```bash
-  git pull
-  pip install -e .
-  fa ui
-  ```
-
-  `fa ui` applies new database migrations and rebuilds the tables from your files.
+- **Updating the app:** for a release, download the new wheel and install it the same way
+  (`uv tool install finance_analytics-<new version>-py3-none-any.whl`); uv replaces the old
+  version. From source, `git pull` and `pip install -e ".[dev]"`. Either way, the next `fa ui`
+  applies new database migrations and rebuilds the tables from your files.
 - **Backup:** copy the whole data folder. Everything that matters is there; the market cache can
   always be downloaded again. *Ustawienia* also offers a zip of your files.
 - **Starting over:** *Resetowanie danych* on *Ustawienia*, or `fa reset --backup backup.zip`,
   deletes your source files and empties the database. Preferences and the inbox folder are kept.
+- **Uninstalling:** `uv tool uninstall finance-analytics`. Your data folder stays; delete it
+  yourself if you want it gone.
 
 ### Where your data lives
 
-The data folder is `./data`, relative to the folder you run `fa` from. To keep it somewhere else
-(for example on an encrypted drive), set `FA_DATA_DIR` to an absolute path before running `fa`:
+| How you run the app | Data folder |
+|---|---|
+| Installed release, Windows | `%LOCALAPPDATA%\finance-analytics\data`, e.g. `C:\Users\<you>\AppData\Local\finance-analytics\data` |
+| Installed release, macOS | `~/Library/Application Support/finance-analytics/data` |
+| Installed release, Linux | `~/.local/share/finance-analytics/data` (or under `$XDG_DATA_HOME`) |
+| From source | `data/` in the repository |
+
+The demo uses a `demo` folder next to it (`data-demo/` from source). `fa init` and `fa ui` print
+the folder they use. It is deliberately not in Documents: on Windows, Documents is often synced to
+OneDrive, which would copy your financial data to the cloud.
+
+To keep the data somewhere else (for example on an encrypted drive), set `FA_DATA_DIR` to an
+absolute path before running `fa`:
 
 ```powershell
 $env:FA_DATA_DIR = "D:\Finanse\data"     # Windows PowerShell, this window only
@@ -227,15 +259,14 @@ export FA_DATA_DIR="$HOME/finanse/data"  # macOS / Linux, this shell only
 
 | Problem | What to do |
 |---|---|
-| `fa` is not recognised | Activate the virtual environment (step 2), or call `.venv\Scripts\fa.exe` (Windows) / `.venv/bin/fa`. |
-| `UI entry point not found` | The package was installed without `-e`. Run `pip install -e .` from the project folder. |
-| The app shows no data, or a different set of data | `fa` was run from another folder, so it used another `./data`. Run it from the project folder or set `FA_DATA_DIR`. |
+| `fa` is not recognised | Release: run `uv tool update-shell` and open a new terminal. From source: activate the virtual environment, or call `.venv\Scripts\fa.exe` (Windows) / `.venv/bin/fa`. |
+| The app shows no data, or different data | An installed release and a source checkout use different data folders. Check the folder `fa ui` prints, and set `FA_DATA_DIR` if you want one shared folder. |
 | Port 8501 is already in use | Another instance is running (for example the demo). Stop it, or use `fa ui --port 8502`. |
-| "Brak notowań w Yahoo dla …" | Yahoo knows that instrument under another ticker. Map it in `data/config/yahoo_tickers.yaml` (`XTB_SYMBOL: YAHOO_TICKER`), then fetch again. Until then the position is valued at your own trade prices. |
+| "Brak notowań w Yahoo dla …" | Yahoo knows that instrument under another ticker. Map it in `config/yahoo_tickers.yaml` (`XTB_SYMBOL: YAHOO_TICKER`), then fetch again. Until then the position is valued at your own trade prices. |
 | A position's cost is shown as unknown | The export does not include its purchase. Import an export that starts before it, ideally from the account opening date. |
 | Yahoo stops answering (rate limit) | Wait a few minutes and fetch again; already downloaded data is kept. |
-| An instrument is in the wrong asset class | Override it in `data/config/instruments.yaml`, e.g. `instruments: {SGLN.UK: {asset_class: precious_metals}}`. |
-| Something looks wrong after an update | `fa rebuild` rebuilds the database from your files; nothing in `data/` is lost. |
+| An instrument is in the wrong asset class | Override it in `config/instruments.yaml`, e.g. `instruments: {SGLN.UK: {asset_class: precious_metals}}`. |
+| Something looks wrong after an update | `fa rebuild` rebuilds the database from your files; nothing in the data folder is lost. |
 
 ## Command reference
 
@@ -243,7 +274,7 @@ export FA_DATA_DIR="$HOME/finanse/data"  # macOS / Linux, this shell only
 |---|---|
 | `fa init` | Data folder, database, privacy git hook. |
 | `fa ui [--port N] [--no-open] [--dev]` | Start the UI on `localhost`; `--dev` adds auto-rerun on save and developer pages. |
-| `fa demo [--no-ui] [--port N]` | Build `data-demo/` from synthetic data and open the UI on it. |
+| `fa demo [--no-ui] [--port N]` | Build the demo folder from synthetic data and open the UI on it. |
 | `fa import xtb <folder\|zip\|xlsx>` | Archive an xStation export into the data folder and sync. |
 | `fa import inbox` | Check the inbox folder set on *Ustawienia* once. |
 | `fa update-market` | Download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); works in offline mode too, because you asked. |
@@ -279,19 +310,20 @@ pytest                                          # never touches the network or r
 ruff check .
 python scripts/check_no_private_data.py --all   # also runs as the pre-commit hook on staged files
 fa ui --dev                                     # auto-rerun on save, plus a style preview page
+python -m pip wheel . --no-deps -w dist         # the release wheel; try it with `uv tool install dist/<wheel>`
 ```
 
 Project layout:
 
 ```
-src/finance_analytics/   all logic, no UI code
+src/finance_analytics/   the package: all logic, plus the UI in app/
+  app/                   Streamlit UI: pages in views/, design layer in ui/, theme in .streamlit/
   sources/               files -> SQLite: XTB parser, accounts, bonds, bank balances, inbox, sync
   market/                the only network code: Yahoo, NBP, GUS, cache, online/offline gate, live quotes
   portfolio/             pandas maths: valuation, returns, attribution, dividends, inflation, bonds
   db/migrations/         numbered SQL migrations
   resources/             public bond data shipped with the app
   mock/                  synthetic data generators for tests and the demo
-app/                     Streamlit UI: pages in views/, design layer in ui/
 scripts/                 XTB export inspector (masked report), privacy check
 docs/                    decision log, UI guidelines, XTB export format
 tests/                   pytest; synthetic data only, no network

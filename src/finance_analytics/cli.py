@@ -14,12 +14,19 @@ from pathlib import Path
 import click
 
 from finance_analytics import __version__
-from finance_analytics.config import DATA_DIR_ENV, Settings, get_settings
+from finance_analytics.config import (
+    APP_DIR,
+    DATA_DIR_ENV,
+    SOURCE_ROOT,
+    Settings,
+    demo_data_dir,
+    get_settings,
+    is_source_checkout,
+)
 from finance_analytics.db import connect, migrate
 from finance_analytics.sources import accounts as accounts_file
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-APP_MAIN = REPO_ROOT / "app" / "main.py"
+APP_MAIN = APP_DIR / "main.py"
 
 @click.group()
 @click.version_option(__version__, prog_name="fa")
@@ -54,7 +61,7 @@ def _report_sync(result) -> None:
         return
     click.echo(f"Sync: rebuilt from {result.files} file(s).")
     for alias in result.accounts_added:
-        click.echo(f"  new account: {alias} (rename it in data/config/accounts.yaml)")
+        click.echo(f"  new account: {alias} (rename it in config/accounts.yaml in the data directory)")
     for message in result.errors:
         click.secho(f"  ERROR {message}", fg="red")
     for message in result.warnings:
@@ -233,7 +240,7 @@ def ui(port: int, dev: bool, open_browser: bool) -> None:
 @click.option("--open/--no-open", "open_browser", default=True, show_default=True, help="Open a browser tab.")
 @click.option("--no-ui", is_flag=True, help="Only prepare the demo data.")
 def demo(port: int, open_browser: bool, no_ui: bool) -> None:
-    """Build data-demo/ from a synthetic XTB export, mock bonds and bank balances, then open the UI on it."""
+    """Build the demo data directory from a synthetic XTB export, mock bonds and bank balances, then open the UI."""
     from finance_analytics.mock.bonds import write_mock_bonds
     from finance_analytics.mock.cash import write_mock_cash
     from finance_analytics.mock.xtb_export import write_mock_export
@@ -242,7 +249,7 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     from finance_analytics.sources.sync import import_xtb
     from finance_analytics.sources.sync import sync as run_sync
 
-    settings = Settings(data_dir=Path("data-demo").resolve())
+    settings = Settings(data_dir=demo_data_dir())  # data-demo/ in a checkout, never the real data directory
     # Start from fresh demo files so repeated runs don't stack copies, but keep the
     # database: its market cache (prices, FX) saves re-downloading on every demo run.
     export = settings.data_dir / "xtb_export"
@@ -252,11 +259,11 @@ def demo(port: int, open_browser: bool, no_ui: bool) -> None:
     settings.accounts_file.unlink(missing_ok=True)  # settings.yaml (network mode) is kept
     write_mock_export(export)
     _prepare(settings)
-    write_mock_bonds(bonds_file(settings.manual_dir))  # synthetic purchases, only ever in data-demo/
+    write_mock_bonds(bonds_file(settings.manual_dir))  # synthetic purchases, only ever in the demo directory
     write_mock_cash(settings.accounts_file, cash_file(settings.manual_dir))  # two mock bank accounts
     import_xtb(export, settings)
     _report_sync(run_sync(settings, force=True))
-    click.echo(f"Demo data directory: {settings.data_dir} (synthetic, git-ignored)")
+    click.echo(f"Demo data directory: {settings.data_dir} (synthetic data only)")
     if not no_ui:
         _launch_ui(settings, port, dev=True, open_browser=open_browser)
 
@@ -286,18 +293,22 @@ def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> 
         "--server.runOnSave", "true" if dev else "false",
     ]
     url = f"http://localhost:{port}"
+    click.echo(f"Data directory: {settings.data_dir}")
     click.echo(f"Starting the UI at {url} (Ctrl+C to stop)")
     if open_browser:
         threading.Timer(2.0, webbrowser.open, args=[url]).start()
-    raise SystemExit(subprocess.call(cmd, cwd=REPO_ROOT, env=env))
+    # Streamlit reads .streamlit/config.toml (theme, privacy settings) from its working directory: the app folder.
+    raise SystemExit(subprocess.call(cmd, cwd=APP_DIR, env=env))
 
 
 @main.command("mock-xtb")
-@click.argument("out_dir", type=click.Path(path_type=Path), default=Path("data-demo") / "xtb_export")
+@click.argument("out_dir", type=click.Path(path_type=Path), required=False)
 @click.option("--force", is_flag=True, help="Write even if the folder is not empty.")
-def mock_xtb(out_dir: Path, force: bool) -> None:
-    """Write a synthetic xStation export folder (real layout, fake values)."""
+def mock_xtb(out_dir: Path | None, force: bool) -> None:
+    """Write a synthetic xStation export folder (real layout, fake values); default: xtb_export in the demo folder."""
     from finance_analytics.mock.xtb_export import write_mock_export
+
+    out_dir = out_dir or demo_data_dir() / "xtb_export"
 
     if out_dir.exists() and any(out_dir.iterdir()) and not force:
         raise click.ClickException(f"{out_dir} is not empty (use --force to overwrite)")
@@ -307,11 +318,13 @@ def mock_xtb(out_dir: Path, force: bool) -> None:
 
 
 def _install_git_hooks() -> None:
-    """Point git at .githooks so the privacy pre-commit check runs (D-014)."""
-    if not (REPO_ROOT / ".git").exists() or not (REPO_ROOT / ".githooks").is_dir():
+    """Point git at .githooks so the privacy pre-commit check runs (D-014). Only a source checkout needs it."""
+    if not is_source_checkout():
+        return
+    if not (SOURCE_ROOT / ".git").exists() or not (SOURCE_ROOT / ".githooks").is_dir():
         click.echo("Not a git checkout; skipping the privacy pre-commit hook.")
         return
-    git = ["git", "-C", str(REPO_ROOT), "config"]
+    git = ["git", "-C", str(SOURCE_ROOT), "config"]
     current = subprocess.run([*git, "--get", "core.hooksPath"], capture_output=True, text=True).stdout.strip()
     if current == ".githooks":
         click.echo("Privacy pre-commit hook: already enabled.")

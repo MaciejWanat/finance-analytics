@@ -12,7 +12,7 @@ NETWORK_MODULES = {
     "yfinance", "curl_cffi", "websocket", "websockets", "ftplib", "smtplib", "telnetlib",
 }
 ALLOWED = ROOT / "src" / "finance_analytics" / "market"
-SCANNED = [ROOT / "src", ROOT / "app", ROOT / "scripts"]
+SCANNED = [ROOT / "src", ROOT / "scripts"]  # src/ includes the UI (finance_analytics/app)
 
 
 def _imported_roots(path: Path) -> set[str]:

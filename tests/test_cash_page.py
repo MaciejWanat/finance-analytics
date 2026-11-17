@@ -11,14 +11,14 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from finance_analytics.config import DATA_DIR_ENV, Settings
+from finance_analytics.config import APP_DIR, DATA_DIR_ENV, Settings
 from finance_analytics.db import connect, migrate
 from finance_analytics.mock.cash import write_mock_cash
 from finance_analytics.sources.accounts import add_bank_account, load_accounts
 from finance_analytics.sources.cash import append_snapshot, cash_file, read_snapshots
 from finance_analytics.sources.sync import sync
 
-PAGE = str(Path(__file__).resolve().parents[1] / "app" / "views" / "cash.py")
+PAGE = str(APP_DIR / "views" / "cash.py")
 
 
 @pytest.fixture

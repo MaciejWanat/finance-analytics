@@ -46,21 +46,23 @@ fa init            # data/ dirs, DB migrations, enables the privacy pre-commit h
 fa ui              # Streamlit UI on http://localhost:8501 (applies migrations first, and syncs if any ran)
 fa ui --dev        # plus auto-rerun on save and developer pages (style preview on synthetic data)
 fa demo [--no-ui]  # data-demo/ from a synthetic export, mock bond purchases and mock bank balances, then the UI on it
-fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_export)
+fa mock-xtb [OUT_DIR]   # synthetic xStation export (default xtb_export in the demo directory)
 fa import xtb <folder|zip>  # archive an export (folder, xStation zip or .xlsx) into data/raw/xtb and sync
 fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
 fa sync / fa rebuild    # rebuild projection tables when files changed / always
 fa reset [--keep-…] [--market] [--backup ZIP]   # delete source files in the data dir, rebuild (D-038)
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
-fa update-market        # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); online mode only
+fa update-market        # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); an explicit request, so offline too (D-031)
 pytest                  # no network access in tests (.venv/Scripts/python.exe -m pytest -q)
 ruff check .
 python scripts/check_no_private_data.py [--all]   # privacy check; the pre-commit hook runs it on staged files
 python scripts/inspect_xtb_export.py <export_folder> --out data/samples/xtb_report.md
+python -m pip wheel . --no-deps -w dist   # the release wheel (D-064, D-065); `uv tool install dist/<wheel>` to try it
 ```
 
-`FA_DATA_DIR` selects the data directory (default `./data`; the demo uses `data-demo/`, which is
-synthetic and git-ignored).
+Data directory (`config.py`, D-065): `FA_DATA_DIR` when set; in a source checkout `data/` in the
+repository, and `data-demo/` for `fa demo` (both git-ignored); an installed package uses a per-user
+folder (`%LOCALAPPDATA%\finance-analytics\data` on Windows, with `demo` next to it).
 
 The XTB export format is described in `docs/xtb-export-format.md` and mirrored in
 `src/finance_analytics/sources/xtb/schema.py`. Update both only from a fresh inspector
@@ -68,9 +70,9 @@ report, never from memory.
 
 ## Architecture
 
-- `src/finance_analytics/`: all logic. No Streamlit imports here.
+- `src/finance_analytics/`: all logic. No Streamlit imports outside `app/` (a test enforces it).
   - `cli.py`: the `fa` command.
-  - `config.py`: data directory layout (`FA_DATA_DIR`, default `./data`).
+  - `config.py`: where the app lives (checkout or installed package) and the data directory layout (D-065).
   - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`).
   - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0009_*.sql`, version in `PRAGMA user_version`.
   - `sources/`: files → projection tables. Contents:
@@ -99,7 +101,9 @@ report, never from memory.
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
     - `bonds.py`: treasury bonds: interest periods, rates, daily value, coupons, early redemption (D-026).
-- `app/`: thin Streamlit UI, in Polish.
+- `src/finance_analytics/app/`: thin Streamlit UI, in Polish. Shipped inside the package as data files (every file must
+  match `[tool.setuptools.package-data]`, a test checks it); `fa ui` runs Streamlit from this folder so its
+  `.streamlit/config.toml` (theme, privacy settings, D-011) applies. Its modules import each other as `ui.*`.
   - `main.py`: navigation (Analiza: Portfel, Zwroty, Dywidendy, Obligacje, Gotówka; Dane: Importy, Dane rynkowe;
     Aplikacja: Ustawienia; Deweloper with `--dev`) and the sidebar fragment (inbox check, online refresh, mode badge).
   - `views/`: one page per file.
@@ -139,6 +143,8 @@ two kinds of tables:
 - Small steps; every step leaves the project runnable (`fa init`, `fa ui`, `pytest`).
 - Ask the user before any significant architectural decision.
 - Propose a commit after each step, and commit only when the user asks (after the privacy check above).
+- Note user-visible changes in `CHANGELOG.md` under `Unreleased`. Releases follow D-064 and D-065: bump
+  `__version__`, date the changelog section, tag `vX.Y.Z` on `main`, attach the wheel to the GitHub release.
 
 ## Decision log: `docs/decisions.md`
 
@@ -152,6 +158,6 @@ The single place for requirements (`R-xxx`), decisions (`D-xxx`) and open questi
 
 ## Skills
 
-- `/ui-page`: design rules for building or changing pages in `app/`. It points to `docs/ui-guidelines.md` and ends with a browser check in light and dark mode.
+- `/ui-page`: design rules for building or changing pages in `src/finance_analytics/app/`. It points to `docs/ui-guidelines.md` and ends with a browser check in light and dark mode.
 - `/grill-me [topic]`: interviews the user one question at a time, with a recommended answer for each, until a plan or design is fully resolved. Then it offers to record the outcome in `docs/decisions.md`. Use it before starting a new view or integration.
 - `/orchestrate [tasks]`: splits a batch of independent tasks into separate sessions, one per task, each on its own worktree, with a model picked by difficulty (Haiku mechanical, Sonnet standard, the strongest for maths, performance and data model). Briefs restate the privacy and commit rules.

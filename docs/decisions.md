@@ -702,7 +702,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Consequences:** none for other pages beyond the shrinking values, which only apply to tiles too narrow for them.
 
 ### D-064 Versioning and releases; first release 0.9.0
-- **Date:** 2026-11-18 · **Status:** Accepted
+- **Date:** 2026-11-18 · **Status:** Accepted; "no wheel attached" superseded by D-065
 - **Context:** the core scope works end to end and the user wants a first GitHub release, numbered 0.9 rather than 1.0.
 - **Decision:**
   - Versions follow Semantic Versioning. The only place the version is written is `__version__` in `src/finance_analytics/__init__.py`; `pyproject.toml` reads it (`dynamic = ["version"]`), and `fa --version` shows it.
@@ -711,6 +711,26 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Before tagging: `pytest`, `ruff check .`, `python scripts/check_no_private_data.py --all`, the shipped bond data checked for new series and official rates (D-026), the README and `CHANGELOG.md` updated.
   - 0.9.0 (2026-11-18) is the first release. It is not marked as a pre-release: the 0.x number already says the app may still change.
 - **Consequences:** changes from now on are noted in `CHANGELOG.md` under an `Unreleased` heading until the next release.
+
+### D-065 An installable package: the UI ships inside it, data in a per-user folder
+- **Date:** 2026-11-18 · **Status:** Accepted (supersedes the "no wheel" point of D-064)
+- **Context:** 0.9.0 ran only from a checkout. The UI (`app/`) sat outside the package, `fa ui` started Streamlit in the repository root to pick up `.streamlit/config.toml`, and the data folder was `./data` relative to the working directory. The user wants anyone to install a chosen version without git, and asked for the option of a wheel installed with uv over a Windows `.exe` installer (bundled Python of several hundred MB, unsigned-binary warnings, a Windows build per release).
+- **Decision:**
+  - **UI inside the package:** `app/` moves to `src/finance_analytics/app/`, with its `.streamlit/config.toml`. It stays a folder of Streamlit scripts whose modules import each other as `ui.*`, so its files are listed in `[tool.setuptools.package-data]`; `tests/test_packaging.py` fails if a file is not covered. Streamlit may be imported only inside `app/` (a test), so the business logic stays free of UI code (D-012).
+  - **`fa ui`** runs Streamlit with the app folder as the working directory, so its config (theme, the privacy settings of D-011) applies wherever the package is installed; the privacy flags stay on the command line as well.
+  - **Data directory** (`config.py`), in order:
+    1. `FA_DATA_DIR`;
+    2. in a source checkout (`src/` layout with `pyproject.toml` next to it): `data/` in the repository, now fixed to the repository root instead of the working directory, and `data-demo/` for the demo;
+    3. otherwise a per-user folder: `%LOCALAPPDATA%\finance-analytics\data` on Windows, `~/Library/Application Support/finance-analytics/data` on macOS, `$XDG_DATA_HOME` (if absolute) or `~/.local/share` + `finance-analytics/data` elsewhere, with `demo` next to `data`.
+
+    Not Documents: on Windows it is often synced to OneDrive, which would copy financial data to the cloud (R-015). `fa init` and `fa ui` print the folder in use.
+  - `fa init` enables the git hook only in a source checkout.
+  - **Releases:** the wheel (`python -m pip wheel . --no-deps -w dist`) is attached to the GitHub release. Users install it with `uv tool install <wheel>`, which fetches a suitable Python if none is installed; installing a newer wheel the same way replaces the old version. `uv tool install "git+https://github.com/MaciejWanat/finance-analytics@vX.Y.Z"` is the alternative for users with git. Not published on PyPI: the repository is private, and publishing would be its own decision.
+  - Released as 0.10.0.
+- **Consequences:**
+  - An installed release and a source checkout use different data folders by default; `FA_DATA_DIR` points both at one.
+  - A running `fa ui` from a checkout must be restarted after this change, because the UI files moved.
+  - Checked by hand before the release, in a clean temporary environment: the wheel contains all 20 UI files; `uv tool install` of the wheel works; `fa init` and `fa demo` write only to the per-user folder, never to the working directory; `fa ui` serves every page with the packaged theme; installing 0.10.0 over an older wheel replaces it.
 
 ---
 

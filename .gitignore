@@ -37,7 +37,7 @@ statements/
 .env
 .env.*
 secrets.toml
-.streamlit/secrets.toml
+**/.streamlit/secrets.toml
 
 # --- Allowed exceptions: public data and fake examples only -------------------
 !*.example.csv

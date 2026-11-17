@@ -1,6 +1,6 @@
 ---
 name: ui-page
-description: Design rules for building or changing Streamlit pages and UI components in this project (app/views, app/ui). Use whenever a task adds or edits a page, a chart, a table, a KPI tile, a filter or any UI text, before writing the code.
+description: Design rules for building or changing Streamlit pages and UI components in this project (src/finance_analytics/app/views, src/finance_analytics/app/ui). Use whenever a task adds or edits a page, a chart, a table, a KPI tile, a filter or any UI text, before writing the code.
 ---
 
 # UI page
@@ -17,18 +17,18 @@ Prevent that.
 ## Before coding
 
 1. Read `docs/ui-guidelines.md` (page anatomy, building blocks, charts, Polish copy, states, checklist).
-2. Look at an existing page with the same shape, e.g. `app/views/portfolio.py` or `app/views/market.py`, and reuse its structure.
+2. Look at an existing page with the same shape, e.g. `src/finance_analytics/app/views/portfolio.py` or `src/finance_analytics/app/views/market.py`, and reuse its structure.
 3. For a new chart form, load the `dataviz` skill first.
 
 ## Rules that are easy to get wrong
 
-- **Use only `app/ui/` blocks:**
+- **Use only `src/finance_analytics/app/ui/` blocks:**
   - `page_header`, `section`, `kpi_row`/`Kpi`, `table`, `empty_state`;
   - chart builders with `show()`;
   - `fmt_*` formatters;
   - `TOKENS` and `color_map`.
 
-  If something is missing, add it to `app/ui/` with a test, then use it.
+  If something is missing, add it to `src/finance_analytics/app/ui/` with a test, then use it.
 - **Placement:** a filter sits right above what it changes. A page-wide filter goes at the top; a block filter goes above its block.
 - **KPI tiles:** at most 4; every tile has a `trend` so heights match; a percentage only when its base is meaningful.
 - **Colour:** it follows the entity in a stable order, never rank or position; past 8 parts, fold into "Inne"; never two y-axes; a legend from 2 series.

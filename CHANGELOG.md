@@ -4,6 +4,32 @@ All notable changes to this project are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). Decision IDs (`D-xxx`) point to `docs/decisions.md`.
 
+## [0.10.0] - 2026-11-18
+
+Install a chosen version without git or a prepared Python: each release now has the app attached
+as a wheel, installed with one `uv tool install` command (D-065).
+
+### Added
+
+- **Release wheel:** `uv tool install finance_analytics-<version>-py3-none-any.whl` installs the
+  app with its own Python environment (uv downloads Python if needed); installing a newer wheel
+  the same way upgrades it, and `uv tool uninstall finance-analytics` removes it.
+- **Per-user data folder** for an installed app: `%LOCALAPPDATA%\finance-analytics\data` on
+  Windows, `~/Library/Application Support/finance-analytics/data` on macOS,
+  `~/.local/share/finance-analytics/data` on Linux, with `demo` next to it. Deliberately not
+  Documents, which is often synced to OneDrive. `FA_DATA_DIR` still overrides it.
+- `fa init` and `fa ui` print the data folder in use.
+
+### Changed
+
+- The UI moved into the package, to `src/finance_analytics/app/`, together with its
+  `.streamlit/config.toml`; `fa ui` runs it from there. **Restart a running `fa ui` after updating
+  a source checkout.**
+- From source, the data folder is always `data/` in the repository (and `data-demo/` for the
+  demo), no longer relative to the folder `fa` is run from.
+- `fa mock-xtb` writes to the demo folder by default.
+- README: installing a release with uv comes first; installing from source is for development.
+
 ## [0.9.0] - 2026-11-18
 
 First release. The core scope works end to end: XTB accounts, treasury bonds and bank cash,
@@ -52,4 +78,5 @@ XTB export are still assumptions (see *Known limitations*), so expect fixes befo
   `bond_series.yaml` for a new series.
 - Tax figures are estimates, not tax advice.
 
+[0.10.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.10.0
 [0.9.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.9.0

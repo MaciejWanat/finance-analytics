@@ -59,6 +59,7 @@ def test_blocks_private_paths(path):
         "src/finance_analytics/resources/bond_series.csv",
         ".github/workflows/ci.yml",
         ".streamlit/config.toml",
+        "src/finance_analytics/app/.streamlit/config.toml",
     ],
 )
 def test_allows_code_docs_and_examples(path):

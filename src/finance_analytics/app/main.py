@@ -1,4 +1,4 @@
-"""Streamlit entry point. Start with `fa ui` (or `streamlit run app/main.py`)."""
+"""Streamlit entry point. Start with `fa ui`, which runs it from this folder so .streamlit/config.toml applies."""
 
 from __future__ import annotations
 

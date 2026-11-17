@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+APP = ROOT / "src" / "finance_analytics" / "app"
 
 # The Streamlit app imports its design layer as `ui.*` and the standalone tools
 # live in scripts/; make both importable the same way they are at runtime.
-for extra in (ROOT / "app", ROOT / "scripts"):
+for extra in (APP, ROOT / "scripts"):
     if str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 

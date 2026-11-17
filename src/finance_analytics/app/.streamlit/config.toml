@@ -21,8 +21,8 @@ showErrorLinks = false
 
 # ---------------------------------------------------------------------------
 # Theme (D-012). Surfaces match the ones the chart palette was validated on;
-# keep these in sync with app/ui/theme.py. The bundled sans font is used on
-# purpose: no external font requests.
+# keep these in sync with ui/theme.py (next to this folder). The bundled sans
+# font is used on purpose: no external font requests.
 # ---------------------------------------------------------------------------
 [theme]
 font = "sans-serif"

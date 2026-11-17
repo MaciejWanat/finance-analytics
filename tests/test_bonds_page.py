@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from finance_analytics.config import DATA_DIR_ENV, Settings
+from finance_analytics.config import APP_DIR, DATA_DIR_ENV, Settings
 from finance_analytics.mock.bonds import write_mock_bonds
 from finance_analytics.sources.bonds import bonds_file, read_lots
 from finance_analytics.sources.sync import sync
 
-PAGE = str(Path(__file__).resolve().parents[1] / "app" / "views" / "bonds.py")
+PAGE = str(APP_DIR / "views" / "bonds.py")
 
 
 @pytest.fixture

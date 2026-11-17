@@ -28,7 +28,7 @@ The UI is a data tool for one person's money. **Clarity and trust beat novelty:*
 
 ## 2. Page anatomy
 
-Every page in `app/views/` follows this order (skip what does not apply):
+Every page in `src/finance_analytics/app/views/` follows this order (skip what does not apply):
 
 | # | Block | How |
 |---|---|---|
@@ -43,7 +43,7 @@ Every page in `app/views/` follows this order (skip what does not apply):
 
 Use `layout="wide"` (set once in `main.py`). Sections are separated by `section()` headings, not by dividers.
 
-## 3. Building blocks (`app/ui/`)
+## 3. Building blocks (`src/finance_analytics/app/ui/`)
 
 | Need | Use | Never |
 |---|---|---|
@@ -56,7 +56,7 @@ Use `layout="wide"` (set once in `main.py`). Sections are separated by `section(
 | Explaining terms | `help=G[...]` from `ui/glossary.py` on KPIs, `section(..., help=)`, filters, and `table(..., helps=)` for column headers | ad-hoc tooltip texts written in a page |
 | Long actions | button with a spinner state (see §6) | plain `st.spinner` under a button |
 
-If a page needs something these do not cover, **add it to `app/ui/` first** (with a test in `tests/test_ui_layer.py`) and then use it. Do not inline it in the page.
+If a page needs something these do not cover, **add it to `src/finance_analytics/app/ui/` first** (with a test in `tests/test_ui_layer.py`) and then use it. Do not inline it in the page.
 
 ## 4. Charts
 
@@ -115,7 +115,7 @@ Load the `dataviz` skill before designing a new chart form.
 
 ## 8. Checklist before a UI change is done
 
-- [ ] Built only from `app/ui/` blocks; no hex codes, no bare `st.dataframe`/`st.plotly_chart`/`st.metric`.
+- [ ] Built only from `src/finance_analytics/app/ui/` blocks; no hex codes, no bare `st.dataframe`/`st.plotly_chart`/`st.metric`.
 - [ ] Page anatomy order kept; every control is right above what it changes.
 - [ ] Checked in the browser on demo data (`fa demo`), in **light and dark** mode, at about 1280 px and at a narrow width.
 - [ ] Numbers formatted in Polish; no `None`/`NaN` visible; tiles in a row are the same height.

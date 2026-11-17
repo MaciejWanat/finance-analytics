@@ -40,7 +40,16 @@ version = {attr = "finance_analytics.__version__"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-finance_analytics = ["db/migrations/*.sql", "resources/*"]
+# The Streamlit UI ships inside the package (D-065). It is a folder of scripts, not a package,
+# so its files are listed as data; tests/test_packaging.py checks that every file is covered.
+finance_analytics = [
+    "db/migrations/*.sql",
+    "resources/*",
+    "app/*.py",
+    "app/ui/*.py",
+    "app/views/*.py",
+    "app/.streamlit/config.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

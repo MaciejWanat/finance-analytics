@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from contextlib import closing
-from pathlib import Path
 
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from finance_analytics.config import DATA_DIR_ENV, Settings
+from finance_analytics.config import APP_DIR, DATA_DIR_ENV, Settings
 from finance_analytics.db import connect, migrate
 
-PAGE = str(Path(__file__).resolve().parents[1] / "app" / "views" / "imports.py")
+PAGE = str(APP_DIR / "views" / "imports.py")
 
 
 @pytest.fixture

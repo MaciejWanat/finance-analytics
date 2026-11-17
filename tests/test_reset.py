@@ -6,14 +6,13 @@ import io
 import sqlite3
 import zipfile
 from contextlib import closing
-from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 from streamlit.testing.v1 import AppTest
 
 from finance_analytics.cli import main
-from finance_analytics.config import DATA_DIR_ENV, Settings
+from finance_analytics.config import APP_DIR, DATA_DIR_ENV, Settings
 from finance_analytics.mock.bonds import write_mock_bonds
 from finance_analytics.mock.cash import write_mock_cash
 from finance_analytics.mock.xtb_export import write_mock_export
@@ -23,7 +22,7 @@ from finance_analytics.sources.cash import cash_file
 from finance_analytics.sources.reset import ResetChoice, backup_zip, files_for, reset_data
 from finance_analytics.sources.sync import import_xtb, sync
 
-PAGE = str(Path(__file__).resolve().parents[1] / "app" / "views" / "settings.py")
+PAGE = str(APP_DIR / "views" / "settings.py")
 
 
 @pytest.fixture(scope="module")
