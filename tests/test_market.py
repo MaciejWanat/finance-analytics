@@ -145,6 +145,58 @@ def test_update_prices_records_errors_and_continues(conn):
     assert "not found" in error
 
 
+def test_update_prices_stops_asking_after_a_rate_limit(conn):
+    # Without this, every remaining ticker would back off again (35 s each) before failing.
+    class Client(FakePriceClient):
+        def history(self, ticker, start, end):
+            self.calls.append((ticker, start, end))
+            raise yahoo.YahooRateLimitError(f"{ticker}: Yahoo rate limit, try again later")
+
+    client = Client()
+    report = yahoo.update_prices(conn, {t: date(2026, 9, 1) for t in ("AAA", "BBB", "CCC")}, TODAY, client=client)
+    assert [c[0] for c in client.calls] == ["AAA"]
+    assert set(report.errors) == {"AAA", "BBB", "CCC"} and "skipped" in report.errors["CCC"]
+
+
+def test_update_prices_stops_at_the_last_needed_day_of_a_closed_ticker(conn):
+    client = FakePriceClient()
+    sold = date(2026, 10, 9)
+    yahoo.update_prices(conn, {"OLD": date(2026, 9, 1)}, TODAY, client=client, until={"OLD": sold})
+    (_, _, end), = client.calls
+    assert end == sold
+    client.calls.clear()
+    yahoo.update_prices(conn, {"OLD": date(2026, 9, 1)}, TODAY, client=client, until={"OLD": sold})
+    assert client.calls == []  # fully cached: no request at all
+
+
+def test_update_prices_reports_progress(conn):
+    seen = []
+    yahoo.update_prices(conn, {"B": date(2026, 11, 1), "A": date(2026, 11, 1)}, TODAY, client=FakePriceClient(),
+                        progress=lambda *args: seen.append(args))
+    assert seen == [("A", 0, 2), ("B", 1, 2)]
+
+
+def test_closed_until_skips_tickers_still_held(conn):
+    from finance_analytics.market.update import closed_until
+
+    conn.execute("INSERT INTO accounts (id, alias, institution, kind, currency) "
+                 "VALUES ('a', 'A', 'xtb', 'broker', 'USD')")
+    conn.executemany("INSERT INTO instruments (id, xtb_symbol, asset_class, yahoo_ticker) VALUES (?, ?, 'stock', ?)",
+                     [(1, "OLD.US", "OLD"), (2, "HELD.US", "HELD"), (3, "ODD.PL", None)])
+    conn.executemany(
+        "INSERT INTO positions (account_id, position_id, instrument_id, side, volume, open_time, open_price, "
+        "close_time) VALUES ('a', ?, ?, 'BUY', 1, ?, 1, ?)",
+        [("1", 1, "2025-01-02T10:00:00", "2025-06-02T10:00:00"),
+         ("2", 2, "2025-01-02T10:00:00", "2025-03-02T10:00:00"),
+         ("3", 2, "2025-04-02T10:00:00", None),
+         ("4", 3, "2025-01-02T10:00:00", "2025-02-02T10:00:00")],
+    )
+    # A dividend paid after the sale extends the needed range.
+    conn.execute("INSERT INTO cash_ledger (account_id, ts, type, amount, instrument_id, broker_type, source_ref) "
+                 "VALUES ('a', '2025-06-20T08:00:00', 'DIVIDEND', 1, 1, 'Dividend', 'd1')")
+    assert closed_until(conn) == {"OLD": date(2025, 6, 20)}
+
+
 def test_yahoo_client_converts_pence_and_reads_actions(monkeypatch):
     import yfinance
 
@@ -182,12 +234,16 @@ def test_update_market_on_imported_mock_export(tmp_path):
             self.currency = "USD"
             return super().history(ticker, start, end)
 
+    steps = []
     report = update_market(
         settings, today=TODAY, price_client=Client(),
         fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])),
         cpi_fetch=lambda: [(2026, 1, 100.0, 103.0)],
+        progress=lambda *args: steps.append(args),
     )
     assert not report.errors and not report.unresolved
+    assert [s[2] for s in steps] == list(range(14)) and {s[3] for s in steps} == {14}  # 12 tickers, NBP, GUS
+    assert [s[0] for s in steps[-2:]] == ["nbp", "gus"]
     assert set(report.prices.fetched) == {"NVDA", "TSLA", "AMD", "MSFT", "AAPL", "GOOGL", "AMZN", "META",
                                           "VUAA.L", "IWDA.L", "VWRA.L", "EIMI.L"}
     assert set(report.fx.fetched) == {"USD", "EUR"}  # account + price currencies, never PLN

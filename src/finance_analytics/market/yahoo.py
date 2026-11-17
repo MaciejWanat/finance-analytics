@@ -3,14 +3,17 @@
 - `auto_adjust=False`: Close is split-adjusted but NOT dividend-adjusted, because
   dividends are booked as cash from the broker data.
 - London quotes in pence (GBp/GBX) are converted to GBP.
-- Yahoo rate-limits per IP; requests back off and give up politely.
+- Yahoo rate-limits per IP; requests back off and give up politely. Once a ticker gives up,
+  the rest of the run is skipped instead of backing off again for every ticker.
+- A closed instrument is fetched only up to the last day it is needed (D-042), so later
+  updates send no request for it.
 """
 
 from __future__ import annotations
 
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
@@ -37,6 +40,13 @@ class PriceClient(Protocol):
 
 class YahooError(RuntimeError):
     pass
+
+
+class YahooRateLimitError(YahooError):
+    """Yahoo kept refusing requests after the retries; the rest of the run is skipped."""
+
+
+Progress = Callable[[str, int, int], None]  # (ticker, done so far, total)
 
 
 class YahooClient:
@@ -66,7 +76,7 @@ class YahooClient:
                 return History()  # no trading days in the range (weekend, holiday)
             except YFRateLimitError as exc:
                 if attempt == self.retries:
-                    raise YahooError(f"{ticker}: Yahoo rate limit, try again later") from exc
+                    raise YahooRateLimitError(f"{ticker}: Yahoo rate limit, try again later") from exc
                 self.sleep(5 * 2**attempt)
             except Exception as exc:  # unknown ticker, no data in range, network error
                 raise YahooError(f"{ticker}: {exc}") from exc
@@ -103,16 +113,32 @@ def update_prices(
     today: date,
     *,
     client: PriceClient | None = None,
+    until: Mapping[str, date] | None = None,
+    progress: Progress | None = None,
 ) -> PriceReport:
-    """Bring cached prices up to date for each ticker from its first needed day to today."""
+    """Bring cached prices up to date for each ticker from its first needed day to today.
+
+    `until` holds the last needed day of instruments no longer held (D-042); they are not
+    fetched past it. `progress` is called before each ticker.
+    """
     client = client or YahooClient()
+    until = until or {}
     report = PriceReport()
     final_until = today - timedelta(days=1)
-    for ticker, first_needed in sorted(needed.items()):
+    rate_limited: str | None = None
+    for done, (ticker, first_needed) in enumerate(sorted(needed.items())):
+        if progress:
+            progress(ticker, done, len(needed))
         start = first_needed - timedelta(days=7)
-        ranges = cache.missing_ranges(cache.coverage(conn, "yahoo", ticker), start, today, overlap_days=REFETCH_DAYS)
+        end = min(today, until.get(ticker, today))
+        covered = cache.coverage(conn, "yahoo", ticker)
+        # Late corrections are re-read only while the range still grows; a closed ticker is then left alone.
+        overlap = REFETCH_DAYS if covered is None or end > covered[1] else 0
+        ranges = cache.missing_ranges(covered, start, end, overlap_days=overlap)
         written = 0
         try:
+            if ranges and rate_limited:
+                raise YahooError(f"{ticker}: skipped, {rate_limited} gave up on the Yahoo rate limit; try again later")
             for range_start, range_end in ranges:
                 history = client.history(ticker, range_start, range_end)
                 if not history.prices:
@@ -147,6 +173,8 @@ def update_prices(
                     cache.record(conn, "yahoo", ticker, range_start, min(range_end, final_until))
                 conn.commit()
         except YahooError as exc:
+            if isinstance(exc, YahooRateLimitError):
+                rate_limited = ticker
             conn.commit()
             cache.record_error(conn, "yahoo", ticker, str(exc))
             conn.commit()

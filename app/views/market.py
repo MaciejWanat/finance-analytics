@@ -47,7 +47,8 @@ with st.container(border=True):
     st.caption(
         "Do Yahoo i NBP trafiają wyłącznie tickery, kody walut i daty; z GUS pobierany jest publiczny plik "
         "z inflacją. Nic o Twoich rachunkach. "
-        "Pobierane są tylko brakujące dni; reszta jest już w lokalnej bazie."
+        "Pobierane są tylko brakujące dni; reszta jest już w lokalnej bazie. Ceny "
+        "sprzedanych instrumentów pobierane są tylko do dnia sprzedaży."
     )
     offline = not load_preferences(settings).online
     if offline:
@@ -68,8 +69,16 @@ with st.container(border=True):
         on_click=lambda: st.session_state.update(market_updating=True),
     )
     if updating:
+        bar = st.progress(0.0, text="Łączę się z Yahoo…")
+        sources = {"yahoo": "Ceny z Yahoo", "nbp": "Kursy walut z NBP", "gus": "Inflacja z GUS"}
+
+        def _progress(source: str, item: str, done: int, total: int) -> None:
+            label = f"{sources[source]}: {item}" if item else sources[source]
+            bar.progress(done / total, text=f"{label} ({done + 1} z {total})")
+
         try:
-            st.session_state["market_report"] = update_market(settings, manual=True)  # explicit click (D-031)
+            # Explicit click (D-031).
+            st.session_state["market_report"] = update_market(settings, manual=True, progress=_progress)
         finally:
             st.session_state["market_updating"] = False
         st.rerun()
