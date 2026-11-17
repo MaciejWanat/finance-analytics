@@ -7,11 +7,12 @@ from decimal import Decimal
 
 import pandas as pd
 import streamlit as st
-from ui.charts import area_total, current_mode, line_chart, show
+from ui.charts import area_total, category_bars, current_mode, line_chart, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
 from ui.data import load_valuation, require_database
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact
 from ui.glossary import G
+from ui.theme import color_map
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
@@ -161,6 +162,15 @@ kpi_row(
 )
 
 mode = current_mode()
+
+# ---------------------------------------------------------------------------------------- per-account split
+latest_by_name = latest.set_index("account")["value_pln"].groupby(level=0).sum()
+if (latest_by_name > 0).sum() > 1:
+    section("Podział na konta", "Wartość salda każdego konta w PLN na dziś; nad kolumną jego udział w gotówce.",
+            help=G["cash_total"])
+    # Same colour slots as the time chart below, even when some account has no value today.
+    show(category_bars(latest_by_name.round(2), mode=mode, colors=color_map(list(by_account.columns), mode)),
+         key="cash_by_account")
 
 # -------------------------------------------------------------------------------- value over time
 section("Gotówka w czasie", "Wartość sald w PLN, dzień po dniu. Saldo obowiązuje do kolejnego wpisu.",

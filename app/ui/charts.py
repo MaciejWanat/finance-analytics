@@ -223,6 +223,43 @@ def segmented_bar(
     return fig
 
 
+def category_bars(
+    values: pd.Series,
+    *,
+    mode: Mode,
+    colors: dict[str, str] | None = None,
+    height: int = 320,
+    hover_unit: str = "zł",
+) -> go.Figure:
+    """Value per part today, one column each (e.g. cash per bank account), with its share.
+
+    Index: part names; values > 0. The column's colour follows the part, never its
+    rank; the share of the whole is printed above the column and in the tooltip.
+    No legend: the x-axis names every column.
+    """
+    values = values[values > 0]
+    colors = colors or color_map(sorted(str(k) for k in values.index), mode)
+    total = float(values.sum()) or 1.0
+    shares = values / total
+    names = [str(k) for k in values.index]
+    fig = go.Figure(layout={"template": template(mode), "height": height})
+    fig.add_trace(
+        go.Bar(
+            x=names, y=values.values, name="",
+            marker={"color": [colors[n] for n in names]},
+            text=[fmt_pct(s, 0, signed=False) for s in shares], textposition="outside", cliponaxis=False,
+            textfont={"color": TOKENS[mode].ink_primary, "size": 13},
+            customdata=(shares * 100).to_numpy(),
+            hovertemplate=f"<b>%{{y:,.2f}} {hover_unit}</b> · %{{customdata:.1f}}%<extra>%{{x}}</extra>",
+        )
+    )
+    fig.update_yaxes(tickformat=",.0f", rangemode="tozero")
+    fig.update_xaxes(type="category", showgrid=False)
+    fig.update_layout(showlegend=False, bargap=0.45, barcornerradius=4, hovermode="closest",
+                      margin={"t": 30})
+    return fig
+
+
 def show(fig: go.Figure, *, key: str | None = None) -> None:
     """Render with our own template (theme=None) and the trimmed modebar."""
     st.plotly_chart(fig, theme=None, config=PLOTLY_CONFIG, key=key)

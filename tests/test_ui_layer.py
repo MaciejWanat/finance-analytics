@@ -60,6 +60,16 @@ def test_chart_builders_produce_figures():
     assert bars.layout.barmode == "stack"
 
 
+def test_category_bars_one_column_per_part_with_shares():
+    from ui.charts import category_bars
+
+    fig = category_bars(pd.Series({"B": 300.0, "A": 100.0, "Z": 0.0}), mode="light")
+    (trace,) = fig.data
+    assert list(trace.x) == ["B", "A"]  # zero-value parts are dropped
+    assert list(trace.text) == ["75%", "25%"]
+    assert not fig.layout.showlegend
+
+
 def test_every_glossary_key_used_by_pages_exists():
     import re
 
