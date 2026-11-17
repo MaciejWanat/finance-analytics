@@ -82,6 +82,40 @@ def rebuild() -> None:
     _report_sync(run_sync(settings, force=True))
 
 
+@main.command()
+@click.option("--keep-exports", is_flag=True, help="Keep the archived XTB exports (data/raw).")
+@click.option("--keep-manual", is_flag=True, help="Keep bonds.csv and cash_balances.csv.")
+@click.option("--keep-accounts", is_flag=True, help="Keep accounts.yaml and bond_series.yaml.")
+@click.option("--market", is_flag=True, help="Also clear cached prices, FX rates and CPI.")
+@click.option("--backup", type=click.Path(dir_okay=False, path_type=Path), default=None,
+              help="Write a zip backup of the data files here first.")
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation.")
+def reset(keep_exports: bool, keep_manual: bool, keep_accounts: bool, market: bool, backup: Path | None,
+          yes: bool) -> None:
+    """Delete source files in the data directory and empty the database (D-038).
+
+    Preferences (settings.yaml) and the inbox folder are never touched.
+    """
+    from finance_analytics.sources.reset import ResetChoice, backup_zip, files_for, reset_data
+
+    settings = get_settings()
+    choice = ResetChoice(exports=not keep_exports, manual=not keep_manual, accounts=not keep_accounts,
+                         market=market)
+    files = files_for(settings, choice)
+    click.echo(f"Data directory: {settings.data_dir}")
+    click.echo(f"Files to delete: {len(files)}" + ("; cached market data will be cleared." if market else "."))
+    if not files and not market:
+        click.echo("Nothing to delete.")
+        return
+    if not yes:
+        click.confirm("This cannot be undone. Continue?", abort=True)
+    if backup is not None:
+        backup.write_bytes(backup_zip(settings))
+        click.echo(f"Backup written to {backup}")
+    result = reset_data(settings, choice)
+    click.echo(f"Deleted {len(result.removed)} file(s)." + (" Market cache cleared." if result.market_cleared else ""))
+
+
 @main.command("settings")
 @click.option("--online/--offline", "online", default=None, help="Switch the network mode (default: offline).")
 @click.option("--refresh", type=click.IntRange(1, 60), default=None, help="Live price refresh, minutes.")

@@ -232,6 +232,15 @@ G: dict[str, str] = {
         "Folder, do którego zapisujesz eksporty z xStation. Aplikacja sprawdza go co minutę i kopiuje nowe pliki "
         "do własnego katalogu danych, więc nie musisz ich importować ręcznie. Działa bez internetu."
     ),
+    # --- reset ----------------------------------------------------------------------------------
+    "reset": (
+        "Usuwa wybrane pliki z katalogu danych aplikacji i czyści z bazy wszystko, co z nich pochodziło. "
+        "Ustawienia i folder skrzynki zostają nietknięte. Zanim usuniesz, pobierz kopię zapasową."
+    ),
+    "market_cache": (
+        "Ceny, kursy walut i inflacja zapisane lokalnie. To dane publiczne: po usunięciu można je pobrać "
+        "ponownie na stronie Dane rynkowe."
+    ),
     # --- network --------------------------------------------------------------------------------
     "offline": (
         "Aplikacja sama nie łączy się z internetem i liczy wszystko na zapisanych danych. Dane rynkowe pobierasz "

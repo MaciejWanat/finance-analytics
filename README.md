@@ -73,7 +73,8 @@ fa ui                              # http://localhost:8501
 ```
 
 Other commands: `fa sync` (rebuild the database when a file changed), `fa rebuild` (always),
-`fa settings [--offline] [--refresh N]`, `fa mock-xtb [OUT_DIR]` (a synthetic export),
+`fa settings [--offline] [--refresh N]`, `fa reset` (delete your source files and start over;
+also a button on Ustawienia, with a backup download), `fa mock-xtb [OUT_DIR]` (a synthetic export),
 `fa ui --dev` (auto-rerun on save, plus a style preview page). The data directory is `./data`,
 or the one set in `FA_DATA_DIR`.
 

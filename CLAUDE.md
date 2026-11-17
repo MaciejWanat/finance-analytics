@@ -50,6 +50,7 @@ fa mock-xtb [OUT_DIR]   # synthetic xStation export (default data-demo/xtb_expor
 fa import xtb <folder>  # archive an export into data/raw/xtb and sync the database
 fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
 fa sync / fa rebuild    # rebuild projection tables when files changed / always
+fa reset [--keep-…] [--market] [--backup ZIP]   # delete source files in the data dir, rebuild (D-038)
 fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
 fa update-market        # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); online mode only
 pytest                  # no network access in tests (.venv/Scripts/python.exe -m pytest -q)

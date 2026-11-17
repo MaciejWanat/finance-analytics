@@ -1,15 +1,18 @@
-"""Settings: network mode (offline / online) and live refresh interval (D-021)."""
+"""Settings: network mode (D-021), inbox folder (D-028) and data reset (D-038)."""
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
 from ui.components import page_header, section
+from ui.fmt import plural
 from ui.glossary import G
 
 from finance_analytics.config import get_settings
 from finance_analytics.preferences import load_preferences, save_preferences
+from finance_analytics.sources.reset import ResetChoice, backup_zip, files_for, reset_data
 
 page_header(
     "Ustawienia",
@@ -79,3 +82,48 @@ if st.button("Zapisz", type="primary", icon=":material/save:", disabled=not chan
     st.rerun()
 
 st.caption(f"Plik ustawień: `{settings.preferences_file}`")
+
+section(
+    "Resetowanie danych",
+    "Usuwa pliki źródłowe z katalogu danych aplikacji i opróżnia bazę. Tej operacji nie da się cofnąć.",
+    help=G["reset"],
+)
+if message := st.session_state.pop("reset_done", None):
+    st.success(message, icon=":material/check_circle:")
+with st.container(border=True):
+    st.markdown("##### Co usunąć")
+    reset_choice = ResetChoice(
+        exports=st.checkbox("Zaimportowane eksporty XTB", value=True, help="Pliki .xlsx w `raw/` katalogu danych."),
+        manual=st.checkbox("Wpisy ręczne: obligacje i salda gotówki", value=True,
+                           help="`manual/bonds.csv` i `manual/cash_balances.csv`."),
+        accounts=st.checkbox("Rachunki (nazwy i ustawienia rachunków)", value=True,
+                             help="`config/accounts.yaml` i `config/bond_series.yaml`."),
+        market=st.checkbox("Dane rynkowe: ceny, kursy, inflacja", value=False, help=G["market_cache"]),
+    )
+    to_delete = files_for(settings, reset_choice)
+    st.caption(
+        f"Do usunięcia: {plural(len(to_delete), 'plik', 'pliki', 'plików')}"
+        + (" oraz zapisane dane rynkowe." if reset_choice.market else ".")
+        + f" Katalog danych: `{settings.data_dir}`"
+    )
+    st.download_button(
+        "Pobierz kopię zapasową (.zip)", data=backup_zip(settings),
+        file_name=f"finanse-kopia-{date.today():%Y-%m-%d}.zip", mime="application/zip",
+        icon=":material/archive:", on_click="ignore",
+        help="Eksporty, wpisy ręczne i konfiguracja w jednym pliku. Zostaje na tym komputerze.",
+    )
+    typed = st.text_input(
+        "Aby potwierdzić, wpisz USUŃ", placeholder="USUŃ",
+        key=f"reset_confirm_{st.session_state.get('reset_round', 0)}",
+    )
+    nothing = not to_delete and not reset_choice.market
+    if st.button("Usuń dane", type="primary", icon=":material/delete_forever:",
+                 disabled=nothing or typed.strip().upper() != "USUŃ"):
+        result = reset_data(settings, reset_choice)
+        st.cache_data.clear()
+        st.session_state["reset_round"] = st.session_state.get("reset_round", 0) + 1
+        st.session_state["reset_done"] = (
+            f"Usunięto {plural(len(result.removed), 'plik', 'pliki', 'plików')}"
+            + (" i zapisane dane rynkowe." if result.market_cleared else ".")
+        )
+        st.rerun()

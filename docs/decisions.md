@@ -441,6 +441,16 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - A header that is present but different still fails the file (D-006).
   - `PARSER_VERSION` 4.
 
+### D-038 Resetting data from the app
+- **Date:** 2026-11-17 · **Status:** Accepted
+- **Context:** the user asked for a button that resets the database by deleting all source files, for example to start over after a test import.
+- **Decision:**
+  - A "Resetowanie danych" section on Ustawienia and `fa reset` delete chosen groups of source files: archived exports (`raw/`), manual entries (`manual/bonds.csv`, `manual/cash_balances.csv`) and account configuration (`config/accounts.yaml`, `config/bond_series.yaml`). The cached public market data is cleared only when asked.
+  - Only known files inside the data directory are deleted. `settings.yaml` and the inbox folder are never touched.
+  - The page offers a zip backup of exports, manual files and configuration first, and the delete button stays disabled until the user types `USUŃ`. The CLI asks for confirmation unless `--yes` is given and writes a backup with `--backup`.
+  - After deleting, the projection is rebuilt from the remaining files (D-002), so the database never shows data whose source is gone.
+- **Consequences:** the user can start over without hunting for files; nothing outside the data directory can be removed.
+
 ---
 
 ## Open questions
