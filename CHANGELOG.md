@@ -33,6 +33,10 @@ All notable changes to this project are listed here. The format follows
 
 ### Fixed
 
+- **"Wynik %" of a position sold in several parts** showed a loss instead of the real gain:
+  only the last sale was kept, so the rest's cost was too high. Every sold part now counts (D-079).
+- **Tiles line up again:** the sparkline and "Pełny wykres" sit at the bottom of every tile, so a tile with badges
+  (e.g. two currencies) or a flat line no longer leaves the buttons at different heights.
 - **No more blinking on live redraws:** the "Wartość portfela" chart, the tile sparklines and an open "Pełny
   wykres" now change in place instead of disappearing and being drawn again every few seconds, and the tiles no
   longer fade while they refresh. Zoom on the value chart stays while prices update and resets when you pick

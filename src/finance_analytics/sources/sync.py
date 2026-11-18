@@ -444,7 +444,7 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
     latest_open: dict[str, tuple[str, set[str]]] = {}  # account -> (date_to, open position ids)
     seen_open: dict[tuple[str, str], str] = {}  # (account, position) -> file name that listed it open
     open_records: dict[tuple[str, str], tuple[Position, int, date]] = {}  # newest file listing it open
-    closed_records: dict[tuple[str, str], tuple[Position, int]] = {}
+    closed_records: dict[tuple[str, str], dict[tuple, tuple[Position, int]]] = {}  # -> (close time, volume) -> part
 
     ordered = sorted(parsed, key=lambda item: (item[1].date_to if item[1] else datetime.min.date(), item[0].name))
     for path, data, error in ordered:
@@ -489,11 +489,14 @@ def _write(conn, settings: Settings, accounts, parsed, result: SyncResult) -> No
             seen_open[key] = path.name
             open_records[key] = (position, file_id, data.date_to)  # files go oldest first: the newest wins
         for position in data.closed_positions:
-            closed_records[(account_id, position.position_id)] = (position, file_id)
+            # One ID can close in several parts (D-079); overlapping exports repeat the same part, kept once.
+            parts = closed_records.setdefault((account_id, position.position_id), {})
+            parts[(position.close_time, position.volume)] = (position, file_id)
         if data.date_to.isoformat() >= latest_open.get(account_id, ("", set()))[0]:
             latest_open[account_id] = (data.date_to.isoformat(), open_ids)
 
-    positions.update(_merge_open_and_closed(open_records, closed_records))
+    positions.update(_merge_open_and_closed(
+        open_records, {key: list(parts.values()) for key, parts in closed_records.items()}))
 
     instrument_ids = {}
     ticker_overrides = load_yahoo_overrides(settings.config_dir)
@@ -569,38 +572,56 @@ def _merge_open_and_closed(open_records: dict, closed_records: dict) -> dict:
     holds the shares in today's units from the original open date; after a partial sale the sold part
     stays as a closed lot and the rest becomes a lot of its own. An open record from an export that
     ends before the close is simply out of date.
+
+    `closed_records` maps a position to all its closed parts: selling a position in several steps
+    leaves one Closed Positions row per step, all with the same ID (D-079). The first part keeps
+    the ID, the next ones become `<ID>/part2`, `<ID>/part3`, ... in the order they closed.
     """
     merged: dict = {}
     for key in open_records.keys() | closed_records.keys():
-        opened, closed = open_records.get(key), closed_records.get(key)
-        if closed is None:
+        opened = open_records.get(key)
+        parts = sorted(closed_records.get(key, []), key=lambda part: (part[0].close_time, part[0].volume))
+        if not parts:
             merged[key] = opened[:2]
-        elif opened is None or opened[2] < closed[0].close_time.date():
-            merged[key] = closed
-        elif _technical_close(closed[0]):
-            merged[key] = opened[:2]
-        else:
-            merged[key] = closed
-            rest = replace(opened[0], position_id=f"{key[1]}/rest")
-            merged[(key[0], rest.position_id)] = (rest, opened[1])
+            continue
+        still_open = opened is not None and opened[2] >= parts[-1][0].close_time.date()
+        if still_open:  # a technical (split) close is dropped: the open record holds the shares
+            parts = [part for part in parts if not _technical_close(part[0])]
+        for number, (position, file_id) in enumerate(parts, start=1):
+            part_id = key[1] if number == 1 else f"{key[1]}/part{number}"
+            merged[(key[0], part_id)] = (position if number == 1 else replace(position, position_id=part_id), file_id)
+        if still_open:
+            if parts:
+                rest = replace(opened[0], position_id=f"{key[1]}/rest")
+                merged[(key[0], rest.position_id)] = (rest, opened[1])
+            else:
+                merged[key] = opened[:2]
     return merged
+
+
+def sold_parts(positions: dict, key: tuple) -> list:
+    """All closed parts of one XTB position: `<ID>` and its `<ID>/partN` (D-079)."""
+    account_id, position_id = key
+    return [p for (account, part_id), (p, _) in positions.items()
+            if account == account_id and (part_id == position_id or part_id.startswith(f"{position_id}/part"))]
 
 
 def _rest_cost(positions: dict, buy_for: dict, sold_key: tuple, rest: Position) -> float | None:
     """Cost of what is left after a partial sale (D-061).
 
-    The purchases carry the position's own ID, so they pair with the sold part. What is left
-    cost all purchases minus the sold part's purchase value; when that is not known, the
-    purchases are split by volume.
+    The purchases carry the position's own ID, so they pair with the first sold part. What is
+    left cost all purchases minus the purchase value of every sold part (D-079); when one of
+    those is not known, the purchases are split by volume.
     """
     bought = buy_for.get(sold_key, [])
     if not bought or sold_key not in positions:
         return None
     total = -sum(op.amount for op in bought)
-    sold = positions[sold_key][0]
-    if sold.purchase_value is not None and 0 < sold.purchase_value < total:
-        return round(total - sold.purchase_value, 2)
-    whole = sold.volume + rest.volume
+    sold = sold_parts(positions, sold_key)
+    sold_cost = [p.purchase_value for p in sold]
+    if None not in sold_cost and 0 < sum(sold_cost) < total:
+        return round(total - sum(sold_cost), 2)
+    whole = sum(p.volume for p in sold) + rest.volume
     return round(total * rest.volume / whole, 2) if whole else None
 
 
@@ -660,10 +681,14 @@ def _reconcile(issue, positions, buys, sells, latest_open, seen_open, buy_for, s
     for key, group in buy_for.items():
         p = positions[key][0]
         volumes = [_fill(op)[0] for op in group]
-        if len(group) > 1 and None not in volumes and abs(sum(volumes) - p.volume) > 1e-6:
+        # The purchases of a position sold in parts cover every part and what is left (D-079).
+        rest = positions.get((key[0], f"{key[1]}/rest"))
+        bought = sum(part.volume for part in sold_parts(positions, key)) if p.close_time else p.volume
+        bought += rest[0].volume if rest else 0.0
+        if len(group) > 1 and None not in volumes and abs(sum(volumes) - bought) > 1e-6:
             issue(None, key[0], "warning",
                   f"{p.symbol} position {key[1]}: the purchases found add up to {sum(volumes):g} of "
-                  f"{p.volume:g} units, so its cost is incomplete")
+                  f"{bought:g} units, so its cost is incomplete")
     for (account_id, position_id), (p, _) in positions.items():
         _, open_now = latest_open.get(account_id, ("", set()))
         listed_id = position_id.removesuffix("/rest")  # the rest after a partial sale keeps XTB's ID (D-056)

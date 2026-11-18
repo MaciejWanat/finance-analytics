@@ -889,6 +889,15 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Decision:** "1T" between "1D" and "1M" on Portfel, Zwroty and Dywidendy (`ui.data.RANGES`): the last 7 days, measured from the close seven days before the last day, like the other periods. A period of up to 14 days (`DAILY_POINTS_DAYS`) gets daily points instead of weekly ones: the tile sparklines on Portfel and Zwroty and the composition bars ("Wartość na koniec każdego dnia"). "Dzisiaj" keeps its last month of sessions.
 - **Verified in the browser** on demo data: Portfel 11.11–18.11 with daily sparklines and daily composition bars; Zwroty with daily sparklines; smoke tests of all three pages with "1T".
 
+### D-079 A position sold in several parts keeps every part
+- **Date:** 2026-11-18 · **Status:** Accepted (extends D-056, D-061)
+- **Context:** "Wynik %" in "Bieżące pozycje" showed a loss on some positions where the broker shows a large gain. Selling one XTB position in several steps leaves one Closed Positions row per step, all with the same Position ID. The sync kept closed records in a map by ID, so only the last part survived: the rest's cost (D-061) was all purchases minus that one part, i.e. too high, and the earlier sold parts disappeared from the history.
+- **Decision:**
+  - Closed records are kept per ID as a list of parts, deduplicated by (close time, volume) across overlapping exports.
+  - The first part keeps the ID; later ones become `<ID>/part2`, `<ID>/part3`, ... by close time. A technical (split) close is still dropped when the position is open.
+  - The rest costs all purchases minus the purchase value of every sold part; when one is unknown, the purchases are split by volume. `PARSER_VERSION` 18.
+- **Consequences:** the quantity history before a partial sale is complete again, so earlier charts and TWR can change slightly for such positions.
+
 ---
 
 ## Open questions

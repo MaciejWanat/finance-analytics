@@ -49,6 +49,10 @@ _CSS = """
    instead of cutting digits off ("+78 1…"): full size from about 150 px of tile width, never below 1 rem. */
 [class*="st-key-kpi_tile"] { container-type: inline-size; }
 [class*="st-key-kpi_tile"] [data-testid="stMetricValue"] { font-size: clamp(1rem, 18cqi, 1.7rem); }
+/* The sparkline and "Pełny wykres" sit at the bottom of every tile, so they line up across the row however many
+   badges a tile has above them (e.g. two currencies on "Wynik na walutach"). */
+[class*="st-key-kpi_tile"] > [class*="st-key-kpi_spark_"],
+[class*="st-key-kpi_tile"] > :not([class*="st-key-kpi_spark_"]) + [class*="st-key-kpi_open_"] { margin-top: auto; }
 
 /* Live prices lamp in the sidebar (D-069): a slow pulse while the stream is connected. The phase comes from the
    clock (a negative delay), so redrawing the line every few seconds does not restart the pulse. */

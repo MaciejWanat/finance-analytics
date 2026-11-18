@@ -331,19 +331,19 @@ def test_position_listed_open_after_its_close_stays_open():
                          purchase_value=1260.0, sale_value=1260.0)
     after_split = Position("A", "XYZ.US", 30.0, opened, 42.0, purchase_value=1260.0)
     merged = _merge_open_and_closed({("usd", "A"): (after_split, 2, date(2026, 11, 15))},
-                                    {("usd", "A"): (technical, 1)})
+                                    {("usd", "A"): [(technical, 1)]})
     assert merged == {("usd", "A"): (after_split, 2)}  # the split close is dropped, the shares stay
 
     partial = Position("B", "AAA.US", 4.0, opened, 10.0, close_time=datetime(2025, 3, 1), close_price=15.0,
                        purchase_value=40.0, sale_value=60.0)
     rest = Position("B", "AAA.US", 6.0, opened, 10.0, purchase_value=60.0)
-    merged = _merge_open_and_closed({("usd", "B"): (rest, 2, date(2026, 11, 15))}, {("usd", "B"): (partial, 1)})
+    merged = _merge_open_and_closed({("usd", "B"): (rest, 2, date(2026, 11, 15))}, {("usd", "B"): [(partial, 1)]})
     assert merged[("usd", "B")][0] is partial and merged[("usd", "B/rest")][0].volume == 6.0
 
     # An open record from an export that ended before the sale is just out of date.
     sold = Position("C", "AAA.US", 1.0, opened, 10.0, close_time=datetime(2025, 3, 1), close_price=12.0)
     old_open = Position("C", "AAA.US", 1.0, opened, 10.0)
-    merged = _merge_open_and_closed({("usd", "C"): (old_open, 1, date(2024, 12, 31))}, {("usd", "C"): (sold, 2)})
+    merged = _merge_open_and_closed({("usd", "C"): (old_open, 1, date(2024, 12, 31))}, {("usd", "C"): [(sold, 2)]})
     assert merged == {("usd", "C"): (sold, 2)}
 
 
@@ -364,3 +364,35 @@ def test_rest_after_a_partial_sale_gets_the_rest_of_the_cost():
     unknown = Position("A", "ABC.US", 4.0, opened, 150.0, close_time=datetime(2025, 1, 2), close_price=240.0)
     assert _rest_cost({("usd", "A"): (unknown, 1)}, {("usd", "A"): [buy]}, ("usd", "A"), rest) == 900.0  # by volume
     assert _rest_cost({("usd", "A"): (sold, 1)}, {}, ("usd", "A"), rest) is None
+
+
+def test_a_position_sold_in_several_parts_keeps_every_part_and_the_rest_costs_what_is_left():
+    """D-079: each partial sale is its own Closed Positions row with the same ID; none may be lost."""
+    from datetime import date, datetime
+    from types import SimpleNamespace as NS
+
+    from finance_analytics.sources.sync import _merge_open_and_closed, _rest_cost
+    from finance_analytics.sources.xtb.parser import Position
+
+    opened = datetime(2022, 3, 1, 15)
+    first = Position("G", "ABC.US", 2.0, opened, 150.0, close_time=datetime(2024, 5, 2), close_price=200.0,
+                     purchase_value=300.0, sale_value=400.0)
+    second = Position("G", "ABC.US", 3.0, opened, 150.0, close_time=datetime(2025, 6, 3), close_price=250.0,
+                      purchase_value=450.0, sale_value=750.0)
+    rest = Position("G", "ABC.US", 5.0, opened, 150.0)
+    merged = _merge_open_and_closed({("usd", "G"): (rest, 3, date(2026, 11, 15))},
+                                    {("usd", "G"): [(second, 2), (first, 1)]})
+    assert sorted(merged) == [("usd", "G"), ("usd", "G/part2"), ("usd", "G/rest")]
+    assert merged[("usd", "G")][0] is first and merged[("usd", "G/part2")][0].volume == 3.0
+    assert sum(p.volume for p, _ in merged.values()) == 10.0  # every share bought is somewhere
+
+    buy = NS(amount=-1500.0)
+    assert _rest_cost(merged, {("usd", "G"): [buy]}, ("usd", "G"), merged[("usd", "G/rest")][0]) == 750.0
+    # Without the purchase value of one part, the purchases are split by volume.
+    unknown = {**merged, ("usd", "G/part2"): (Position("G/part2", "ABC.US", 3.0, opened, 150.0,
+                                                       close_time=datetime(2025, 6, 3)), 2)}
+    assert _rest_cost(unknown, {("usd", "G"): [buy]}, ("usd", "G"), merged[("usd", "G/rest")][0]) == 750.0
+
+    # Sold to the end in two parts: both stay, no rest.
+    merged = _merge_open_and_closed({}, {("usd", "G"): [(first, 1), (second, 2)]})
+    assert sorted(merged) == [("usd", "G"), ("usd", "G/part2")]
