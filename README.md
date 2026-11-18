@@ -80,7 +80,7 @@ There are two ways in: install a **release** to use the app, or install **from s
 ### Install a release (recommended)
 
 Each [GitHub release](https://github.com/MaciejWanat/finance-analytics/releases) has the app
-attached as one file, a wheel named like `finance_analytics-0.10.0-py3-none-any.whl`. You install
+attached as one file, a wheel named like `finance_analytics-0.11.0-py3-none-any.whl`. You install
 it with [uv](https://docs.astral.sh/uv/), a free, open-source installer for Python programs:
 it puts the app in its own isolated environment, adds the `fa` command, and downloads a suitable
 Python by itself if your computer has none. You need neither git nor Python beforehand.
@@ -99,13 +99,13 @@ Python by itself if your computer has none. You need neither git nor Python befo
    with the GitHub CLI:
 
    ```bash
-   gh release download v0.10.0 --repo MaciejWanat/finance-analytics --pattern "*.whl"
+   gh release download v0.11.0 --repo MaciejWanat/finance-analytics --pattern "*.whl"
    ```
 
 3. **Install it:**
 
    ```bash
-   uv tool install finance_analytics-0.10.0-py3-none-any.whl
+   uv tool install finance_analytics-0.11.0-py3-none-any.whl
    ```
 
    If the terminal then does not recognise `fa`, run `uv tool update-shell` once and open a new
@@ -120,7 +120,7 @@ Python by itself if your computer has none. You need neither git nor Python befo
    ```
 
 If you have git, steps 2 and 3 can be one command that builds the release straight from its tag:
-`uv tool install "git+https://github.com/MaciejWanat/finance-analytics@v0.10.0"`.
+`uv tool install "git+https://github.com/MaciejWanat/finance-analytics@v0.11.0"`.
 
 ### Install from source (development)
 
@@ -155,7 +155,7 @@ fa init
   `Set-ExecutionPolicy -Scope Process RemoteSigned`, or call `.venv\Scripts\fa.exe` directly.
 - From source, `fa init` also enables the privacy pre-commit hook
   (`git config core.hooksPath .githooks`), and the data folder is `data/` in the repository.
-- `main` holds the latest code; `git checkout v0.10.0` gives a released version. What changed in
+- `main` holds the latest code; `git checkout v0.11.0` gives a released version. What changed in
   each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## First steps
