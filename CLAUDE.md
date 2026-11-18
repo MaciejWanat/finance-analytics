@@ -73,7 +73,7 @@ report, never from memory.
 - `src/finance_analytics/`: all logic. No Streamlit imports outside `app/` (a test enforces it).
   - `cli.py`: the `fa` command.
   - `config.py`: where the app lives (checkout or installed package) and the data directory layout (D-065).
-  - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`).
+  - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`, `today_tile`).
   - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0009_*.sql`, version in `PRAGMA user_version`.
   - `sources/`: files → projection tables. Contents:
     - `xtb/schema.py` and `xtb/parser.py` for the export;
@@ -94,9 +94,12 @@ report, never from memory.
     - `yahoo.py` for prices, splits and dividends; `nbp.py` for FX rates; `gus.py` for the CPI (D-025);
     - `cache.py` for the covered ranges (`fetch_log`);
     - `live.py`: live quotes in online mode; `auto.py`: the daily auto-update schedule.
+    - `hours.py`: hours, holidays and pre/post-market of the US, London, Xetra and GPW, from rules only, no network
+      (sidebar list D-068, session-based "Dzisiaj" D-067).
   - `portfolio/`: pandas maths, pure functions of their inputs.
     - `valuation.py`: daily holdings and PLN value of positions, broker cash, bonds and bank cash (D-019, D-026, D-027); `MODEL_VERSION` keys the UI cache.
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
+    - `today.py`: the "Dzisiaj" tile: which day or US session it shows and its result (D-063, D-067).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).

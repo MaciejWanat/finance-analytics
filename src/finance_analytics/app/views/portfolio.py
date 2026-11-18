@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, segmented_bar, show, stacked_bars
@@ -15,8 +17,10 @@ from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
-from finance_analytics.portfolio.returns import change_since, daily_returns, period_return, twr_index, underwater
+from finance_analytics.portfolio.returns import period_return, twr_index, underwater
+from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import market_days
+from finance_analytics.preferences import PreferencesError, load_preferences
 
 BREAKDOWNS = {"Klasa aktywów": "asset_class", "Rachunek": "account", "Instrument": "symbol", "Waluta": "currency"}
 # Fixed order = fixed palette slot per class, so a class keeps its colour whatever else the portfolio holds.
@@ -130,20 +134,25 @@ def _short(amount: float) -> str:
 fx_badges = [(f"{currency} {_short(amount)}", float(amount)) for currency, amount in fx_by_currency.head(2).items()]
 fx_help = G["fx_result"] + "".join(
     f" {currency}: {fmt_money(amount, decimals=0, signed=True)}." for currency, amount in fx_by_currency.items())
-# Today (D-063): from the close before the last session to now. On a weekend, a holiday or before today's quotes
-# are fetched the last session is an earlier day, named on a grey badge, so the tile never shows a false +0,00%.
-sessions = market_days(v)
-session = sessions[-1] if len(sessions) else end
-today = change_since(total, flows, session - pd.Timedelta(days=1))
-session_returns = daily_returns(total, flows)
-if len(sessions):
-    session_returns = session_returns[session_returns.index.isin(sessions)]
+# Today (D-063, D-067): the result of the last day, counted from midnight (the default) or by US sessions (with US
+# instruments held). When that day is not today the tooltip names it (no badge: the user found it noisy, D-067).
+try:
+    today_tile = load_preferences(settings).today_tile
+except PreferencesError:  # the sidebar reports a broken settings file
+    today_tile = "calendar_day"
+by_us_session = today_tile == "us_session" and reports.holds_us_listed(settings.db_path)
+tile = today_result(total, flows, market_days(v), by_us_session=by_us_session, now=datetime.now(UTC))
+session, today, session_returns = tile.day, tile.change, tile.per_day
 today_badges = [(fmt_money(today[0], decimals=0, signed=True), today[0])] if today else []
-if session < end:
-    today_badges.append((f"sesja {session:%d.%m}", 0.0))
-today_help = (G["today"] + (f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at
-                            else " Ceny z ostatnich pobranych notowań.")
+today_help = (G["today"] + (G["today_us_session"] if by_us_session else G["today_calendar_day"])
+              + (f" Teraz widać sesję z {fmt_date(session)}." if session < end else "")
+              + (f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at
+                 else " Ceny z ostatnich pobranych notowań.")
               + (" Kwota w dzisiejszych złotych." if real_view else ""))
+today_note = ("Wynik każdej sesji giełdy w USA w procentach (TWR), razem z ruchami walut i innych giełd od "
+              "poprzedniej sesji, bez wpłat i wypłat. Na kafelku: ostatni miesiąc." if by_us_session else
+              "Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań (weekendy, święta) "
+              "są pominięte. Na kafelku: ostatni miesiąc.")
 # One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
 kpi_row(
     [
@@ -156,13 +165,11 @@ kpi_row(
             delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
             help=today_help,
             trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
-            trend_kind="pct", trend_water=True, series=session_returns, series_start=start,
-            series_note="Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań "
-                        "(weekendy, święta) są pominięte. Na kafelku: ostatni miesiąc."),
+            trend_kind="pct", trend_water=True, series=session_returns, series_start=start, series_note=today_note),
         Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
             delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
             help=G["result_period"],
-            trend=trend(period_result),
+            trend=trend(period_result), trend_water=True,
             series=period_result[period_result.index >= start],
             series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
                         "nad kafelkami."),

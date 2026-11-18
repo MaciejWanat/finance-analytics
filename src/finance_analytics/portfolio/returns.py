@@ -52,8 +52,11 @@ def period_return(index: pd.Series, start: pd.Timestamp, end: pd.Timestamp) -> f
     return float(index.asof(end) / first - 1)
 
 
-def change_since(values: pd.Series, flows: pd.Series, base: pd.Timestamp) -> tuple[float, float] | None:
-    """Result from the close of `base` to the last day, e.g. since the previous session (D-063).
+def change_since(
+    values: pd.Series, flows: pd.Series, base: pd.Timestamp, end: pd.Timestamp | None = None
+) -> tuple[float, float] | None:
+    """Result from the close of `base` to the close of `end` (default: the last day), e.g. since the
+    previous session (D-063, D-067).
 
     (PLN, return): the PLN amount is the change of value minus deposits plus withdrawals made after
     `base`; the return chains the daily TWR sub-periods over the same days, so a deposit is not a
@@ -61,12 +64,17 @@ def change_since(values: pd.Series, flows: pd.Series, base: pd.Timestamp) -> tup
     """
     if values.empty or base < values.index[0]:
         return None
-    end = values.index[-1]
+    end = values.index[-1] if end is None else end
     added = flows[(flows.index > base) & (flows.index <= end)].sum()
-    amount = float(values.iloc[-1] - values.asof(base) - added)
+    amount = float(values.asof(end) - values.asof(base) - added)
     index = twr_index(values, flows)
     start = index.asof(base)
-    return amount, float(index.iloc[-1] / start - 1) if start > 0 else 0.0
+    return amount, float(index.asof(end) / start - 1) if start > 0 else 0.0
+
+
+def chained_returns(returns: pd.Series, groups: pd.Series) -> pd.Series:
+    """Daily returns chained within each group label, e.g. all days that count towards one session (D-067)."""
+    return (1 + returns).groupby(groups.reindex(returns.index)).prod() - 1
 
 
 def annualize(total_return: float, days: float) -> float | None:

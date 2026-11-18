@@ -22,6 +22,9 @@ HEADER = """\
 # refresh_minutes: how often live prices are refreshed in online mode (1-60).
 # inbox_dir: folder where xStation exports are saved; new ones are imported automatically
 #            (read only, D-028). Empty = off.
+# today_tile: how the "Dzisiaj" tile on Portfel counts a day (D-067). calendar_day (default) - from
+#             midnight; us_session - from one US session to the next: it starts at the open and keeps
+#             the result after the close. us_session applies only to a portfolio with US instruments.
 """
 
 
@@ -31,6 +34,7 @@ class Preferences(BaseModel):
     network: Literal["offline", "online"] = "offline"
     refresh_minutes: int = Field(default=5, ge=1, le=60)
     inbox_dir: str | None = None
+    today_tile: Literal["calendar_day", "us_session"] = "calendar_day"
 
     @property
     def online(self) -> bool:

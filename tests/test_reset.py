@@ -109,3 +109,15 @@ def test_settings_page_requires_typed_confirmation(settings):
     assert not at.exception
     assert not settings.accounts_file.exists()
     assert any("Usunięto" in s.value for s in at.success)
+
+
+def test_settings_page_saves_the_today_tile_mode(settings):
+    """D-067: the "Dzisiaj" tile counts from midnight by default; the settings page switches it."""
+    at = AppTest.from_file(PAGE, default_timeout=60).run()
+    tile = next(r for r in at.radio if r.label == "Kafelek „Dzisiaj”")
+    assert tile.value == "calendar_day"
+    tile.set_value("us_session").run()
+    next(b for b in at.button if b.label == "Zapisz").click().run()
+    assert not at.exception
+    assert load_preferences(settings).today_tile == "us_session"
+    assert load_preferences(settings).refresh_minutes == 7  # the other settings stay

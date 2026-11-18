@@ -85,6 +85,19 @@ def holdings(db_path: Path) -> pd.DataFrame:
     )
 
 
+def holds_us_listed(db_path: Path) -> bool:
+    """Whether an open position is in a US-listed instrument (XTB symbol 'NVDA.US'), for the market clock."""
+    with closing(open_readonly(db_path)) as conn:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM positions p JOIN instruments i ON i.id = p.instrument_id "
+                "WHERE p.close_time IS NULL AND i.xtb_symbol LIKE '%.US' LIMIT 1"
+            ).fetchone()
+        except sqlite3.OperationalError:  # tables not there yet
+            return False
+    return row is not None
+
+
 def price_coverage(db_path: Path) -> pd.DataFrame:
     """Per instrument: Yahoo ticker, currency, cached range and the last download error."""
     return _query(

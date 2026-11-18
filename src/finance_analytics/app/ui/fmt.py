@@ -8,7 +8,7 @@ real minus sign (U+2212) matches what Plotly renders on axes.
 from __future__ import annotations
 
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, tzinfo
 
 NBSP = " "
 MINUS = "−"
@@ -74,3 +74,49 @@ def plural(count: int, one: str, few: str, many: str) -> str:
     else:
         word = many
     return f"{count}{NBSP}{word}"
+
+
+WEEKDAYS = ("pon.", "wt.", "śr.", "czw.", "pt.", "sob.", "niedz.")
+
+
+def fmt_duration(delta: timedelta) -> str:
+    """timedelta(hours=2, minutes=5) -> '2 h 05 min', '45 min'; a day or more -> '2 d 09 h'. Two-digit parts keep
+    a column of durations aligned; rounded up to a whole minute, so never '0 min'."""
+    days, minutes = divmod(max(1, math.ceil(delta.total_seconds() / 60)), 24 * 60)
+    hours, minutes = divmod(minutes, 60)
+    if days:
+        return f"{days}{NBSP}d {hours:02d}{NBSP}h"
+    return f"{hours}{NBSP}h {minutes:02d}{NBSP}min" if hours else f"{minutes}{NBSP}min"
+
+
+def fmt_when(moment: datetime, now: datetime, tz: tzinfo | None = None) -> str:
+    """A moment relative to now, in local time (or `tz`): 'dziś 15:30', 'jutro 15:30', 'pon. 15:30', '24.12 15:30'."""
+    moment, now = moment.astimezone(tz), now.astimezone(tz)
+    days = (moment.date() - now.date()).days
+    if days in (0, 1):
+        day = ("dziś", "jutro")[days]
+    else:
+        day = WEEKDAYS[moment.weekday()] if 1 < days < 7 else f"{moment:%d.%m}"
+    return f"{day} {moment:%H:%M}"
+
+
+PHASES = {"open": "Otwarta", "closed": "Zamknięta", "pre": "Pre-market", "post": "Post-market"}
+
+
+def market_text(status, now: datetime, tz: tzinfo | None = None) -> tuple[str, str, str]:
+    """(label, time, hover) for one exchange in the sidebar list (D-068); `status` is a `market.hours.MarketStatus`.
+
+    The label and the time count to the regular open, or to the regular close while the exchange is open;
+    pre-market and post-market show only in the lamp and the hover, which also gives the exact local (or `tz`)
+    moments: "Zamknięta · pre-market dziś 10:00 · otwarcie dziś 15:30".
+    """
+    if status.phase == "open":
+        moment = status.next_change
+        return "do zamknięcia", fmt_duration(moment - now), f"Otwarta · zamknięcie {fmt_when(moment, now, tz)}"
+    hover = PHASES[status.phase]
+    if status.phase == "post":
+        hover += f" do {status.next_change.astimezone(tz):%H:%M}"
+    elif status.next_phase == "pre":
+        hover += f" · pre-market {fmt_when(status.next_change, now, tz)}"
+    hover += f" · otwarcie {fmt_when(status.next_open, now, tz)}"
+    return "do otwarcia", fmt_duration(status.next_open - now), hover

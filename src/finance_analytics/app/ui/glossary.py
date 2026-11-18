@@ -57,7 +57,7 @@ G: dict[str, str] = {
     "today": (
         "Dzisiejszy zysk lub strata: zmiana wartości portfela od zamknięcia poprzedniej sesji, bez wpłat i wypłat. "
         "Duża liczba to procent (TWR dnia), plakietka to kwota w złotych. W weekend, w święto i zanim pobierzesz "
-        "dzisiejsze notowania widać ostatnią sesję; jej datę pokazuje szara plakietka."
+        "dzisiejsze notowania widać ostatnią sesję."
     ),
     "contributed": "Suma wszystkich wpłat minus wypłaty, przeliczona na PLN po kursie NBP z dnia operacji.",
     "portfolio_value": "Wartość wszystkich pozycji i gotówki na wszystkich rachunkach, w PLN.",
@@ -310,5 +310,23 @@ G: dict[str, str] = {
     "online": (
         "Aplikacja odświeża ceny i kursy. Wysyła wyłącznie tickery, kody walut i daty, nigdy kwoty, ilości "
         "ani numery rachunków."
+    ),
+    "today_tile": (
+        "Od północy: nowy dzień zaczyna się o 0:00. Sesjami giełdy w USA: nowy dzień zaczyna się przy otwarciu "
+        "sesji (zwykle 15:30), a po zamknięciu wynik zostaje do następnego otwarcia; ruchy walut i innych giełd "
+        "między sesjami wliczają się do następnej. Działa, gdy masz instrumenty z USA."
+    ),
+    "today_us_session": (
+        " Dzień liczony sesjami giełdy w USA: zaczyna się przy otwarciu, a po zamknięciu wynik zostaje do "
+        "następnego otwarcia. Zmienisz to w Ustawieniach."
+    ),
+    "today_calendar_day": " Dzień liczony od północy. Zmienisz to w Ustawieniach.",
+    "markets": (
+        "Lampka pokazuje stan giełdy: pełna zielona – otwarta, pusta – zamknięta, lewa połówka – pre-market, "
+        "prawa połówka – post-market. Obok czas do otwarcia, a gdy giełda jest otwarta, do zamknięcia zwykłej "
+        "sesji. Sesje w czasie polskim: USA 15:30–22:00 "
+        "(pre-market od 10:00, post-market do 2:00), Londyn i Niemcy (Xetra) 9:00–17:30, Warszawa (GPW) "
+        "9:00–17:00; przez kilka tygodni wiosną i jesienią USA o godzinę wcześniej. Uwzględnia święta i skrócone "
+        "sesje; liczone na tym komputerze, bez internetu."
     ),
 }

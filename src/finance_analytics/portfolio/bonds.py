@@ -142,7 +142,7 @@ def series_maturity_month(series: str) -> tuple[int, int]:
     return 2000 + int(series[5:7]), int(series[3:5])
 
 
-def _easter(year: int) -> date:
+def easter_sunday(year: int) -> date:
     """Gregorian Easter Sunday (anonymous algorithm)."""
     a, b, c = year % 19, year // 100, year % 100
     d, e = b // 4, b % 4
@@ -158,7 +158,7 @@ def _easter(year: int) -> date:
 
 def polish_holidays(year: int) -> set[date]:
     """Statutory days off in Poland (ustawa o dniach wolnych od pracy), including 24.12 from 2025."""
-    easter = _easter(year)
+    easter = easter_sunday(year)
     days = {
         date(year, 1, 1), date(year, 5, 1), date(year, 5, 3), date(year, 8, 15), date(year, 11, 1),
         date(year, 11, 11), date(year, 12, 25), date(year, 12, 26),

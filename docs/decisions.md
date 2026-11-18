@@ -692,7 +692,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Consequences:** real and nominal TWR agree in shape; amounts that small never come from real money.
 
 ### D-063 "Dzisiaj" tile: the result since the previous session's close
-- **Date:** 2026-11-17 · **Status:** Accepted
+- **Date:** 2026-11-17 · **Status:** Accepted; the grey date badge removed by D-067, which also adds counting by US sessions as an option (midnight stays the default)
 - **Context:** the user wants today's gain or loss on Portfel, both as a percentage and as an amount: the percentage as the tile's number, the amount on a badge.
 - **Decision:**
   - The day is the last market day: `valuation.market_days(v)` lists the days on which some price or exchange rate moved (sessions, and today with live quotes). Weekends, holidays and days whose quotes are not fetched yet carry the previous values and are skipped, so the tile shows the last session instead of a false +0,00 %; a grey badge "sesja dd.mm" names it when it is not today. A portfolio without prices or foreign currencies uses the last day.
@@ -731,6 +731,47 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - An installed release and a source checkout use different data folders by default; `FA_DATA_DIR` points both at one.
   - A running `fa ui` from a checkout must be restarted after this change, because the UI files moved.
   - Checked by hand before the release, in a clean temporary environment: the wheel contains all 20 UI files; `uv tool install` of the wheel works; `fa init` and `fa demo` write only to the per-user folder, never to the working directory; `fa ui` serves every page with the packaged theme; installing 0.10.0 over an older wheel replaces it.
+
+### D-066 Time to the US market open in the sidebar
+- **Date:** 2026-11-18 · **Status:** Accepted; the single US line and its "only with US holdings" rule superseded by D-068
+- **Context:** the user wants to see how long it is until the US stock market opens. A seventh tile on Portfel was considered and rejected: the row already holds six portfolio results, a clock is not one of them, and the page redraws only on a click or new data, so a countdown on it would stand still (always offline).
+- **Decision:**
+  - One caption line in the sidebar, under the Online/Offline badge, on every page. Its own fragment reruns every 30 s, so the minutes stay current without reloading the page.
+  - Text: "Giełda USA: otwarcie za 2 h 14 min" when the open is later today (local date); "otwarcie jutro 15:30" or "otwarcie pon. 15:30" when it is on a later day; "sesja trwa, koniec za 3 h 5 min" during the session. Durations are rounded up to a whole minute. The "?" tooltip (`G["us_session"]`) gives the hours in New York and in Poland.
+  - Shown only when an open position is in a US-listed instrument (XTB symbol `*.US`, `reports.holds_us_listed`).
+  - `market/hours.py` computes the session from rules, with no data and no network, so it works offline (R-015): 9:30-16:00 in `America/New_York`; the NYSE holidays (Saturday holidays on the Friday before, Sunday ones on the Monday after, except New Year's Day on a Saturday); early close at 13:00 on 3 July (Monday to Thursday), the day after Thanksgiving and 24 December. Zoneinfo covers the weeks when US and European daylight-saving time differ, when the open is at 14:30 in Poland. The Easter helper of the bonds module (`easter_sunday`) is shared for Good Friday.
+- **Consequences:** unscheduled closures (a national day of mourning, a storm) are not known in advance, so on such a day the clock counts down to an open that does not happen. No new dependency: `tzdata`, which Windows needs for zoneinfo, comes with pandas.
+
+### D-067 "Dzisiaj" can count US sessions; a setting, midnight by default
+- **Date:** 2026-11-18 · **Status:** Accepted (extends D-063)
+- **Context:** the biggest moves of the user's portfolio happen between the US open and close. Counted from midnight (D-063), the tile drops the evening's session result at 0:00 and spends the morning on small currency moves. The user asked for a tile that resets with the session, with the old way kept as an option; after trying both, they chose midnight as the default.
+- **Decision:**
+  - Preference `today_tile` in `settings.yaml`: `calendar_day` (default, D-063) or `us_session`; on Ustawienia, section "Kafelek „Dzisiaj”", options "Od północy" and "Sesjami giełdy w USA", saved with the other settings.
+  - **US session:** every calendar day counts towards the US trading day on or after it (`hours.session_of`), so moves between two sessions (currencies, European exchanges, a weekend or a US holiday) go to the next session. The tile shows the session that opened last (`hours.last_opened_session`): from the open (usually 15:30) it is today's; before the open it is the previous one, whose result therefore stays after the close until the next open. Its result runs from the close of the previous trading day to the close of that session, or to now (`returns.change_since` with an `end`). As before, a session without any moved quote is skipped.
+  - The sparkline and "Pełny wykres" show the chained TWR of each session (`returns.chained_returns`); the tooltip and the chart note say which way the day is counted.
+  - US sessions apply only when an open position is in a US-listed instrument (`reports.holds_us_listed`, as the clock of D-066); otherwise the tile counts from midnight whatever the setting.
+  - The logic lives in `portfolio/today.py` (`today_result`), a pure function of the values, flows, market days and the time.
+  - No grey date badge "sesja dd.mm" (D-063) any more, in either mode: the user found it noisy. When the tile shows an earlier day than today, its tooltip says which ("Teraz widać sesję z 17.11.2026.").
+  - In online mode the daily market update also runs 15 minutes after each US close (`auto.daily_update_due`), so the session's final closing prices are saved and the tile shows the right result after midnight, when the session is no longer "today" and is valued from daily closes rather than live quotes.
+- **Consequences:**
+  - The page recalculates only when it reruns: online, the live refresh after the open does that; offline, the tile switches to the new session on the next click or reload.
+  - One more automatic update per US trading day in online mode; offline nothing changes (R-016).
+
+### D-068 Four exchanges in the sidebar, with US pre-market and post-market
+- **Date:** 2026-11-18 · **Status:** Accepted (supersedes the single US line of D-066)
+- **Context:** the user wants London, Germany and Warsaw next to the US in the sidebar clock, and the US pre-market and post-market shown too.
+- **Decision:**
+  - The sidebar block "Giełdy" lists, in this order, USA, Londyn, Niemcy, Warszawa, always (no longer only with US holdings). Its title is a caption on its own line, so the "?" tooltip (`G["markets"]`, the hours in Polish time) sits right beside it; below, a grid in four aligned columns (`components.status_list`): a status lamp, the name, a muted italic label and the time right-aligned with tabular digits.
+    - The lamp shows the current state by colour and by shape, so colour is never the only signal: full green (open), empty grey ring (closed), amber with the left half filled (pre-market, before the open) or the right half (post-market, after the close).
+    - The label and the time count to the regular session only: "do zamknięcia" while open (the regular close), otherwise "do otwarcia" (the next regular open), also during the US pre-market and post-market. Those extended sessions show only in the lamp and the hover. The user wants the real open, not the start of the pre-market.
+    - The time is always a countdown: "45 min", "5 h 05 min" (two-digit minutes keep the column aligned), and "2 d 15 h" from a day on (a weekend). Hovering a row names the state and the exact moments: "Zamknięta · pre-market dziś 10:00 · otwarcie dziś 15:30", "Pre-market · otwarcie dziś 15:30", "Post-market do 02:00 · otwarcie dziś 15:30".
+  - `market/hours.py`: an `Exchange` (time zone, open, closing time per day, holiday calendar, optional extended hours) with `status(now)` returning the phase, the next regular open and the end of the current phase; `EXCHANGES` holds the four.
+    - USA: 9:30-16:00 New York, pre-market from 4:00, post-market until 20:00 (until 17:00 on early-close days); NYSE holidays as in D-066.
+    - London (LSE): 8:00-16:30 London, 12:30 on 24 and 31 December; bank holidays of England, a weekend one moved to the next weekday.
+    - Germany: Xetra (Frankfurt), 9:00-17:30 Berlin, the main German market and the one Yahoo's `.DE` prices come from; closed on 1 January, Good Friday, Easter Monday, 1 May, 24-26 and 31 December. The user said "Berlin"; Börse Berlin is a small regional exchange (open 8:00-22:00), so Xetra is the useful clock.
+    - Warsaw (GPW): 9:00-17:00 (continuous trading until 16:50, then the closing auction); closed on Polish public holidays (`bonds.polish_holidays`), Good Friday, 24 and 31 December.
+  - Pre-market and post-market only for the US: the European exchanges have only opening and closing auctions of a few minutes, not extended sessions.
+- **Consequences:** special one-off closures and changed hours (a royal funeral, a jubilee holiday) are not in the rules.
 
 ---
 

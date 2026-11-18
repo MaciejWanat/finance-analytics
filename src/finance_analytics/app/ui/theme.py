@@ -36,6 +36,7 @@ class Tokens:
     other: str  # the folded "Inne" series
     good: str  # positive change (text)
     bad: str  # negative change (text)
+    caution: str  # an in-between state, e.g. pre-market (a status dot, not text)
     series: tuple[str, ...]
 
 
@@ -51,6 +52,7 @@ TOKENS: dict[Mode, Tokens] = {
         other="#a8a69f",
         good="#006300",
         bad="#d03b3b",
+        caution="#d18b00",
         series=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"),
     ),
     "dark": Tokens(
@@ -64,6 +66,7 @@ TOKENS: dict[Mode, Tokens] = {
         other="#6b6a65",
         good="#0ca30c",
         bad="#e66767",
+        caution="#c98500",
         series=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9", "#e66767"),
     ),
 }

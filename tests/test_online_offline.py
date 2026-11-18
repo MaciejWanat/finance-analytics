@@ -124,3 +124,23 @@ def test_daily_update_schedule(imported, monkeypatch):
     assert auto.daily_update_due(imported.db_path, datetime(2026, 11, 16, 15, 1, tzinfo=warsaw))  # 6 h passed
     last(datetime(2026, 11, 21, 9, tzinfo=warsaw))  # Saturday: no NBP table
     assert not auto.daily_update_due(imported.db_path, datetime(2026, 11, 21, 12, 30, tzinfo=warsaw))
+
+
+def test_daily_update_after_the_us_close(imported, monkeypatch):
+    """D-067: one more update shortly after the US close, so the session's closing prices are final."""
+    warsaw = timezone(timedelta(hours=1))
+    monkeypatch.setattr(auto, "last_update", lambda db_path: datetime(2026, 11, 16, 18, tzinfo=warsaw))
+    assert not auto.daily_update_due(imported.db_path, datetime(2026, 11, 16, 22, 10, tzinfo=warsaw))
+    assert auto.daily_update_due(imported.db_path, datetime(2026, 11, 16, 22, 20, tzinfo=warsaw))
+    monkeypatch.setattr(auto, "last_update", lambda db_path: datetime(2026, 11, 16, 22, 20, tzinfo=warsaw))
+    assert not auto.daily_update_due(imported.db_path, datetime(2026, 11, 16, 23, 30, tzinfo=warsaw))
+
+
+def test_today_tile_preference(tmp_path):
+    settings = Settings(data_dir=tmp_path / "data")
+    assert load_preferences(settings).today_tile == "calendar_day"
+    save_preferences(settings, Preferences(today_tile="us_session"))
+    assert load_preferences(settings).today_tile == "us_session"
+    settings.preferences_file.write_text("today_tile: weekly\n", encoding="utf-8")
+    with pytest.raises(PreferencesError):
+        load_preferences(settings)

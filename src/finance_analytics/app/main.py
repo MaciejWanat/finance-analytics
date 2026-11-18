@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import streamlit as st
-from ui.components import DIALOG_OPEN, apply_global_styles
-from ui.fmt import plural
+from ui.components import DIALOG_OPEN, StatusRow, apply_global_styles, status_list
+from ui.fmt import market_text, plural
+from ui.glossary import G
 
 from finance_analytics.config import get_settings
 from finance_analytics.market.auto import maybe_update_market
+from finance_analytics.market.hours import EXCHANGES
 from finance_analytics.market.live import read_live, update_live
 from finance_analytics.preferences import PreferencesError, load_preferences
 from finance_analytics.sources.inbox import check_inbox
@@ -121,11 +123,23 @@ def network_status() -> None:
         st.rerun()
 
 
+@st.fragment(run_every=timedelta(seconds=30))
+def market_clock() -> None:
+    """Open and closed exchanges with the time to the next change (D-066, D-068); works offline too."""
+    now = datetime.now(UTC)
+    rows = []
+    for exchange in EXCHANGES:
+        status = exchange.status(now)
+        rows.append(StatusRow(exchange.name, status.phase, *market_text(status, now)))
+    status_list("Giełdy", rows, help=G["markets"])
+
+
 FULL_RUN = "full_app_run"  # True while the whole script runs; a fragment's timer rerun sees False
 st.session_state[FULL_RUN] = True
 try:
     with st.sidebar:
         network_status()
+        market_clock()
         st.caption(":material/lock: Dane zostają na tym komputerze.")
     navigation.run()
 finally:  # also after st.stop() in a page

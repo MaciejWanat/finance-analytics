@@ -71,6 +71,47 @@ _CSS = """
 """
 
 
+@dataclass(frozen=True)
+class StatusRow:
+    name: str
+    lamp: Literal["open", "closed", "pre", "post"]  # the current state
+    label: str  # muted italic, the next change, e.g. "do zamknięcia"
+    value: str  # right-aligned, e.g. "5 h 05 min"
+    hover: str | None = None  # native tooltip on the row
+
+
+def _lamp(state: str, tokens) -> str:
+    """A small status lamp whose shape says the state as well as its colour: full (open), empty ring (closed),
+    left half (pre-market, before the open), right half (post-market, after the close)."""
+    color = {"open": tokens.good, "closed": tokens.ink_muted}.get(state, tokens.caution)
+    fill = {"open": color, "closed": "transparent",
+            "pre": f"linear-gradient(90deg,{color} 50%,transparent 50%)",
+            "post": f"linear-gradient(90deg,transparent 50%,{color} 50%)"}[state]
+    return (f"display:inline-block;align-self:center;width:0.6rem;height:0.6rem;border-radius:50%;"
+            f"box-sizing:border-box;border:1.5px solid {color};background:{fill}")
+
+
+def status_list(title: str, rows: Sequence[StatusRow], *, help: str | None = None) -> None:
+    """A compact list for the sidebar (D-068): a title with its "?" on one line, then rows in aligned columns
+    (lamp, name, label, value right-aligned with tabular digits)."""
+    tokens = TOKENS[current_mode()]
+    st.caption(title, help=help)
+    cells = []
+    for row in rows:
+        hover = f' title="{html.escape(row.hover)}"' if row.hover else ""
+        cells.append(
+            f'<span{hover} style="{_lamp(row.lamp, tokens)}"></span>'
+            f'<span{hover}>{html.escape(row.name)}</span>'
+            f'<span{hover} style="opacity:0.6;font-style:italic">{html.escape(row.label)}</span>'
+            f'<span{hover} style="text-align:right">{html.escape(row.value)}</span>'
+        )
+    st.html(
+        '<div style="display:grid;grid-template-columns:auto auto 1fr auto;column-gap:0.5rem;row-gap:0.15rem;'
+        "margin-top:-0.85rem;font-size:0.875rem;line-height:1.5;white-space:nowrap;"
+        f'font-variant-numeric:tabular-nums">{"".join(cells)}</div>'
+    )
+
+
 def apply_global_styles() -> None:
     """Small CSS refinements on top of the Streamlit theme. Call once per run (main.py)."""
     st.html(_CSS)

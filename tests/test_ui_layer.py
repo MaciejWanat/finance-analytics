@@ -83,6 +83,27 @@ def test_every_glossary_key_used_by_pages_exists():
     assert used <= set(G), sorted(used - set(G))
 
 
+def test_duration_and_relative_moment():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from ui.fmt import fmt_duration, fmt_when
+
+    assert fmt_duration(timedelta(hours=2, minutes=14)) == f"2{NBSP}h 14{NBSP}min"
+    assert fmt_duration(timedelta(hours=3, minutes=5)) == f"3{NBSP}h 05{NBSP}min"  # aligned in a column
+    assert fmt_duration(timedelta(hours=3)) == f"3{NBSP}h 00{NBSP}min"
+    assert fmt_duration(timedelta(days=2, hours=9, minutes=30)) == f"2{NBSP}d 09{NBSP}h"  # a weekend
+    assert fmt_duration(timedelta(minutes=44, seconds=1)) == f"45{NBSP}min"  # rounded up
+    assert fmt_duration(timedelta(seconds=5)) == f"1{NBSP}min"
+
+    warsaw = ZoneInfo("Europe/Warsaw")
+    now = datetime(2026, 11, 20, 23, 0, tzinfo=warsaw)  # Friday
+    assert fmt_when(datetime(2026, 11, 20, 23, 30, tzinfo=warsaw), now, warsaw) == "dziś 23:30"
+    assert fmt_when(datetime(2026, 11, 21, 15, 30, tzinfo=warsaw), now, warsaw) == "jutro 15:30"
+    assert fmt_when(datetime(2026, 11, 23, 15, 30, tzinfo=warsaw), now, warsaw) == "pon. 15:30"
+    assert fmt_when(datetime(2026, 12, 1, 15, 30, tzinfo=warsaw), now, warsaw) == "01.12 15:30"
+
+
 def test_polish_plural():
     from ui.fmt import plural
 

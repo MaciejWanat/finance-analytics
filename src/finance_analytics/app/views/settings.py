@@ -71,12 +71,24 @@ inbox_ok = inbox_dir is None or Path(inbox_dir).is_dir()
 if not inbox_ok:
     st.error("Nie znaleziono takiego folderu. Wskaż istniejący folder albo wyczyść pole.", icon=":material/error:")
 
+section("Kafelek „Dzisiaj”", "Od kiedy liczy się dzisiejszy wynik na stronie Portfel.", help=G["today_tile"])
+today_tile = st.radio(
+    "Kafelek „Dzisiaj”",
+    ["calendar_day", "us_session"],
+    index=0 if preferences.today_tile == "calendar_day" else 1,
+    format_func={"calendar_day": "Od północy", "us_session": "Sesjami giełdy w USA"}.get,
+    label_visibility="collapsed",
+    horizontal=True,
+    help=G["today_tile"],
+)
+
 changed = (
     mode != preferences.network or refresh != preferences.refresh_minutes or inbox_dir != preferences.inbox_dir
+    or today_tile != preferences.today_tile
 )
 if st.button("Zapisz", type="primary", icon=":material/save:", disabled=not changed or not inbox_ok):
     save_preferences(settings, preferences.model_copy(update={
-        "network": mode, "refresh_minutes": refresh, "inbox_dir": inbox_dir,
+        "network": mode, "refresh_minutes": refresh, "inbox_dir": inbox_dir, "today_tile": today_tile,
     }))
     st.toast("Zapisano ustawienia.", icon=":material/check_circle:")
     st.rerun()

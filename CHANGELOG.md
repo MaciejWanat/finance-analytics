@@ -4,6 +4,29 @@ All notable changes to this project are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/). Decision IDs (`D-xxx`) point to `docs/decisions.md`.
 
+## [Unreleased]
+
+### Added
+
+- **Open and closed exchanges** in the sidebar: USA, London, Germany (Xetra) and Warsaw, each
+  with a lamp for its state (open, closed, pre-market, post-market) and the time to the regular
+  open, or to the close while it is open. It accounts for each
+  exchange's holidays and shortened sessions and for the weeks when daylight-saving time in the
+  US and Europe differs, and it works offline (D-066, D-068).
+- **Setting for the "Dzisiaj" tile** on Ustawienia: from midnight (default, as before) or by US
+  sessions, for a portfolio with US-listed instruments: a new day starts at the US open, the result
+  stays after the close until the next open, and moves between sessions (currencies, other
+  exchanges, weekends) count towards the next one (D-067).
+
+### Changed
+
+- The "Dzisiaj" tile no longer shows the grey "sesja dd.mm" badge; when it shows an earlier
+  session than today, its tooltip names the date (D-067).
+- The "Wynik w okresie" tile's sparkline is red below zero and green above it, like the other
+  result tiles.
+- In online mode market data is also updated shortly after each US close, so the session's
+  closing prices are final (D-067).
+
 ## [0.10.0] - 2026-11-18
 
 Install a chosen version without git or a prepared Python: each release now has the app attached
