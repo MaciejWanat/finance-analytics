@@ -843,7 +843,45 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - **CPU in % of one core**, with the share of the whole machine as a second line: the app runs mostly on one core (the GIL), so a share of all cores would stay small on a many-core computer however busy it is. The live feed's part is the CPU time of the `live-feed` and `live-stream` threads.
   - **Levels:** CPU (1-minute average) amber from 25 %, red from 50 % of a core; memory (resident size) amber from 600 MB, red from 1,2 GB. For scale, D-071 measured about 6 % of a core with Portfel open and the stream every 5 s. The level is shown by colour and by a word ("w normie", "podwyższone", "wysokie"), with one always-present line of advice under the tiles.
   - **Sidebar:** a red "Wysokie zużycie zasobów" link to Ustawienia only while the level is high; nothing otherwise.
+  - **Start-up is not measured** (asked by the user the same day): the first 60 s after the monitor starts (the app's first page view: imports, first valuation, caches) are left out of every average and never raise a warning; Ustawienia counts down to the first measurement.
 - **Consequences:** only the app's server process is measured, not the browser tab; several open tabs show up as one higher number.
+
+### D-074 Rolling digits in the KPI tiles
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** with the blinking gone (D-072) the user asked for the tile numbers to change with an animation, like in banking and broker apps, instead of the digits just being swapped.
+- **Decision:**
+  - **What moves:** only the characters that changed. They roll to the new ones (up when the number grows, down when it falls, about 0.5 s) and flash in the palette's good or bad colour, fading out in about a second. Unchanged characters stay still. The strings are aligned from the right, so units ("zł", "%") and the last digits line up. Digits use tabular figures, so a change does not shift the rest. With "reduce motion" in the system, digits change without rolling.
+  - **How, without fighting React** (`ui/ticker.py`): an invisible components-v2 script, mounted once per full run by `apply_global_styles`, watches every `stMetricValue` with a MutationObserver. Over each it draws an overlay in the same font; the original text stays in place, transparent, so the layout never moves. The original is hidden by a `data-` attribute, not a class: React rewrites the element's classes (e.g. on a theme change) but not attributes it does not manage. The overlay's position is measured on every pass and on resize (container queries shrink the font). If anything fails, the overlay is dropped and the original text shows.
+  - Every page with KPI tiles gets it: Portfel on live redraws, Zwroty and Dywidendy on their reruns.
+- **Verified in the browser:** e.g. "+0,27%" → "+0,26%": the digit rolled down and flashed red, back to the normal colour after about 2 s; overlays exactly over the original text in light and dark mode, also after switching the theme without reloading; the tiles on Zwroty as well.
+- **Consequences:** the tiles depend on one more piece of page script; the fallback keeps them readable.
+
+### D-075 A stream that sends nothing is replaced by polling
+- **Date:** 2026-11-18 · **Status:** Accepted (refines D-069)
+- **Context:** the user saw nothing move on Portfel. The page redrew every 5 s, but no new price had arrived for close to an hour. Reproduced on demo data: Yahoo's stream accepted the connection and the subscription and then sent no message at all (25 s with SPY and AAPL during the US session, tested directly with yfinance), without closing. The feed counted a connected stream as working, so the sidebar said "na żywo"; the fallback for silent tickers (D-069) polled only after 5 minutes and then every 5 minutes, and nothing at all in the first 5 minutes after start.
+- **Decision:**
+  - While an exchange is in session, a stream that has not sent a single price for 60 s (`STREAM_MUTE_AFTER`) is treated as broken: the feed closes it, polls every held ticker right away and then every 2 minutes (`MUTE_POLL_EVERY`, the polling floor of D-069), and tries the stream again after 5 minutes (`MUTE_RETRY_STREAM`). The first price from a stream ends this.
+  - While only currencies trade, a quiet stream is not treated as broken.
+  - The feed's state is then "muted"; the sidebar says "strumień milczy · ceny z HH:MM" with a steady (not pulsing) green lamp, and the hover explains it. A rate limit or a network failure during these polls shows as an error, as elsewhere.
+- **Verified** on a copy of the demo data with the real (silent) stream: after a minute the sidebar switched to "strumień milczy", the tiles changed, and quotes came every 2 minutes.
+- **Consequences:** while Yahoo's stream is silent, prices move every 2 minutes, not every few seconds. Requests stay within the polling limit of D-069.
+
+### D-076 "1D" and "1T" in the enlarged KPI chart
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** the user wanted a day and a week among the range buttons of "Pełny wykres" (it had 1M, 6M, YTD, 1R, 3L, Maks.). On daily data a "1D" button would show two points.
+- **Decision:**
+  - Buttons 1D, 1T, 1M, 6M, YTD, 1R, 3L, Maks. "1T" is the last 7 days of the daily history; "1D" runs from midnight (as the "Dzisiaj" tile by calendar day).
+  - For "1D" to show the day, the chart appends today every 5 minutes to the daily history, in place of today's daily point and joined to the last one: the same curves as the 1D period (D-070): portfolio value, result in the period, currency result (the daily one up to yesterday plus today's at market rates), money paid in, and profit to deposits. "Dzisiaj" (bars per session) stays daily. The 5-minute part is computed only while the chart is open (`Kpi.series_today`, a callable), so live redraws do not pay for it, and only when today's 5-minute quotes are saved.
+  - The y-axis follows the visible part after every change of the x-range (range buttons, slider, wheel zoom; `ui.live_chart`, `layout.meta.fa_fit_y`), so a day's or a week's move is not a flat line on an axis made for years. A box zoom keeps the viewer's y-range, also across live redraws. A series that never goes below zero keeps zero as its floor while it is in sight.
+  - Date axes zoomed within a day show hours (`%H:%M`) instead of the date repeated.
+- **Verified in the browser** on demo data: "1D" from 00:00 with 215 five-minute points and the y-axis fitted to the day; "1T" fitted to the week; "Maks." from zero; the range kept across live redraws.
+
+### D-077 The stream may redraw Portfel every second
+- **Date:** 2026-11-18 · **Status:** Accepted (refines D-069)
+- **Context:** the user asked for redraws as often as every second with the stream (the range was 5–60 s).
+- **Decision:** `stream_seconds` is 1–60 (`STREAM_SECONDS`), with 1 and 2 s added to the slider on Ustawienia and to `fa settings --refresh`. The default stays 5 s. Polling keeps its 2-minute floor (D-069), and quiet markets still slow the page down (D-071), so 1 s applies only while an exchange is in session.
+- **Measured** on the demo data (stream mode, Portfel open, period "Maks."): the Streamlit process used 21 % of one core at 1 s against 5.8 % at 5 s (D-071). The help text on Ustawienia says that 1–2 s costs noticeably more processor time.
+- **Consequences:** a redraw every second recomputes the tiles, the value chart and the positions table each time, even when no new price came (e.g. while the stream is silent, D-075).
 
 ---
 

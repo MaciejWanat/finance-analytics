@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -15,6 +15,7 @@ from ui.charts import current_mode, detail_chart, is_intraday, show_detail, show
 from ui.fmt import MINUS, fmt_number, fmt_pct
 from ui.live_search import live_search
 from ui.theme import TOKENS
+from ui.ticker import install_ticker
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,9 @@ class Kpi:
     series: pd.Series | None = None
     series_start: pd.Timestamp | None = None  # where the enlarged chart opens (the page's period)
     series_note: str | None = None  # a line above the enlarged chart, e.g. what the curve means
+    # Today every 5 minutes, appended to a daily `series` in the enlarged chart, so its "1D" button shows the day
+    # (D-076). A callable: it is computed only while that chart is open. None, or returning None: daily only.
+    series_today: Callable[[], pd.Series | None] | None = None
     # Several small signed badges instead of the one delta, e.g. [("USD +25k", 25000), ("EUR −1,2k", -1200)]:
     # green when the number is positive, red when negative (D-061).
     badges: Sequence[tuple[str, float]] = ()
@@ -167,8 +171,11 @@ def run_end_marker() -> None:
 
 
 def apply_global_styles() -> None:
-    """Small CSS refinements on top of the Streamlit theme. Call once per run (main.py)."""
-    st.html(_CSS)
+    """Small CSS refinements on top of the Streamlit theme, and the rolling digits of the KPI tiles (D-074). Call once
+    per run (main.py)."""
+    tokens = TOKENS[current_mode()]
+    st.html(_CSS + f"<style>:root {{ --fa-good: {tokens.good}; --fa-bad: {tokens.bad}; }}</style>")
+    install_ticker()
 
 
 def page_header(title: str, caption: str | None = None) -> None:
@@ -240,7 +247,7 @@ def kpi_row(kpis: Sequence[Kpi]) -> None:
                 # the new data, or it would close.
                 still_open = st.session_state.get(DIALOG_OPEN) and st.session_state.get(DIALOG_KPI) == kpi.label
                 if clicked or still_open:
-                    _open_detail(kpi)
+                    _open_detail(kpi, kpi.series_today() if kpi.series_today else None)
 
 
 RUN_END_KEY = "fa_run_end"  # the marker drawn last in every full run (main.py); the pill CSS keys on it
@@ -252,7 +259,7 @@ def _close_detail() -> None:
     st.session_state[DIALOG_OPEN] = False
 
 
-def _open_detail(kpi: Kpi) -> None:
+def _open_detail(kpi: Kpi, today: pd.Series | None = None) -> None:
     st.session_state[DIALOG_OPEN] = True
     st.session_state[DIALOG_KPI] = kpi.label
 
@@ -260,9 +267,10 @@ def _open_detail(kpi: Kpi) -> None:
     def detail() -> None:
         if kpi.series_note:
             st.caption(kpi.series_note)
-        st.caption("Przybliżaj kółkiem myszy albo zaznaczając obszar; dwuklik przywraca cały widok.")
+        st.caption("Przybliżaj kółkiem myszy albo zaznaczając obszar; dwuklik przywraca cały widok."
+                   + (" „1D” pokazuje dzisiejszy dzień co 5 minut." if today is not None else ""))
         show_detail(detail_chart(kpi.series, name=kpi.label, mode=current_mode(), kind=kpi.trend_kind,
-                                 start=kpi.series_start), key=f"kpi_detail_{kpi.label}",
+                                 start=kpi.series_start, today=today), key=f"kpi_detail_{kpi.label}",
                     # Zoom survives live redraws; another period (its start, daily or within a day) starts afresh.
                     view=f"{kpi.series_start}|{is_intraday(kpi.series.index)}")
 

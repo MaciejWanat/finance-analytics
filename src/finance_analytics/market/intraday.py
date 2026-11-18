@@ -42,14 +42,17 @@ class YahooBarClient:
 
     def bars(self, ticker: str) -> list[Bar]:
         import yfinance as yf
-        from yfinance.exceptions import YFRateLimitError
+        from yfinance.exceptions import YFPricesMissingError, YFRateLimitError
 
         try:
             handle = yf.Ticker(ticker)
-            frame = handle.history(period="5d", interval="5m", prepost=True, auto_adjust=False)
+            # raise_errors: a ticker without bars raises here instead of yfinance logging an error to the console
+            frame = handle.history(period="5d", interval="5m", prepost=True, auto_adjust=False, raise_errors=True)
             meta = handle.history_metadata or {}
         except YFRateLimitError as exc:
             raise YahooRateLimitError(f"{ticker}: Yahoo rate limit") from exc
+        except YFPricesMissingError:
+            return []
         if frame is None or frame.empty or "Close" not in frame:
             return []
         divisor = MINOR_UNITS.get(meta.get("currency"), (None, 1.0))[1]

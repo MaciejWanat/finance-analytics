@@ -250,7 +250,7 @@ def test_stream_polls_tickers_it_is_silent_about(imported):
     feed.step()
     assert stream.delivered.wait(5)
     clock.advance(feed_module.SILENT_AFTER)
-    feed._last_tick["NVDA"] = clock.seconds  # NVDA keeps ticking
+    feed._last_tick["NVDA"] = feed._last_message = clock.seconds  # NVDA keeps ticking (the stream is not mute)
     feed.step()
     assert client.calls and "NVDA" not in client.calls[0] and "USDPLN=X" in client.calls[0]
     feed.stop()
@@ -289,3 +289,69 @@ def test_feed_keeps_the_intraday_bars(imported):
     assert len(bars.calls) == 2 * first
     quotes = read_intraday(imported.db_path, clock.moment - timedelta(hours=1), clock.moment)
     assert "NVDA" in quotes.columns and len(quotes) >= 3  # bars plus the polled live quotes
+
+
+def test_a_stream_that_sends_nothing_is_replaced_by_polling(imported):
+    """D-075: Yahoo kept the connection open and sent no price at all. After a minute of silence while markets
+    trade, the feed polls every held ticker every 2 minutes, says so, and tries the stream again after 5 minutes."""
+    go_online(imported)
+    set_live(imported, live_source="stream")
+    streams, client = [], FakeQuotes()
+
+    def factory():
+        streams.append(FakeStream())  # connected, silent
+        return streams[-1]
+
+    clock = Clock(MONDAY_US_OPEN)
+    feed = make_feed(imported, clock, stream_factory=factory, poll_client=client)
+    feed.step()
+    assert feed.status().state == "live" and not client.calls
+    clock.advance(feed_module.STREAM_MUTE_AFTER - 1)
+    feed.step()
+    assert not client.calls  # not yet
+    clock.advance(1)
+    feed.step()
+    assert streams[0].closed.is_set() and len(client.calls) == 1 and "USDPLN=X" in client.calls[0]
+    status = feed.status()
+    assert status.state == "muted" and status.source == "stream" and "nie przysyła" in status.message
+    assert read_live(imported.db_path, now=clock.moment)[2] is not None
+    clock.advance(60)
+    feed.step()
+    assert len(client.calls) == 1  # every 2 minutes, not more often
+    clock.advance(60)
+    feed.step()
+    assert len(client.calls) == 2
+    clock.advance(feed_module.MUTE_RETRY_STREAM)
+    feed.step()
+    assert len(streams) == 2  # the stream gets another chance
+    feed.stop()
+
+
+def test_a_working_stream_is_not_taken_for_a_mute_one(imported):
+    go_online(imported)
+    set_live(imported, live_source="stream")
+    stream, client = FakeStream([{"id": "NVDA", "price": 181.5, "currency": "USD"}]), FakeQuotes()
+    clock = Clock(MONDAY_US_OPEN)
+    feed = make_feed(imported, clock, stream_factory=lambda: stream, poll_client=client)
+    feed.step()
+    assert stream.delivered.wait(5)
+    clock.advance(30)
+    feed._last_message = clock.seconds  # it keeps sending
+    clock.advance(30)
+    feed.step()
+    assert not client.calls and not stream.closed.is_set() and feed.status().state == "live"
+    feed.stop()
+
+
+def test_a_quiet_stream_at_night_is_fine(imported):
+    """Only currencies trade: a stream with nothing to say for a while is not broken."""
+    go_online(imported)
+    set_live(imported, live_source="stream")
+    stream, client = FakeStream(), FakeQuotes()
+    clock = Clock(TUESDAY_NIGHT)
+    feed = make_feed(imported, clock, stream_factory=lambda: stream, poll_client=client)
+    feed.step()
+    clock.advance(feed_module.STREAM_MUTE_AFTER * 3)
+    feed.step()
+    assert not stream.closed.is_set() and feed.status().state != "muted"
+    feed.stop()

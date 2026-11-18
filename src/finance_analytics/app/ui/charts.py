@@ -26,7 +26,8 @@ HOVER_PLN = "%{y:,.2f} zł"
 
 # Numeric date formats keep the axis Polish without loading a Plotly locale.
 _DATE_TICK_STOPS = [
-    {"dtickrange": [None, "M1"], "value": "%d.%m"},
+    {"dtickrange": [None, 86_400_000], "value": "%H:%M"},  # ticks within a day (zoomed in, "1D" in the big chart)
+    {"dtickrange": [86_400_000, "M1"], "value": "%d.%m"},
     {"dtickrange": ["M1", "M12"], "value": "%m.%Y"},
     {"dtickrange": ["M12", None], "value": "%Y"},
 ]
@@ -373,6 +374,8 @@ def sparkline(values: Sequence[float], *, color: str, kind: str = "money", mode:
 DETAIL_HOVER = {"money": "%{y:,.2f} zł", "pct": "%{y:+.2%}"}
 # Range buttons of the full chart; "Okres" = the window picked on the page.
 _RANGE_BUTTONS = [
+    {"count": 1, "label": "1D", "step": "day", "stepmode": "todate"},  # from midnight, like the "Dzisiaj" tile
+    {"count": 7, "label": "1T", "step": "day", "stepmode": "backward"},
     {"count": 1, "label": "1M", "step": "month", "stepmode": "backward"},
     {"count": 6, "label": "6M", "step": "month", "stepmode": "backward"},
     {"count": 1, "label": "YTD", "step": "year", "stepmode": "todate"},
@@ -385,19 +388,38 @@ DETAIL_CONFIG = {**PLOTLY_CONFIG, "scrollZoom": True, "displayModeBar": True}
 
 def detail_chart(
     series: pd.Series, *, name: str, mode: Mode, kind: str = "money", start: pd.Timestamp | None = None,
-    height: int = 520,
+    height: int = 520, today: pd.Series | None = None,
 ) -> go.Figure:
     """Full history of one KPI for the enlarged view: zoom with the wheel or a box, a range slider
-    below and range buttons above. Opens on `start` (the page's period) when given. A series within one day
-    (1D, D-070) gets hours on the axis and no slider or range buttons."""
+    below and range buttons above (1D, 1T, 1M, 6M, YTD, 1R, 3L, Maks.). Opens on `start` (the page's period) when
+    given. A series within one day (1D, D-070) gets hours on the axis and no slider or range buttons.
+
+    `today`: the current day every 5 minutes (aware moments), drawn after the daily history in place of its last
+    day, so "1D" shows the day (D-076). The y-axis follows the visible range (`ui.live_chart`), so a day's move or
+    a week's is not a flat line on an axis made for years."""
     tokens = TOKENS[mode]
     color = tokens.series[0]
     fig = _base(mode, height)
-    fig.add_trace(go.Scatter(
-        x=series.index, y=series.values, name=name, mode="lines", line={"color": color, "width": 2},
-        fill="tozeroy", fillcolor=_rgba(color, 0.10), hovertemplate=f"{DETAIL_HOVER[kind]}<extra></extra>",
-    ))
-    fig.update_layout(showlegend=False, hovermode="x", dragmode="zoom", margin={"t": 48})
+    line = {"mode": "lines", "line": {"color": color, "width": 2}, "fill": "tozeroy",
+            "fillcolor": _rgba(color, 0.10), "showlegend": False}
+    if today is not None and len(today) > 1 and not is_intraday(series.index):
+        moments = today.index.tz_convert(datetime.now().astimezone().tzinfo).tz_localize(None)
+        daily = series[series.index < moments[0].normalize()]
+        fig.add_trace(go.Scatter(x=daily.index, y=daily.values, name=name, **line,
+                                 hovertemplate=f"%{{x|%d.%m.%Y}}: {DETAIL_HOVER[kind]}<extra></extra>"))
+        # The day starts from the last daily point, so the two parts join.
+        x = list(daily.index[-1:]) + list(moments)
+        y = list(daily.values[-1:]) + list(today.values)
+        fig.add_trace(go.Scatter(x=x, y=y, name=name, **line,
+                                 hovertemplate=f"%{{x|%d.%m %H:%M}}: {DETAIL_HOVER[kind]}<extra></extra>"))
+        fig.update_layout(hovermode="closest")
+        last = moments[-1]
+    else:
+        fig.add_trace(go.Scatter(x=series.index, y=series.values, name=name, **line,
+                                 hovertemplate=f"{DETAIL_HOVER[kind]}<extra></extra>"))
+        fig.update_layout(hovermode="x")
+        last = series.index[-1] if len(series) else None
+    fig.update_layout(dragmode="zoom", margin={"t": 48})
     if is_intraday(series.index):
         # A day's moves would vanish on an axis from zero: the line alone, on an axis that fits it.
         _time_axis(fig)
@@ -411,9 +433,10 @@ def detail_chart(
             "bordercolor": tokens.gridline, "borderwidth": 1, "font": {"color": tokens.ink_secondary, "size": 12},
         },
     )
-    if start is not None and len(series) and start > series.index[0]:
-        fig.update_xaxes(range=[start, series.index[-1]])
+    if start is not None and last is not None and len(series) and start > series.index[0]:
+        fig.update_xaxes(range=[start, last])
     fig.update_yaxes(tickformat=",.0%" if kind == "pct" else ",.0f", fixedrange=False)
+    fig.update_layout(meta={"fa_fit_y": True})  # ui.live_chart fits the y-axis to what is visible
     return fig
 
 

@@ -36,9 +36,10 @@ def test_settings_command_switches_mode(tmp_path, monkeypatch):
     assert "Network mode: online" in changed.output and "every 10 min" in changed.output
     back = runner.invoke(cli.main, ["settings", "--offline"])
     assert "Network mode: offline" in back.output
-    # D-069: each source has its own range: polling 2-60 min, the stream's redraw 5-60 s.
-    stream = runner.invoke(cli.main, ["settings", "--live", "stream", "--refresh", "5s"])
-    assert stream.exit_code == 0 and "Portfel redraws every 5 s" in stream.output
+    # D-069, D-077: each source has its own range: polling 2-60 min, the stream's redraw 1-60 s.
+    stream = runner.invoke(cli.main, ["settings", "--live", "stream", "--refresh", "1s"])
+    assert stream.exit_code == 0 and "Portfel redraws every 1 s" in stream.output
+    assert runner.invoke(cli.main, ["settings", "--refresh", "0s"]).exit_code != 0
     assert runner.invoke(cli.main, ["settings", "--refresh", "2m"]).exit_code != 0  # too slow for the stream
     poll = runner.invoke(cli.main, ["settings", "--live", "poll", "--refresh", "2m"])
     assert poll.exit_code == 0 and "polling every 2 min" in poll.output

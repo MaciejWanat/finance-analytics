@@ -88,8 +88,10 @@ class YahooQuoteClient:
         now = self.now or datetime.now(UTC)
         try:
             handle = yf.Ticker(ticker)
+            # raise_errors: a ticker without bars in the window (its market is closed, or Yahoo answered empty)
+            # lands in the `except` below instead of yfinance logging "possibly delisted" to the console
             frame = handle.history(start=now - POLL_WINDOW, end=now + timedelta(minutes=1), interval="1m",
-                                   prepost=True, auto_adjust=False)
+                                   prepost=True, auto_adjust=False, raise_errors=True)
             meta = handle.history_metadata or {}
         except YFRateLimitError:
             return ticker, None, True

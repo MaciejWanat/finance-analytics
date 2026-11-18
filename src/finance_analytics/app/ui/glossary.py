@@ -334,13 +334,14 @@ G: dict[str, str] = {
     "live_refresh": (
         "Odpytywanie: co ile pobierać ceny, od 2 minut do godziny; częściej Yahoo mogłoby odrzucać zapytania. "
         "Gdy żadna giełda nie działa, a handlują tylko waluty, najwyżej co 5 minut. Strumień: ceny przychodzą "
-        "same, a to ustawienie mówi, co ile (od 5 do 60 sekund) odświeżać kafelki, wykres wartości i pozycje na "
-        "stronie Portfel."
+        "same, a to ustawienie mówi, co ile (od 1 do 60 sekund) odświeżać kafelki, wykres wartości i pozycje na "
+        "stronie Portfel. Co 1–2 sekundy strona zużywa wyraźnie więcej procesora niż co 5."
     ),
     "resources": (
         "Ile mocy komputera zużywa sama aplikacja (jej serwer na tym komputerze), mierzone co 5 sekund. Nie "
         "obejmuje karty przeglądarki. Zielony: w normie, bursztynowy: podwyższone, czerwony: wysokie, warto "
-        "zmienić ustawienia cen na żywo. Pomiar zostaje na tym komputerze."
+        "zmienić ustawienia cen na żywo. Pierwsza minuta po starcie nie jest mierzona: start zawsze dużo kosztuje. "
+        "Pomiar zostaje na tym komputerze."
     ),
     "resources_cpu": (
         "Procent jednego rdzenia procesora: aplikacja liczy głównie na jednym rdzeniu, więc 100% znaczy, że jest "

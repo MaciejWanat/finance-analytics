@@ -24,7 +24,7 @@ page_header(
 settings = get_settings()
 preferences = load_preferences(settings)
 POLL_STEPS = (120, 300, 600, 900, 1800, 3600)  # seconds; not more often than every 2 minutes (D-069)
-STREAM_STEPS = (5, 10, 15, 30, 60)
+STREAM_STEPS = (1, 2, 5, 10, 15, 30, 60)
 
 section("Tryb pracy")
 mode = st.radio(
@@ -117,7 +117,10 @@ def resource_usage() -> None:
     ])
     hint = advice(snapshot.level, preferences.live_source, preferences.stream_seconds, preferences.online)
     # Always one line under the tiles, so the page does not jump when the level changes.
-    if current is None:
+    if current is None and snapshot.warmup_left > 0:  # start-up is always heavy and is not measured (D-073)
+        st.info(f"Aplikacja się uruchamia. Pomiar zacznie się za {snapshot.warmup_left:.0f} s, start go nie zawyża.",
+                icon=":material/hourglass_top:")
+    elif current is None:
         st.info("Zbieram pierwsze pomiary…", icon=":material/hourglass_top:")
     elif snapshot.level == "high":
         st.error(f"Wysokie zużycie. {hint}", icon=":material/warning:")

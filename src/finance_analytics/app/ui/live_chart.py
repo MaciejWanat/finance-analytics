@@ -48,6 +48,32 @@ function loadPlotly() {
   return window.__faPlotly;
 }
 
+// A figure with layout.meta.fa_fit_y gets its y-axis fitted to the visible part after every change of the x-range
+// (range buttons, the slider, zoom), so a day or a week is not a flat line on an axis made for years (D-076).
+function toMs(value) {
+  return typeof value === "number" ? value : Date.parse(String(value).replace(" ", "T"));
+}
+
+function fitY(Plotly, chart) {
+  const range = chart._fullLayout && chart._fullLayout.xaxis && chart._fullLayout.xaxis.range;
+  if (!range) return;
+  const lo = toMs(range[0]), hi = toMs(range[1]);
+  let min = Infinity, max = -Infinity;
+  for (const trace of chart._fullData || []) {  // decoded arrays (data may hold binary-encoded ones)
+    const xs = trace.x || [], ys = trace.y || [];
+    for (let i = 0; i < ys.length; i++) {
+      const x = toMs(xs[i]), y = ys[i];
+      if (x >= lo && x <= hi && y !== null && Number.isFinite(y)) { min = Math.min(min, y); max = Math.max(max, y); }
+    }
+  }
+  if (!Number.isFinite(min)) return;
+  const pad = (max - min) * 0.08 || Math.abs(max) * 0.01 || 1;
+  chart.__faFitting = true;
+  // A series that never goes below zero keeps zero as its floor when it is in sight (a value, the money paid in).
+  const low = min >= 0 && min - pad < 0 ? 0 : min - pad;
+  Plotly.relayout(chart, { "yaxis.range": [low, max + pad] }).finally(() => { chart.__faFitting = false; });
+}
+
 export default function ({ parentElement, data }) {
   let chart = parentElement.querySelector(":scope > .fa-live-chart");
   if (!chart) {
@@ -63,7 +89,21 @@ export default function ({ parentElement, data }) {
     const next = chart.__faNext;
     if (!next) return;
     chart.__faNext = null;
-    Plotly.react(chart, next.data, next.layout, data.config);
+    Plotly.react(chart, next.data, next.layout, data.config).then(() => {
+      if (!(next.layout && next.layout.meta && next.layout.meta.fa_fit_y)) return;
+      if (!chart.__faFitListener) {
+        chart.__faFitListener = true;
+        chart.on("plotly_relayout", (event) => {
+          if (chart.__faFitting) return;  // our own fit
+          const keys = Object.keys(event);
+          // A box zoom sets the y-axis too: keep the viewer's choice, also across live redraws. A change of the
+          // x-range alone (range buttons, the slider, wheel zoom, double-click) fits the y-axis again.
+          chart.__faUserY = keys.some((k) => k.startsWith("yaxis"));
+          if (!chart.__faUserY) fitY(Plotly, chart);
+        });
+      }
+      if (!chart.__faUserY) fitY(Plotly, chart);  // new data on a live redraw
+    });
   });
 }
 """

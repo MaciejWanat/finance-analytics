@@ -23,7 +23,7 @@ HEADER = """\
 #              poll_seconds; stream - one open connection, Yahoo pushes every new price.
 # poll_seconds: how often prices are polled, 120-3600 (not more often than every 2 minutes, so Yahoo
 #               does not refuse). Older files with refresh_minutes are read and converted.
-# stream_seconds: with the stream, how often Portfel redraws with the new prices, 5-60.
+# stream_seconds: with the stream, how often Portfel redraws with the new prices, 1-60.
 # inbox_dir: folder where xStation exports are saved; new ones are imported automatically
 #            (read only, D-028). Empty = off.
 # today_tile: how the "Dzisiaj" tile on Portfel counts a day (D-067). calendar_day (default) - from
@@ -33,7 +33,7 @@ HEADER = """\
 
 
 POLL_SECONDS = (120, 3600)  # polling more often than every 2 minutes risks Yahoo refusing (D-069)
-STREAM_SECONDS = (5, 60)  # with the stream: how often Portfel redraws
+STREAM_SECONDS = (1, 60)  # with the stream: how often Portfel redraws (1 s: D-077)
 POLL_REDRAW_SECONDS = 30
 
 

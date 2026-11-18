@@ -35,7 +35,7 @@ class FakeProcess:
 def monitor():
     clock = SimpleNamespace(t=0.0)
     process = FakeProcess()
-    mon = d.ResourceMonitor(process, cpu_count=4, clock=lambda: clock.t, feed_thread_ids=lambda: [42])
+    mon = d.ResourceMonitor(process, cpu_count=4, clock=lambda: clock.t, feed_thread_ids=lambda: [42], warmup=0)
     return mon, process, clock
 
 
@@ -45,6 +45,23 @@ def test_first_sample_is_only_a_baseline(monitor):
     snap = mon.snapshot()
     assert snap.current is None and snap.cpu_1min is None and snap.level == "ok"
 
+
+def test_start_up_is_not_measured():
+    clock = SimpleNamespace(t=0.0)
+    process = FakeProcess()
+    mon = d.ResourceMonitor(process, cpu_count=4, clock=lambda: clock.t, feed_thread_ids=lambda: [])
+    for step in range(12):  # the first minute: busy start-up, nothing kept
+        clock.t = step * 5.0
+        process.cpu += 5.0
+        assert mon.sample() is None
+    assert mon.snapshot().warmup_left == pytest.approx(5.0)
+    assert mon.snapshot().level == "ok"
+    clock.t = 60.0
+    process.cpu += 5.0
+    assert mon.sample() is None  # the baseline (taken at 55 s) still lies in the warm-up
+    clock.t, process.cpu = 65.0, process.cpu + 0.5
+    assert mon.sample().cpu_pct == pytest.approx(10.0)  # only the calm part after the start
+    assert mon.snapshot().warmup_left == 0.0
 
 def test_cpu_is_a_share_of_one_core_and_feed_threads_are_counted(monitor):
     mon, process, clock = monitor
@@ -104,8 +121,9 @@ def test_advice():
 
 
 def test_real_process_sample():
-    mon = d.ResourceMonitor()
+    mon = d.ResourceMonitor(warmup=0)
     mon.sample()
+    mon._measure_from -= 1.0
     mon._last = (mon._last[0] - 1.0, *mon._last[1:])  # pretend a second has passed
     sample = mon.sample()
     assert sample is not None and sample.rss_bytes > 0 and sample.threads >= 1

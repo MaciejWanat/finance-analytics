@@ -20,7 +20,7 @@ has a section with all five fields.
 - A fragment must draw all of its elements on every run; what it does not draw disappears. So "redraw only when
   something changed" is not possible inside a fragment. Instead, the work behind each redraw is kept small (below),
   and live fragments slow down while markets are quiet (`ui.data.live_every`, D-071):
-  - the user's pace (`Preferences.redraw_seconds`: the stream setting, 5–60 s, or 30 s while polling) while any
+  - the user's pace (`Preferences.redraw_seconds`: the stream setting, 1–60 s (D-077), or 30 s while polling) while any
     tracked exchange is in session, US pre-market and post-market included;
   - 60 s while only currencies trade (weekday nights), 5 min while nothing trades (weekends);
   - an exchange opening or the last one closing reruns the page once, so the new pace applies (not while a chart
@@ -66,7 +66,10 @@ Profiled times are about 1.5–2× the real ones.
   (Maks.), ~117 KB (1D). The value chart, the sparklines and the "Pełny wykres" dialog are live charts
   (`ui.live_chart`, D-072): the same chart takes each new figure with `Plotly.react`, so it never disappears. Zoom
   survives redraws of the same view (`view=` period and unit) and resets on a new one. An open KPI dialog stays
-  open. The composition and allocation charts outside the fragments stay on `st.plotly_chart`.
+  open. The composition and allocation charts outside the fragments stay on `st.plotly_chart`. The KPI values roll
+  their changed digits (`ui.ticker`, D-074): a page script over the tiles, nothing extra from the server. While
+  "Pełny wykres" is open, `headline()` also computes today every 5 minutes for that tile (`Kpi.series_today`,
+  D-076), only then.
 
 ## Zwroty (`views/returns.py`)
 
@@ -137,7 +140,7 @@ Profiled times are about 1.5–2× the real ones.
   `st.cache_data` and `st.cache_resource`. The fragment `resource_usage()` ("Zużycie zasobów", D-073) redraws
   every 5 s.
 - **Inputs:** `config/settings.yaml`, the list of files in the data directory (reset), the resource monitor's
-  samples (`diagnostics.get_monitor`, sampled in its own thread every 5 s).
+  samples (`diagnostics.get_monitor`, sampled in its own thread every 5 s, from one minute after start-up).
 - **Computed once per data version:** nothing.
 - **Computed on every redraw:** the form state; in the fragment only the 1- and 5-minute averages of at most
   60 samples and four small tiles.
@@ -154,6 +157,8 @@ Profiled times are about 1.5–2× the real ones.
   zasobów" link to Ustawienia only while the 1-minute CPU or the memory is high.
 - **Computed once per data version:** nothing.
 - **Computed on every redraw:** the mode badge, the live lamp and text, the list of exchanges with the time to
-  their next change. The feed itself runs in its own thread and is only `touch()`ed here.
+  their next change. The feed itself runs in its own thread and is only `touch()`ed here. With the stream on, a stream
+  that sends nothing for a minute while markets trade is replaced by polling every 2 minutes ("strumień milczy",
+  D-075).
 - **Sent to the browser:** a few small elements per run. With the stream on and the Ustawienia page open (no live
   page fragments), the whole Streamlit process used 2.5 % of a core (feed and sidebar).

@@ -55,10 +55,10 @@ def test_preferences_default_offline_and_roundtrip(tmp_path):
 
 
 def test_each_source_has_its_own_range(tmp_path):
-    """D-069: polling never more often than every 2 minutes (Yahoo); the stream redraws every 5 to 60 seconds."""
+    """D-069: polling never more often than every 2 minutes (Yahoo); the stream redraws every 1-60 s (D-077)."""
     settings = Settings(data_dir=tmp_path)
     settings.preferences_file.parent.mkdir(parents=True)
-    for wrong in ("poll_seconds: 60\n", "poll_seconds: 7200\n", "stream_seconds: 2\n", "stream_seconds: 120\n",
+    for wrong in ("poll_seconds: 60\n", "poll_seconds: 7200\n", "stream_seconds: 0\n", "stream_seconds: 120\n",
                   "live_source: carrier-pigeon\n"):
         settings.preferences_file.write_text(wrong, encoding="utf-8")
         with pytest.raises(PreferencesError):

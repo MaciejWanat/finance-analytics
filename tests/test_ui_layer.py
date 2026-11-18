@@ -150,7 +150,10 @@ def test_detail_chart_opens_on_the_period_and_formats_the_hover():
     series = pd.Series(range(len(days)), index=days, dtype=float)
     start = pd.Timestamp("2026-01-01")
     fig = detail_chart(series, name="Wynik", mode="dark", start=start)
-    assert fig.layout.xaxis.rangeslider.visible and len(fig.layout.xaxis.rangeselector.buttons) == 6
+    assert fig.layout.xaxis.rangeslider.visible
+    assert [b.label for b in fig.layout.xaxis.rangeselector.buttons] == ["1D", "1T", "1M", "6M", "YTD", "1R", "3L",
+                                                                        "Maks."]
+    assert fig.layout.meta["fa_fit_y"]  # the y-axis follows the visible range (D-076)
     assert pd.Timestamp(fig.layout.xaxis.range[0]) == start
     assert fig.data[0].hovertemplate.startswith("%{y:,.2f} zł")
     pct = detail_chart(series / 100, name="TWR", mode="light", kind="pct")
@@ -200,3 +203,39 @@ def test_health_tiles_formatting_and_colours():
                         HealthTile("Wątki", "12", "<b>", "info")], tokens)
     assert tokens.bad in page and "wysokie" in page  # colour and the word
     assert "&lt;b&gt;" in page  # texts are escaped
+
+
+def test_global_styles_install_the_rolling_digits_once_per_run():
+    """D-074: the invisible script that rolls changed KPI digits is mounted by apply_global_styles (main.py)."""
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        from ui.components import Kpi, apply_global_styles, kpi_row
+
+        apply_global_styles()
+        kpi_row([Kpi("Wartość portfela", "12,3 tys. zł", trend=[1.0, 2.0])])
+
+    at = AppTest.from_function(page).run()
+    assert not at.exception, at.exception
+    assert len(at.get("bidi_component")) == 1
+
+
+def test_detail_chart_puts_today_every_5_minutes_after_the_daily_history():
+    """D-076: "1D" in the enlarged chart shows today's 5-minute curve, joined to the daily history."""
+    from datetime import datetime
+
+    import pandas as pd
+    from ui.charts import detail_chart
+
+    days = pd.date_range("2026-11-01", "2026-11-18", freq="D")
+    daily = pd.Series(range(len(days)), index=days, dtype=float)
+    local = datetime.now().astimezone().tzinfo
+    moments = pd.date_range("2026-11-18 00:00", "2026-11-18 12:00", freq="5min").tz_localize(local)
+    today = pd.Series(100.0, index=moments)
+    fig = detail_chart(daily, name="Wartość", mode="light", today=today)
+    history, day = fig.data
+    assert pd.Timestamp(history.x[-1]) == pd.Timestamp("2026-11-17")  # today's daily point gives way to the curve
+    assert pd.Timestamp(day.x[0]) == pd.Timestamp("2026-11-17") and len(day.x) == len(moments) + 1  # joined
+    assert "%H:%M" in day.hovertemplate and fig.layout.hovermode == "closest"
+    only_daily = detail_chart(daily, name="Wartość", mode="light", today=None)
+    assert len(only_daily.data) == 1

@@ -8,6 +8,9 @@ CPU is in percent of one core: Python runs mostly on one core (the GIL), so a sh
 stay small on a many-core computer however busy the app is. The share of the whole machine is
 `cpu_pct / cpu_count`. The live feed's part is the CPU time of its threads (`live-feed`, `live-stream`,
 see `market.feed`).
+
+The first `WARMUP_SECONDS` after the monitor starts (the app's first page view: imports, first valuation, caches)
+are not measured: start-up is always heavy, and the numbers are meant for the running app.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import psutil
 
 SAMPLE_SECONDS = 5.0
 HISTORY_SECONDS = 900.0  # 15 minutes
+WARMUP_SECONDS = 60.0  # start-up, not measured
 FEED_THREADS = ("live-feed", "live-stream")
 
 # Thresholds (D-073). CPU: the 1-minute average, % of one core. Memory: resident size of the process.
@@ -61,6 +65,7 @@ class ResourceSnapshot:
     cpu_5min: float | None
     feed_cpu_1min: float | None
     history: list[float]  # CPU % of the last 5 minutes, oldest first
+    warmup_left: float = 0.0  # seconds until measuring starts (the app is starting up)
 
     @property
     def cpu_level(self) -> Level:
@@ -116,11 +121,13 @@ class ResourceMonitor:
         cpu_count: int | None = None,
         clock: Callable[[], float] = time.monotonic,
         feed_thread_ids: Callable[[], Iterable[int]] = _feed_thread_ids,
+        warmup: float = WARMUP_SECONDS,
     ) -> None:
         self.process = process if process is not None else psutil.Process()
         self.cpu_count = max(1, cpu_count or psutil.cpu_count() or 1)
         self.clock = clock
         self.feed_thread_ids = feed_thread_ids
+        self._measure_from = clock() + warmup
         self._samples: deque[ResourceSample] = deque(maxlen=int(HISTORY_SECONDS / SAMPLE_SECONDS))
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -134,13 +141,14 @@ class ResourceMonitor:
             return {}
 
     def sample(self) -> ResourceSample | None:
-        """Take one sample; the first call only sets the baseline and returns None."""
+        """Take one sample. Returns None (keeps nothing) during the warm-up and for the first call after it,
+        which only sets the baseline."""
         at = self.clock()
         times = self.process.cpu_times()
         cpu_time = times.user + times.system
         threads = self._thread_times()
         last, self._last = self._last, (at, cpu_time, threads)
-        if last is None or at <= last[0]:
+        if last is None or at <= last[0] or last[0] < self._measure_from:
             return None
         wall = at - last[0]
         scale = 100.0 / wall
@@ -162,7 +170,7 @@ class ResourceMonitor:
         with self._lock:
             samples = list(self._samples)
         if not samples:
-            return ResourceSnapshot(None, None, None, None, [])
+            return ResourceSnapshot(None, None, None, None, [], max(0.0, self._measure_from - self.clock()))
         now = samples[-1].at
 
         def recent(seconds: float) -> list[ResourceSample]:

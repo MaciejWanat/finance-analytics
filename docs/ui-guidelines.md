@@ -118,6 +118,8 @@ Load the `dataviz` skill before designing a new chart form.
 - A chart inside a live fragment uses `show(fig, key=..., live=True, view=...)` (sparklines and the KPI dialog do it
   already): `st.plotly_chart` would be removed and drawn anew on every redraw, a visible blink (D-072). `view` names
   what the chart shows (period, unit), so zoom survives redraws but not a change of period.
+- KPI values roll their changed digits by themselves (`ui.ticker`, D-074): keep tile values as text in `Kpi.value`;
+  do not animate numbers in a page with your own CSS or script.
 - `docs/panels.md` describes, per page, what triggers a rerun, what it reads, what is cached and what is recomputed
   on every redraw. A change to a page, its fragments or what it computes updates that page's section.
 

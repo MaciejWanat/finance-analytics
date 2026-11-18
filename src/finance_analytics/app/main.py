@@ -96,6 +96,10 @@ def _live_line(preferences, fetched: datetime | None) -> None:
     status = get_feed(settings).status()
     hover = G["live_status"] + (f" {status.message}" if status.message else "")
     if preferences.live_source == "stream":
+        if status.state == "muted":  # the stream sends nothing; prices come by polling meanwhile (D-075)
+            prices = f"ceny z {fetched.astimezone():%H:%M}" if fetched else "ceny z ostatnich notowań"
+            live_status("polling", f"strumień milczy · {prices}", hover=hover)
+            return
         state = {"live": "streaming", "off": "connecting"}.get(status.state, status.state)
         live_status(state, STREAM_TEXT[state], hover=hover)
         return

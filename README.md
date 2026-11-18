@@ -298,7 +298,7 @@ can be edited by hand or through the UI.
 | `manual/bonds.csv` | Bond purchases: `account_id,series,purchase_date,quantity,note`. Series like `EDO0736`; date `YYYY-MM-DD` (or `DD.MM.YYYY`); whole bonds of 100 zł. |
 | `manual/cash_balances.csv` | Bank balances: `account_id,date,balance,note`. The balance is in the account's currency and holds until the next row for that account; decimal comma accepted. |
 | `config/accounts.yaml` | Accounts: `id, institution, kind (broker / bank / bonds), currency, alias, external_no, tax_wrapper (null / IKE / IKZE)`. XTB and bond accounts are added automatically, bank accounts on *Gotówka*; change `alias` to rename. |
-| `config/settings.yaml` | Preferences: `network (offline / online)`, `live_source (poll / stream)`, `poll_seconds (120–3600)`, `stream_seconds (5–60)`, `inbox_dir`, `today_tile`. |
+| `config/settings.yaml` | Preferences: `network (offline / online)`, `live_source (poll / stream)`, `poll_seconds (120–3600)`, `stream_seconds (1–60)`, `inbox_dir`, `today_tile`. |
 | `config/yahoo_tickers.yaml` | Optional: `XTB_SYMBOL: YAHOO_TICKER` for instruments the suffix rule maps wrongly. |
 | `config/instruments.yaml` | Optional: `instruments: {SYMBOL: {asset_class: stock / etf / precious_metals / other}}`. |
 | `config/bond_series.yaml` | Optional: a series or an official rate newer than the app, as `series: {CODE: {first_rate, margin, early_fee, maturity_interest, rates: {period: rate}}}`. |

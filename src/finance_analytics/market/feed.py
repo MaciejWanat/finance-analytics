@@ -45,8 +45,14 @@ RESUBSCRIBE_EVERY = 300.0  # follow the holdings (a new purchase) in stream mode
 SILENT_AFTER = 300.0  # a subscribed ticker without a tick for this long is polled instead
 RECONNECT_DELAYS = (5.0, 10.0, 20.0, 40.0, 60.0)
 INTRADAY_EVERY = 900.0  # 5-minute bars for the 1D range (D-070)
+# A stream that sends nothing at all for this long while a market trades is treated as broken (D-075): Yahoo may
+# keep the connection open without pushing a single price.
+STREAM_MUTE_AFTER = 60.0
+MUTE_POLL_EVERY = 120.0  # meanwhile poll every held ticker; not more often, or Yahoo refuses (D-069)
+MUTE_RETRY_STREAM = 300.0  # and try the stream again after this long
 
-State = Literal["off", "connecting", "live", "paused", "error"]
+# "muted": the stream is connected but sends nothing (seen 2026-11-18); prices come by polling meanwhile (D-075).
+State = Literal["off", "connecting", "live", "paused", "error", "muted"]
 
 
 class Stream(Protocol):
@@ -126,6 +132,10 @@ class LiveFeed:
         self._next_resubscribe = 0.0
         self._next_silent_poll = 0.0
         self._listen_error: str | None = None
+        self._connected_at = 0.0
+        self._last_message: float | None = None  # when the stream last sent any price (clock seconds)
+        self._muted = False  # the stream sent nothing: polling instead until the next try (D-075)
+        self._next_mute_poll = 0.0
         self._references: dict[str, tuple[str | None, float | None]] = {}  # (currency, last price) per symbol
         # intraday bars
         self._next_intraday = 0.0
@@ -258,7 +268,7 @@ class LiveFeed:
         quote = stream_quote(float(price), message.get("currency"), self._references.get(symbol, (None, None)))
         with self._lock:
             self._buffer[symbol] = quote
-            self._last_tick[symbol] = self.clock()
+            self._last_tick[symbol] = self._last_message = self.clock()
 
     def _listen(self, stream: Stream) -> None:
         try:
@@ -303,6 +313,7 @@ class LiveFeed:
             raise
         self._stream, self._subscribed = stream, set(symbols)
         moment = self.clock()
+        self._connected_at, self._last_message = moment, None
         self._next_resubscribe = moment + RESUBSCRIBE_EVERY
         self._next_silent_poll = moment + SILENT_AFTER
         for symbol in symbols:
@@ -326,6 +337,8 @@ class LiveFeed:
             self._schedule_reconnect(f"Strumień przerwany ({error}); łączę ponownie.")
             return
         if self._stream is None:
+            if self._muted:
+                self._poll_muted(now, moment)
             if moment < self._next_connect:
                 return
             try:
@@ -334,10 +347,43 @@ class LiveFeed:
                 self._close_stream()
                 self._schedule_reconnect(f"Nie udało się połączyć ze strumieniem: {exc}")
             return
+        if self._is_mute(now, moment):
+            self._close_stream()
+            self._muted, self._next_mute_poll = True, moment
+            self._next_connect = moment + MUTE_RETRY_STREAM
+            self._poll_muted(now, moment)
+            return
+        if self._last_message is not None:
+            self._muted = False  # the stream works (again)
         if moment >= self._next_resubscribe:
             self._resubscribe()
         if moment >= self._next_silent_poll:
             self._poll_silent(now)
+
+    def _is_mute(self, now: datetime, moment: float) -> bool:
+        """Connected, an exchange in session, and not one price for `STREAM_MUTE_AFTER` seconds."""
+        if not markets_active(now):
+            return False  # only currencies trade: the stream may well be quiet
+        with self._lock:
+            last = self._last_message
+        return moment - (last if last is not None else self._connected_at) >= STREAM_MUTE_AFTER
+
+    def _poll_muted(self, now: datetime, moment: float) -> None:
+        """While the stream says nothing: every held ticker by polling, every `MUTE_POLL_EVERY` seconds."""
+        if moment < self._next_mute_poll:
+            return
+        self._next_mute_poll = moment + MUTE_POLL_EVERY
+        message = "Strumień Yahoo nie przysyła cen; pobieram je co 2 minuty i co 5 minut próbuję strumienia ponownie."
+        try:
+            report = update_live(self.settings, now=now, client=self.poll_client)
+        except YahooRateLimitError:
+            self._next_mute_poll = moment + RATE_LIMIT_PAUSE
+            self._set("stream", "error", "Yahoo chwilowo odrzuca zapytania; ponowię za 2 minuty.")
+            return
+        except Exception as exc:  # network trouble: the next try in 2 minutes
+            self._set("stream", "error", f"Strumień milczy, a pobieranie się nie udało: {exc}")
+            return
+        self._set("stream", "muted", message, quote=now if report.updated else None)
 
     def _schedule_reconnect(self, message: str) -> None:
         delay = RECONNECT_DELAYS[min(self._failures, len(RECONNECT_DELAYS) - 1)]

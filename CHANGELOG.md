@@ -11,7 +11,15 @@ All notable changes to this project are listed here. The format follows
 - **Zużycie zasobów on Ustawienia:** how much processor and memory the app uses, averaged over the last minute
   and five minutes, with the live price thread's part. Green, amber or red, with a hint what to change (e.g.
   switch the stream to polling or redraw less often); while it is red, a warning link also shows in the sidebar.
-  Measured locally with the new `psutil` dependency (D-073).
+  Measured locally with the new `psutil` dependency; the first minute after start-up is left out (D-073).
+- **Rolling digits in the tiles:** when a tile's number changes, only the digits that changed roll to the new
+  ones, up or down with the change, with a short green or red flash. Nothing moves on the page around them, and
+  with "reduce motion" set in the system the digits change without rolling (D-074).
+- **"1D" and "1T" in "Pełny wykres":** the enlarged chart of a tile now also shows today every 5 minutes (from
+  midnight) and the last week, and its vertical axis fits whatever range is in view, so a day's move is visible
+  instead of a flat line (D-076).
+- **Redraw every second with the stream:** Ustawienia → "Co ile odświeżać stronę" now goes down to 1 s (it was
+  5 s). It costs more processor time: on the demo data about a fifth of one core instead of about 6 % (D-077).
 
 ### Changed
 
@@ -27,6 +35,13 @@ All notable changes to this project are listed here. The format follows
   wykres" now change in place instead of disappearing and being drawn again every few seconds, and the tiles no
   longer fade while they refresh. Zoom on the value chart stays while prices update and resets when you pick
   another period (D-072).
+- **Prices stood still with the stream on:** Yahoo's stream can stay connected without sending any price, and
+  the app still said "na żywo". Now, after a minute without a single price while markets trade, it fetches prices
+  every 2 minutes instead, says "strumień milczy" in the sidebar, and tries the stream again every 5 minutes
+  (D-075).
+- **Quieter console in online mode:** a ticker with no fresh minute bars (its market is closed, or Yahoo answers
+  empty for a moment) no longer prints "possibly delisted; no price data found" on every poll. Its last price
+  stays in use as before.
 
 ## [0.11.0] - 2026-11-18
 

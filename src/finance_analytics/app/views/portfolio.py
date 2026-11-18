@@ -245,6 +245,28 @@ def headline() -> None:
                   "poprzedniej sesji, bez wpłat i wypłat. Na kafelku: ostatni miesiąc." if by_us_session else
                   "Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań (weekendy, święta) "
                   "są pominięte. Na kafelku: ostatni miesiąc.")
+    # The enlarged charts' "1D" (D-076): today every 5 minutes after the daily history, the same curves as the 1D
+    # period. Computed only while a chart is open (`Kpi.series_today`), so live redraws do not pay for it.
+    today_parts: dict = {}
+
+    def today_curves():
+        if "intra" not in today_parts:
+            d = one_day(settings, v)
+            today_parts["intra"] = day_values(v, d) if coverage(settings.db_path, d.start, d.end) is not None else None
+        intra_today = today_parts["intra"]
+        return intra_today if intra_today is not None and len(intra_today.rows) else None
+
+    def from_today(make):
+        if curve is not None:  # the 1D period: the series are within the day already
+            return None
+
+        def build():
+            curves = today_curves()
+            return make(curves) if curves is not None else None
+        return build
+
+    deposits_now = float(cumulative_flows.iloc[-1])
+    fx_before_today = float(fx_cumulative.iloc[-2]) if curve is None and len(fx_cumulative) > 1 else 0.0
     # One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
     kpi_row(
         [
@@ -253,6 +275,7 @@ def headline() -> None:
                 help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
                      "małej wartości startowej).", trend=trend(curve if curve is not None else total),
                 series=curve if curve is not None else total, series_start=start,
+                series_today=from_today(lambda c: c.total),
                 series_note=f"Wartość wszystkich rachunków {UNIT}, "
                             + ("co 5 minut." if curve is not None else "dzień po dniu.")),
             Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
@@ -265,13 +288,14 @@ def headline() -> None:
                 help=G["result_period"],
                 trend=trend(period_result), trend_water=True,
                 series=period_result if curve is not None else period_result[period_result.index >= start],
+                series_today=from_today(lambda c: c.total - window.iloc[0] - in_window),
                 series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
                             "nad kafelkami."),
             Kpi("Wynik na walutach", fmt_money(fx_total, decimals=0, signed=True) if len(fx_by_currency) else "–",
                 delta=None if fx_badges else "brak walut obcych", delta_color="off", badges=fx_badges, help=fx_help,
                 trend=trend(fx_cumulative) if curve is not None
                 else fx_cumulative.resample(step).last().dropna().round(0).tolist(), trend_water=True,
-                series=fx_cumulative,
+                series=fx_cumulative, series_today=from_today(lambda c: fx_before_today + c.fx_part),
                 series_note="Zysk (+) lub strata (−) na samych kursach walut, narastająco od początku okresu: wartość "
                             + ("w walucie razy zmiana kursu rynkowego, co 5 minut." if curve is not None
                                else "w walucie razy zmiana kursu NBP, dzień po dniu.")),
@@ -279,12 +303,15 @@ def headline() -> None:
                 delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
                 help=G["contributed"] + (" Każda wpłata przeliczona na dzisiejsze złote." if real_view else ""),
                 trend=trend(pd.Series(contributed, index=curve.index) if curve is not None else cumulative_flows),
-                series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco."),
+                series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco.",
+                series_today=from_today(lambda c: pd.Series(deposits_now, index=c.total.index))),
             Kpi("Zysk do wpłat", fmt_pct(uw.current) if uw.current is not None else "–",
                 delta=lowest, delta_color="off", help=ratio_help,
                 trend=trend(in_window_ratio, 4) if curve is not None
                 else in_window_ratio.resample(step).last().dropna().round(4).tolist(),
                 trend_kind="pct", trend_water=True, series=in_window_ratio,
+                series_today=(from_today(lambda c: (c.total - deposits_now) / deposits_now)
+                              if deposits_now > 0 else None),
                 series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
                             "niż wpłacone pieniądze."),
         ]
