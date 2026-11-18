@@ -166,3 +166,22 @@ def test_table_search_keeps_matching_rows_only():
     assert filter_rows(df, ".us")["symbol"].tolist() == ["XYZ.US", "AMD.US"]
     assert filter_rows(df, "micro")["symbol"].tolist() == ["AMD.US"]
     assert filter_rows(df, "zzz").empty
+
+
+def test_live_fragments_slow_down_while_markets_are_quiet():
+    """D-071: the user's pace while an exchange is in session, 60 s while only currencies trade, 5 min when
+    nothing trades, nothing offline."""
+    from datetime import UTC, datetime, timedelta
+
+    from ui.data import live_every
+
+    from finance_analytics.preferences import Preferences
+
+    online = Preferences(network="online", live_source="stream", stream_seconds=5)
+    wednesday_noon = datetime(2026, 11, 18, 11, 0, tzinfo=UTC)  # Xetra, London and the GPW in session
+    wednesday_night = datetime(2026, 11, 19, 3, 0, tzinfo=UTC)  # US post-market over (01:00 UTC): currencies only
+    saturday = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
+    assert live_every(online, wednesday_noon) == timedelta(seconds=5)
+    assert live_every(online, wednesday_night) == timedelta(seconds=60)
+    assert live_every(online, saturday) == timedelta(minutes=5)
+    assert live_every(Preferences(), wednesday_noon) is None

@@ -112,6 +112,11 @@ Load the `dataviz` skill before designing a new chart form.
 - Pages read through `finance_analytics.reports` or `portfolio.*`, never with ad-hoc SQL beyond trivial guard checks.
 - Heavy computations go through `st.cache_data`, keyed by the data fingerprint, never by time.
 - Any table that can exceed a few hundred rows gets a filter (e.g. by type) above it.
+- Live fragments redraw everything they show, so keep each run cheap: compute what does not depend on live quotes once
+  per data version, and lay the quotes over the last day (`valuation.apply_live`, D-071). Use `ui.data.live_every`
+  for `run_every`, never a fixed interval.
+- `docs/panels.md` describes, per page, what triggers a rerun, what it reads, what is cached and what is recomputed
+  on every redraw. A change to a page, its fragments or what it computes updates that page's section.
 
 ## 8. Checklist before a UI change is done
 
@@ -122,4 +127,5 @@ Load the `dataviz` skill before designing a new chart form.
 - [ ] Every non-obvious term (KPI, section, filter, column) has a tooltip from `ui/glossary.py`.
 - [ ] New strings are Polish; new code and comments English.
 - [ ] Empty and loading states work (try a fresh `FA_DATA_DIR`).
+- [ ] The page's section in `docs/panels.md` matches the change (refresh, inputs, cached, per redraw, sent).
 - [ ] `pytest` and `ruff check .` pass.

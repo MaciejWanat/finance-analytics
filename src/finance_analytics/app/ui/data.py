@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing, nullcontext
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +12,7 @@ import streamlit as st
 
 from finance_analytics import reports
 from finance_analytics.config import Settings
+from finance_analytics.market.feed import fx_trading, markets_active
 from finance_analytics.market.intraday import read_intraday
 from finance_analytics.market.live import read_live
 from finance_analytics.portfolio.intraday import DayWindow, Intraday, day_window, intraday_values
@@ -20,12 +21,13 @@ from finance_analytics.portfolio.valuation import (
     MODEL_VERSION,
     NO_RATES,
     Valuation,
+    apply_live,
     data_version,
     load_inputs,
     market_days,
     value_portfolio,
 )
-from finance_analytics.preferences import PreferencesError, load_preferences
+from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 from ui.components import empty_state
 
 RANGES = ["1D", "1M", "3M", "YTD", "1R", "3L", "Maks."]
@@ -97,10 +99,40 @@ def require_valued_data(settings: Settings, purpose: str) -> None:
         st.stop()
 
 
-# Live quotes change the key every few seconds (D-069): keep only the latest few valuations in memory.
+# How often live fragments redraw while markets are quiet (D-071): prices stand still, only rates may move.
+FX_ONLY_REDRAW_SECONDS = 60  # no exchange in session, currencies trade (weekday nights)
+CLOSED_REDRAW_SECONDS = 300  # nothing trades (weekends): only the clock moves (the 1D axis, a new day)
+
+
+def live_every(preferences: Preferences, now: datetime | None = None) -> timedelta | None:
+    """The redraw interval of live fragments: the user's setting while some exchange is in session (pre- and
+    post-market included), slower while only currencies trade or nothing does, so a quiet page costs almost
+    nothing (D-071). None offline: nothing changes by itself."""
+    if not preferences.online:
+        return None
+    now = now or datetime.now(UTC)
+    if markets_active(now):
+        return timedelta(seconds=preferences.redraw_seconds)
+    quiet = FX_ONLY_REDRAW_SECONDS if fx_trading(now) else CLOSED_REDRAW_SECONDS
+    return timedelta(seconds=max(preferences.redraw_seconds, quiet))
+
+
+# The history, valued once per data version and day without live quotes (D-071). A resource, not data: it is
+# read-only for its users (`apply_live` copies what it changes), so it is not copied on every live redraw.
+@st.cache_resource(show_spinner=False, max_entries=2)
+def _history(db_path: str, version: tuple, today: date, model: int) -> Valuation:
+    return value_portfolio(load_inputs(Path(db_path)), today)
+
+
+# Live quotes change the key every few seconds (D-069): keep only the latest few valuations in memory. Each one is
+# the cached history with the quotes put on its last day (D-071); only where that shortcut could differ is the
+# whole history valued again.
 @st.cache_data(show_spinner=False, max_entries=6)
 def _valuation(db_path: str, version: tuple, today: date, live: tuple, model: int) -> Valuation:
     live_prices, live_fx = (dict(part) for part in live)
+    fast = apply_live(_history(db_path, version, today, model), live_prices, live_fx)
+    if fast is not None:
+        return fast
     return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
 

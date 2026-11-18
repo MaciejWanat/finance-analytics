@@ -246,3 +246,24 @@ def returns_for(values: pd.Series, flows: pd.Series, start: pd.Timestamp, end: p
         drawdown=drawdown(rebased),
         index=rebased,
     )
+
+
+def position_result_trends(daily: pd.DataFrame, lots: pd.DataFrame, end: pd.Timestamp, days: int = 90) -> dict:
+    """(account, symbol) -> result per day over the last `days` days: value minus the cost of the lots held that day
+    (D-054). One as-of join for all positions: a lookup per position cost a millisecond each live redraw (D-071)."""
+    recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedelta(days=days))]
+    values = recent.groupby(["account", "symbol", "date"], as_index=False)["value_pln"].sum()
+    aliases = daily.drop_duplicates("account_id").set_index("account_id")["account"]
+    all_lots = lots.assign(account=lambda d: d["account_id"].map(aliases), cost=lambda d: d["cost_pln"].fillna(0.0))
+    steps = pd.concat([
+        all_lots[["account", "symbol", "open_date", "cost"]].rename(columns={"open_date": "date"}),
+        all_lots.dropna(subset=["close_date"])[["account", "symbol", "close_date", "cost"]]
+        .rename(columns={"close_date": "date"}).assign(cost=lambda d: -d["cost"]),
+    ]).groupby(["account", "symbol", "date"], as_index=False)["cost"].sum()
+    steps["held_cost"] = steps.groupby(["account", "symbol"])["cost"].cumsum()
+    joined = pd.merge_asof(values.sort_values("date"), steps[["account", "symbol", "date", "held_cost"]]
+                           .astype({"date": values["date"].dtype}).sort_values("date"),
+                           on="date", by=["account", "symbol"], direction="backward")
+    joined["result"] = (joined["value_pln"] - joined["held_cost"].fillna(0.0)).round(0)
+    joined = joined.sort_values(["account", "symbol", "date"])
+    return {key: group.tolist() for key, group in joined.groupby(["account", "symbol"])["result"]}

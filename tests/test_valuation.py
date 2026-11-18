@@ -198,3 +198,78 @@ def test_market_days_empty_without_prices_or_foreign_currencies():
     ledger = [("pln", D("2026-01-05"), "DEPOSIT", 1000.0)]
     v = value_portfolio(make_inputs(ledger=ledger), date(2026, 1, 9))
     assert len(market_days(v)) == 0
+
+
+# --------------------------------------------------------------- live quotes on the last day (D-071)
+
+
+def assert_same_valuation(fast, full):
+    """`apply_live` must give what a full valuation with the quotes gives, number for number."""
+    pd.testing.assert_frame_equal(fast.daily.reset_index(drop=True), full.daily.reset_index(drop=True))
+    pd.testing.assert_series_equal(fast.total, full.total)
+    pd.testing.assert_frame_equal(fast.prices.sort_index(axis=1), full.prices.sort_index(axis=1))
+    pd.testing.assert_frame_equal(fast.fx.sort_index(axis=1), full.fx.sort_index(axis=1))
+    assert fast.warnings == full.warnings and fast.cash_warnings == full.cash_warnings
+    pd.testing.assert_frame_equal(fast.flows, full.flows)
+
+
+def test_apply_live_matches_a_full_valuation_with_the_quotes():
+    from finance_analytics.portfolio.valuation import apply_live
+
+    accounts = pd.DataFrame([("usd", "XTB USD", "USD", None), ("pln", "XTB PLN", "PLN", None),
+                             ("bank-eur", "Konto EUR", "EUR", None)],
+                            columns=["account_id", "alias", "currency", "tax_wrapper"])
+    ledger = [("usd", D("2026-01-05"), "DEPOSIT", 2000.0), ("usd", D("2026-01-05"), "BUY", -1000.0),
+              ("pln", D("2026-01-05"), "DEPOSIT", 5000.0)]
+    inputs = make_inputs(lots=[lot(), lot(account="pln", purchase_value=4020.0)], ledger=ledger, prices=PRICES,
+                         fx=FX + [("EUR", D("2026-01-05"), 4.3)], accounts=accounts)
+    inputs.cash_snapshots = pd.DataFrame({"account_id": ["bank-eur"], "date": [D("2026-01-06")], "balance": [100.0]})
+    end = date(2026, 1, 9)
+    base = value_portfolio(inputs, end)
+    for prices, fx in [({"NVDA": 111.5}, {}), ({}, {"USD": 4.2}), ({"NVDA": 99.0}, {"USD": 4.05, "EUR": 4.31}),
+                       ({"NVDA": 99.0, "NOT_HELD": 5.0}, {"EUR": 4.4})]:
+        fast = apply_live(base, prices, fx)
+        assert fast is not None
+        assert_same_valuation(fast, value_portfolio(inputs, end, live_prices=prices, live_fx=fx))
+    assert base.daily.equals(value_portfolio(inputs, end).daily)  # the cached valuation is left as it was
+    assert apply_live(base, {}, {}) is base
+
+
+def test_apply_live_matches_a_full_valuation_on_the_mock_export(tmp_path):
+    from conftest import go_online
+    from test_market import TODAY, FakePriceClient, fake_nbp_get
+
+    from finance_analytics.config import Settings
+    from finance_analytics.market import nbp
+    from finance_analytics.market.update import update_market
+    from finance_analytics.mock.xtb_export import write_mock_export
+    from finance_analytics.portfolio.valuation import apply_live, load_inputs
+    from finance_analytics.sources.sync import import_xtb, sync
+
+    settings = Settings(data_dir=tmp_path / "data")
+    write_mock_export(tmp_path / "export")
+    import_xtb(tmp_path / "export", settings)
+    sync(settings)
+    go_online(settings)
+    update_market(settings, today=TODAY, price_client=FakePriceClient(),
+                  fx_fetch=lambda c, s, e: nbp.fetch_rates(c, s, e, get=fake_nbp_get([])),
+                  cpi_fetch=lambda: [(2026, 1, 100.0, 103.0)])
+    inputs = load_inputs(settings.db_path)
+    base = value_portfolio(inputs, TODAY)
+    tickers = sorted(inputs.prices["ticker"].unique())
+    prices = {t: 50.0 + n for n, t in enumerate(tickers)}
+    fx = {c: 4.0 + n / 10 for n, c in enumerate(c for c in base.fx.columns if c != "PLN")}
+    fast = apply_live(base, prices, fx)
+    assert fast is not None
+    assert_same_valuation(fast, value_portfolio(inputs, TODAY, live_prices=prices, live_fx=fx))
+
+
+def test_apply_live_gives_up_where_the_shortcut_could_differ():
+    """A rate for a currency without NBP rates, or a price for a holding valued without a market price on its last
+    day: the caller values everything again."""
+    from finance_analytics.portfolio.valuation import apply_live
+
+    base = value_portfolio(make_inputs(lots=[lot()], prices=PRICES, fx=FX), date(2026, 1, 9))
+    assert apply_live(base, {}, {"CHF": 4.5}) is None
+    old = make_inputs(lots=[lot(ticker="OLD")], fx=FX, currencies={})
+    assert apply_live(value_portfolio(old, date(2026, 1, 9)), {"OLD": 12.0}, {}) is None

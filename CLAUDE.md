@@ -141,6 +141,8 @@ two kinds of tables:
   - load the `dataviz` skill before designing a new chart.
 - No external fonts, CDNs or telemetry in the UI (D-011).
 - UI work follows `docs/ui-guidelines.md` (page anatomy, building blocks, chart and copy rules, checklist). The `/ui-page` skill loads it for UI tasks.
+- `docs/panels.md` documents, per page, what reruns it and what it recomputes on every (live) redraw. Update a page's
+  section together with any change to that page, its fragments or what it computes (a test checks every page has one).
 - Do not name commercial portfolio trackers as inspiration in docs, code or commits.
 - Tests never touch the network or real data. Fixtures are synthetic and generated in code.
 

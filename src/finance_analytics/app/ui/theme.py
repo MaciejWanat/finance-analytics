@@ -14,6 +14,7 @@ Rules:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
 import plotly.graph_objects as go
@@ -113,7 +114,9 @@ def _axis(tokens: Tokens, grid: bool) -> dict:
     }
 
 
+@lru_cache(maxsize=2)  # built once per mode: live redraws make many charts a second (D-071)
 def template(mode: Mode) -> go.layout.Template:
+    """The Plotly template of a mode. Shared: a figure copies it, so never change the returned object."""
     tokens = TOKENS[mode]
     return go.layout.Template(
         layout={

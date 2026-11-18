@@ -10,15 +10,17 @@ Pipeline, all on a calendar-day index from the first event to `end`:
 5. treasury bonds (D-026): gross value per (account, series) from `portfolio.bonds`, in PLN;
 6. cash at banks (D-027): each balance snapshot holds until the next one; value = balance x NBP rate.
 
-`load_inputs` reads SQLite; `value_portfolio` is a pure function of the inputs.
+`load_inputs` reads SQLite; `value_portfolio` is a pure function of the inputs. `apply_live` puts live quotes on
+the last day of a valuation made without them, so the history is computed once per data version (D-071).
 """
 
 from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +28,7 @@ import pandas as pd
 
 from finance_analytics.portfolio import bonds as bond_math
 
-MODEL_VERSION = 7  # bump when Valuation's fields or rules change, so UI caches are not reused
+MODEL_VERSION = 8  # bump when Valuation's fields or rules change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
 NO_RATES = "Brak kursów NBP dla"  # start of the warning for a currency without rates (the UI checks for it)
 
@@ -87,8 +89,9 @@ class Valuation:
     currencies: dict[str, str] = field(default_factory=dict)  # ticker -> price currency
     cash_warnings: list[str] = field(default_factory=list)  # the subset about bank cash ("Gotówka" shows only these)
 
-    @property
+    @cached_property
     def total(self) -> pd.Series:
+        """Value of everything per day; computed once per valuation (pages read it many times per run)."""
         return self.daily.groupby("date")["value_pln"].sum()
 
 
@@ -481,3 +484,55 @@ def value_portfolio(
     return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
                      warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies),
                      cash_warnings=sorted(set(cash_warnings)))
+
+
+def apply_live(
+    v: Valuation, live_prices: dict[str, float] | None, live_fx: dict[str, float] | None
+) -> Valuation | None:
+    """`v` (valued without live quotes) with live prices and rates on its last day, as `value_portfolio` with them
+    would give, number for number (D-071). Only the last day's rows change, so live redraws do not value the
+    whole history again.
+
+    Returns None when the shortcut could differ from a full valuation: a live rate for a currency without NBP
+    rates, or a live price for a holding whose last day was valued without a market price (trade price or cost).
+    The caller then runs `value_portfolio` with the quotes.
+    """
+    live_prices, live_fx = live_prices or {}, live_fx or {}
+    if not live_prices and not live_fx:
+        return v
+    if v.daily.empty or v.fx.empty:
+        return None
+    if any(currency not in v.fx.columns for currency in live_fx):
+        return None
+    day = v.fx.index[-1]
+    daily = v.daily
+    last = daily["date"] == day
+    position = last & (daily["kind"] == "position")
+    tickers = daily["symbol"].map(_symbol_tickers(v)) if position.any() else pd.Series(index=daily.index, dtype=object)
+    live_rows = position & tickers.isin(list(live_prices))
+    if (~daily.loc[live_rows, "priced"].astype(bool)).any():
+        return None
+
+    daily = daily.copy()
+    if live_rows.any():
+        daily.loc[live_rows, "price"] = tickers[live_rows].map(live_prices).astype(float)
+        daily.loc[live_rows, "value_local"] = daily.loc[live_rows, "qty"] * daily.loc[live_rows, "price"]
+    fx_rows = last & daily["kind"].isin(["position", "cash"]) & daily["currency"].isin(list(live_fx))
+    if fx_rows.any():
+        daily.loc[fx_rows, "fx"] = daily.loc[fx_rows, "currency"].map(live_fx).astype(float)
+    changed = live_rows | fx_rows
+    daily.loc[changed, "value_pln"] = daily.loc[changed, "value_local"] * daily.loc[changed, "fx"]
+
+    prices = v.prices.copy()
+    for ticker, price in live_prices.items():
+        prices.loc[day, ticker] = price
+    fx = v.fx.copy()
+    for currency, mid in live_fx.items():
+        fx.loc[day, currency] = mid
+    return replace(v, daily=daily, prices=prices, fx=fx)
+
+
+def _symbol_tickers(v: Valuation) -> dict[str, str]:
+    """Symbol -> Yahoo ticker of the valued positions (from the lots)."""
+    lots = v.lots.dropna(subset=["ticker"]) if "ticker" in v.lots.columns else v.lots.iloc[0:0]
+    return dict(zip(lots["symbol"], lots["ticker"], strict=True))

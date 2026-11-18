@@ -6,6 +6,14 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Lighter live prices on Portfel:** a live redraw no longer values the whole history again. It is valued once
+  and today's prices are laid over the last day, with exactly the same numbers. With the stream every 5 seconds
+  the Portfel page itself now uses less than half the processor time it did (about 3 % instead of 7 % of
+  one core on the demo data). While markets are closed the page redraws less
+  often: every minute while only currencies trade, every 5 minutes at weekends (D-071).
+
 ## [0.11.0] - 2026-11-18
 
 Prices that move by themselves: live every few seconds through a stream, and a "1D" period that

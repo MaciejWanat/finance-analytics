@@ -804,6 +804,25 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - About one request per held ticker every 15 minutes more in online mode; still only tickers (R-009).
   - The first point of the day can differ from the dashed previous close: the close is valued at NBP rates, the day at market rates, and overnight moves (post-market, currencies) count from midnight.
 
+### D-071 Live redraws: the history valued once per data version, live quotes laid over the last day
+- **Date:** 2026-11-18 · **Status:** Accepted (refines D-069)
+- **Context:** the user asked whether the page reloads as a whole every 5 seconds and whether each panel should refresh on its own, perhaps as a single-page app. It does not reload: Streamlit keeps a WebSocket and Portfel reruns only two fragments (KPI tiles with the value chart, and the positions table). But every redraw valued the whole history again, because the live quotes were part of the valuation's cache key, and rebuilt every chart. The user's condition: every redraw keeps refreshing all data and charts, not only "today", done as efficiently as possible, measured before and after.
+- **Decision:**
+  - **Stay with Streamlit fragments; no single-page app.** Fragments already redraw panel by panel and send only their own elements. A separate frontend with its own API would add a second technology stack and its own packaging without CDNs (D-011) for little more.
+  - **History once, quotes on the last day:** `ui.data._history` values the history without live quotes, cached per data version and day (`st.cache_resource`, not copied per redraw). `valuation.apply_live` lays the live prices and rates over the last day's rows only. A test checks the result equals `value_portfolio` with the quotes, number for number. Where it could differ (a live rate for a currency without NBP rates, a live price for a holding valued without a market price that day), it returns None and the whole history is valued with the quotes, as before.
+  - **Cheaper per-redraw work:** `Valuation.total` computed once per valuation; the Plotly template built once per mode; a sparkline built in one constructor call (the same figure as before); `intraday_values` vectorised; the positions' 90-day trends in one as-of join (`returns.position_result_trends`).
+  - **Pace follows the markets** (`ui.data.live_every`): the user's redraw interval while any tracked exchange is in session (pre- and post-market included), 60 s while only currencies trade, 5 minutes while nothing trades, nothing offline. When an exchange opens or the last one closes, the next fragment run reruns the page once so the new interval applies (not while a chart dialog is open). A fragment cannot skip a redraw when nothing changed: Streamlit removes whatever a fragment run does not draw.
+  - **Zwroty and Dywidendy keep the full rerun** at most once a minute on new quotes (D-069): about 170 ms and 70 ms per run after this change, too little to justify fragments there.
+  - **`docs/panels.md`:** per page, what triggers a rerun, what it reads, what is cached per data version, what is recomputed on every redraw, what goes to the browser. Updated together with any change to a page (CLAUDE.md, ui-guidelines §7–§8, `/ui-page`); a test checks every page has a complete section.
+- **Measurements** (demo data: 1039 days, 26 positions, 13 tickers; stream every 5 s; period "Maks."):
+  - valuation per redraw: 219 → 27 ms (profiled); `headline()` 207 → 108 ms (Maks.), 306 → 179 ms (1D); `positions()` 90 → 63 ms;
+  - whole Streamlit process with Portfel open, CPU over one minute: 9.9 % → 5.8 % of a core; of that, 2.5 % is the feed and the sidebar (Ustawienia open), so Portfel itself went from about 7.4 % to 3.3 %;
+  - browser: about 750 DOM changes a second and no long tasks, before and after: the browser was never the bottleneck;
+  - every element of Portfel, Zwroty and Dywidendy (12 variants of period and "Po inflacji", 598 elements) is identical before and after at the same quotes, except the clock time in the 1D charts.
+- **Consequences:**
+  - The first fast redraw after an exchange opens can come up to a minute late (the quiet interval).
+  - The live overlay assumes live quotes change only the last day, which is how D-021/D-069 already defined them; a future change to that rule must change `apply_live` too (the equivalence test will catch it).
+
 ---
 
 ## Open questions

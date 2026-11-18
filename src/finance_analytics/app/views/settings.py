@@ -160,6 +160,7 @@ with st.container(border=True):
                  disabled=nothing or typed.strip().upper() != "USUŃ"):
         result = reset_data(settings, reset_choice)
         st.cache_data.clear()
+        st.cache_resource.clear()  # the valued history (ui.data._history, D-071)
         st.session_state["reset_round"] = st.session_state.get("reset_round", 0) + 1
         st.session_state["reset_done"] = (
             f"Usunięto {plural(len(result.removed), 'plik', 'pliki', 'plików')}"

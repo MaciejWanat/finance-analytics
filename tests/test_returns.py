@@ -150,3 +150,19 @@ def test_change_since_the_previous_close_ignores_deposits():
     assert amount == pytest.approx(210.0) and pct == pytest.approx(0.10)
     # No close before the first day: nothing to compare with.
     assert change_since(VALUES, FLOWS, D("2025-12-31")) is None
+
+
+def test_position_result_trend_is_value_minus_the_cost_held_that_day():
+    """D-054: a purchase raises value and cost together, so the result line does not jump; a sale lowers both."""
+    from finance_analytics.portfolio.returns import position_result_trends
+
+    days = pd.date_range("2026-01-01", "2026-01-05")
+    value = [100.0, 110.0, 230.0, 240.0, 130.0]  # a second lot bought on the 3rd, the first sold on the 5th
+    daily = pd.DataFrame({"date": days, "account_id": "a1", "account": "XTB", "kind": "position", "symbol": "X.US",
+                          "value_pln": value})
+    lots = pd.DataFrame({"account_id": ["a1", "a1"], "symbol": ["X.US", "X.US"],
+                         "open_date": [pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-03")],
+                         "close_date": [pd.Timestamp("2026-01-05"), pd.NaT], "cost_pln": [100.0, 115.0]})
+    trends = position_result_trends(daily, lots, days[-1])
+    assert trends == {("XTB", "X.US"): [0.0, 10.0, 15.0, 25.0, 15.0]}
+    assert position_result_trends(daily, lots, days[-1], days=2)[("XTB", "X.US")] == [25.0, 15.0]

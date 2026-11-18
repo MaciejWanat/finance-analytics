@@ -6,16 +6,17 @@ redraw with the newest quotes (`Preferences.redraw_seconds`), without rerunning 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, intraday_chart, segmented_bar, show, stacked_bars
-from ui.components import Kpi, kpi_row, page_header, section, table
+from ui.components import DIALOG_OPEN, Kpi, kpi_row, page_header, section, table
 from ui.data import (
     FULL_RUN,
     ONE_DAY,
     RANGES,
+    live_every,
     load_intraday,
     load_valuation,
     one_day,
@@ -32,7 +33,7 @@ from finance_analytics.market.intraday import coverage, update_intraday
 from finance_analytics.market.live import live_symbols
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
-from finance_analytics.portfolio.returns import period_return, twr_index, underwater
+from finance_analytics.portfolio.returns import period_return, position_result_trends, twr_index, underwater
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import market_days
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
@@ -53,7 +54,8 @@ try:
     preferences = load_preferences(settings)
 except PreferencesError:  # the sidebar reports a broken settings file
     preferences = Preferences()
-LIVE_EVERY = timedelta(seconds=preferences.redraw_seconds) if preferences.online else None
+# Fast while an exchange is in session, slow while markets are quiet (D-071).
+LIVE_EVERY = live_every(preferences)
 STREAMING = preferences.streaming  # the stream says "na żywo" without the time of the last price (D-069)
 v, live_at = load_valuation(settings)
 total = v.total
@@ -139,11 +141,14 @@ def scaled(v):
 
 def live_valuation():
     """The valuation for a live fragment: the full run's one, or a fresh one with the newest quotes on the
-    fragment's own timer runs. A new day (midnight) reruns the whole page, so every block moves to it."""
+    fragment's own timer runs. A new day (midnight) reruns the whole page, so every block moves to it; so does a
+    change of pace (an exchange opens or the last one closes, D-071), unless a chart dialog is open."""
     if st.session_state.get(FULL_RUN, True):
         return v, live_at
     fresh, fresh_at = load_valuation(settings, live_run=True)
     if fresh.total.index[-1] != end:
+        st.rerun(scope="app")
+    if live_every(preferences) != LIVE_EVERY and not st.session_state.get(DIALOG_OPEN):
         st.rerun(scope="app")
     return fresh, fresh_at
 
@@ -394,23 +399,8 @@ def positions() -> None:
     holdings["share"] = holdings["value"] / value_now
     # The 90-day trend is the result (value minus the cost of the lots held that day), so a purchase
     # does not bend the line (D-054).
-    recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedelta(days=90))]
-    recent_value = recent.groupby(["account", "symbol", "date"])["value_pln"].sum()
-    aliases = daily.drop_duplicates("account_id").set_index("account_id")["account"]
-    all_lots = lots.assign(account=lambda d: d["account_id"].map(aliases), cost=lambda d: d["cost_pln"].fillna(0.0))
-    cost_steps = pd.concat([
-        all_lots[["account", "symbol", "open_date", "cost"]].rename(columns={"open_date": "date"}),
-        all_lots.dropna(subset=["close_date"])[["account", "symbol", "close_date", "cost"]]
-        .rename(columns={"close_date": "date"}).assign(cost=lambda d: -d["cost"]),
-    ]).groupby(["account", "symbol", "date"])["cost"].sum()
-
-    def result_trend(account: str, symbol: str) -> list[float]:
-        values = recent_value.loc[(account, symbol)]
-        steps = cost_steps.loc[(account, symbol)].sort_index().cumsum()
-        held_cost = steps.reindex(steps.index.union(values.index)).ffill().reindex(values.index).fillna(0.0)
-        return (values - held_cost).round(0).tolist()
-
-    holdings["trend"] = [result_trend(a, s) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
+    trends = position_result_trends(daily, lots, end)
+    holdings["trend"] = [trends.get((a, s), []) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
     holdings["asset_class"] = holdings["asset_class"].map(ASSET_CLASS_LABELS).fillna(holdings["asset_class"])
     holdings = holdings.sort_values("value", ascending=False)
     table(

@@ -19,6 +19,7 @@ Prevent that.
 1. Read `docs/ui-guidelines.md` (page anatomy, building blocks, charts, Polish copy, states, checklist).
 2. Look at an existing page with the same shape, e.g. `src/finance_analytics/app/views/portfolio.py` or `src/finance_analytics/app/views/market.py`, and reuse its structure.
 3. For a new chart form, load the `dataviz` skill first.
+4. Read the page's section in `docs/panels.md`: what reruns it, what is cached and what every live redraw recomputes.
 
 ## Rules that are easy to get wrong
 
@@ -36,11 +37,14 @@ Prevent that.
 - **Text:** UI text in Polish, code and comments in English. Numbers like `12 345,67 zł` and `+3,4%`; show "–" for missing values, never `None`/`NaN`/0.
 - **Long actions:** use a two-run spinner button (pattern in the guidelines, §6).
 - **Privacy:** no external fonts, CDNs, images or links; account numbers masked (`…123`).
+- **Live redraws:** a live fragment draws everything it shows on every run. Keep anything that does not depend on live
+  quotes out of the per-run work (cached per data version), and take `run_every` from `ui.data.live_every` (D-071).
 
 ## Before saying it is done
 
 1. Run `fa demo` (or reuse a running one; it reruns on save).
 2. Check the page in the browser in light and dark mode, wide and narrow.
 3. Fix label collisions, empty or `None` cells, and uneven tiles.
-4. Run `pytest` and `ruff check .`.
-5. Report what you checked and what you could not check.
+4. Update the page's section in `docs/panels.md` (a test checks every page has one).
+5. Run `pytest` and `ruff check .`.
+6. Report what you checked and what you could not check.

@@ -117,16 +117,24 @@ def intraday_values(v: Valuation, window: DayWindow, quotes: pd.DataFrame) -> In
     missing = sorted(set(rows.loc[rows["ticker"].isin([t for t in held if quotes.empty or t not in quotes.columns
                                                        or quotes[t].dropna().empty]), "symbol"]))
 
+    # Every row times every moment at once (rows x moments), laid out row by row: a frame per row cost a
+    # millisecond each, on every live redraw of 1D (D-071).
     ones = np.ones(len(times))
-    frames = []
-    for row in rows.itertuples(index=False):
-        p = price[row.ticker].to_numpy() if isinstance(row.ticker, str) else ones
-        r = rate[row.currency].to_numpy() if row.currency in rate.columns else ones
-        frames.append(pd.DataFrame({
-            "ts": times.tz_convert(window.start.tzinfo), "account": row.account, "kind": row.kind,
-            "symbol": row.symbol, "asset_class": row.asset_class, "currency": row.currency,
-            "value_pln": row.value_pln * p * r,
-            "fx_pln": row.value_pln * r if row.currency in rate.columns else 0.0,
-            "px_pln": row.value_pln * p, "rate_pln": row.value_pln * r,
-        }))
-    return Intraday(pd.concat(frames, ignore_index=True), missing)
+    p = np.vstack([price[t].to_numpy() if isinstance(t, str) else ones for t in rows["ticker"]])
+    in_rate = rows["currency"].isin(rate.columns).to_numpy()
+    r = np.vstack([rate[c].to_numpy() if ok else ones for c, ok in zip(rows["currency"], in_rate, strict=True)])
+    value = rows["value_pln"].to_numpy(dtype=float)[:, None]
+    n = len(times)
+
+    def each(column: str) -> np.ndarray:
+        return np.repeat(rows[column].to_numpy(), n)
+
+    frame = pd.DataFrame({
+        "ts": times.tz_convert(window.start.tzinfo)[np.tile(np.arange(n), len(rows))],
+        "account": each("account"), "kind": each("kind"), "symbol": each("symbol"),
+        "asset_class": each("asset_class"), "currency": each("currency"),
+        "value_pln": (value * p * r).ravel(),
+        "fx_pln": np.where(in_rate[:, None], value * r, 0.0).ravel(),
+        "px_pln": (value * p).ravel(), "rate_pln": (value * r).ravel(),
+    })
+    return Intraday(frame, missing)

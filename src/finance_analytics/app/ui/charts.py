@@ -331,41 +331,42 @@ def sparkline(values: Sequence[float], *, color: str, kind: str = "money", mode:
     """KPI tile sparkline: area down to the lowest point, Polish number format in the hover (12 345,67 zł).
 
     `water=True` fills from the zero line instead: red below it (under water), green above it.
+    Built in one constructor call: six tiles redraw with every live tick, and Plotly validates every
+    `add_trace` and `update_*` call on its own (D-071).
     """
     tokens = TOKENS[mode]
     y = [float(v) for v in values]
-    fig = go.Figure(layout={"template": template(mode), "height": height})
     x = list(range(len(y)))
+    line = {"type": "scatter", "x": x, "mode": "lines", "showlegend": False}
     if water:
-        for part, fill in (([min(v, 0.0) for v in y], tokens.bad), ([max(v, 0.0) for v in y], tokens.good)):
-            if any(part):
-                fig.add_trace(go.Scatter(x=x, y=part, mode="lines", fill="tozeroy", fillcolor=_rgba(fill, 0.30),
-                                         line={"width": 0}, hoverinfo="skip", showlegend=False))
-        fig.add_trace(go.Scatter(
-            x=x, y=y, mode="lines", line={"color": tokens.ink_secondary, "width": 1.5},
-            hovertemplate=f"{SPARK_HOVER[kind]}<extra></extra>", showlegend=False,
-        ))
-        fig.add_hline(y=0, line={"color": tokens.baseline, "width": 1})
+        traces = [
+            {**line, "y": part, "fill": "tozeroy", "fillcolor": _rgba(fill, 0.30), "line": {"width": 0},
+             "hoverinfo": "skip"}
+            for part, fill in (([min(v, 0.0) for v in y], tokens.bad), ([max(v, 0.0) for v in y], tokens.good))
+            if any(part)
+        ]
+        traces.append({**line, "y": y, "line": {"color": tokens.ink_secondary, "width": 1.5},
+                       "hovertemplate": f"{SPARK_HOVER[kind]}<extra></extra>"})
+        shapes = [{"type": "line", "xref": "x domain", "x0": 0, "x1": 1, "yref": "y", "y0": 0, "y1": 0,
+                   "line": {"color": tokens.baseline, "width": 1}}]
     else:
         floor = min(y)
-        fig.add_trace(go.Scatter(x=x, y=[floor] * len(y), mode="lines", line={"width": 0}, hoverinfo="skip",
-                                 showlegend=False))
-        fig.add_trace(go.Scatter(
-            x=x, y=y, mode="lines", fill="tonexty", fillcolor=_rgba(color, 0.18), line={"color": color, "width": 2},
-            hovertemplate=f"{SPARK_HOVER[kind]}<extra></extra>", showlegend=False,
-        ))
-    fig.update_layout(
-        margin={"l": 0, "r": 0, "t": 4, "b": 0}, hovermode="x", showlegend=False,
-        hoverlabel={"bgcolor": tokens.surface, "bordercolor": tokens.gridline},
-    )
-    # The axis stays "visible" but bare: Plotly draws the hover line (spike) only on a visible axis.
-    fig.update_xaxes(
-        visible=True, showticklabels=False, showgrid=False, zeroline=False, showline=False, ticks="",
-        fixedrange=True, showspikes=True, spikemode="across", spikesnap="data", spikethickness=1,
-        spikedash="solid", spikecolor=tokens.ink_muted,
-    )
-    fig.update_yaxes(visible=False, fixedrange=True)
-    return fig
+        traces = [
+            {**line, "y": [floor] * len(y), "line": {"width": 0}, "hoverinfo": "skip"},
+            {**line, "y": y, "fill": "tonexty", "fillcolor": _rgba(color, 0.18), "line": {"color": color, "width": 2},
+             "hovertemplate": f"{SPARK_HOVER[kind]}<extra></extra>"},
+        ]
+        shapes = []
+    return go.Figure(data=traces, layout={
+        "template": template(mode), "height": height, "shapes": shapes,
+        "margin": {"l": 0, "r": 0, "t": 4, "b": 0}, "hovermode": "x", "showlegend": False,
+        "hoverlabel": {"bgcolor": tokens.surface, "bordercolor": tokens.gridline},
+        # The axis stays "visible" but bare: Plotly draws the hover line (spike) only on a visible axis.
+        "xaxis": {"visible": True, "showticklabels": False, "showgrid": False, "zeroline": False, "showline": False,
+                  "ticks": "", "fixedrange": True, "showspikes": True, "spikemode": "across", "spikesnap": "data",
+                  "spikethickness": 1, "spikedash": "solid", "spikecolor": tokens.ink_muted},
+        "yaxis": {"visible": False, "fixedrange": True},
+    })
 
 
 DETAIL_HOVER = {"money": "%{y:,.2f} zł", "pct": "%{y:+.2%}"}
