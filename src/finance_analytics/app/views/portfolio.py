@@ -13,6 +13,7 @@ import streamlit as st
 from ui.charts import area_total, current_mode, intraday_chart, segmented_bar, show, stacked_bars
 from ui.components import DIALOG_OPEN, Kpi, kpi_row, page_header, section, table
 from ui.data import (
+    DAILY_POINTS_DAYS,
     FULL_RUN,
     ONE_DAY,
     RANGES,
@@ -191,7 +192,8 @@ def headline() -> None:
 
     # Every tile gets a sparkline over the selected period, so the tiles line up and read alike.
     cumulative_flows = flows.groupby(level=0).sum().reindex(total.index, fill_value=0.0).cumsum()
-    step = "W-FRI" if (end - start).days <= 180 else "ME"
+    span = (end - start).days
+    step = "D" if span <= DAILY_POINTS_DAYS else "W-FRI" if span <= 180 else "ME"
 
     def trend(series: pd.Series, decimals: int = 0) -> list[float]:
         if series.index.tz is not None:  # within one day (1D)
@@ -368,7 +370,8 @@ else:
     colors = color_map([p for p in parts if p != OTHER_LABEL], mode)
 
 window_days = (end - start).days
-frequency, frequency_label = ("W-FRI", "tygodnia") if window_days <= 100 else ("ME", "miesiąca")
+frequency, frequency_label = (("D", "dnia") if window_days <= DAILY_POINTS_DAYS
+                              else ("W-FRI", "tygodnia") if window_days <= 100 else ("ME", "miesiąca"))
 bars = wide[wide.index >= start][parts].resample(frequency).last()
 if DAY is not None:  # 1D (D-070): the value at the end of each hour of the day
     hourly = day_values(v, DAY).rows

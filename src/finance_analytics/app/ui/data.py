@@ -30,8 +30,9 @@ from finance_analytics.portfolio.valuation import (
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 from ui.components import empty_state
 
-RANGES = ["1D", "1M", "3M", "YTD", "1R", "3L", "Maks."]
+RANGES = ["1D", "1T", "1M", "3M", "YTD", "1R", "3L", "Maks."]
 ONE_DAY = "1D"  # the day of the "Dzisiaj" tile, every 5 minutes (D-070)
+DAILY_POINTS_DAYS = 14  # a period this short (1T) gets daily points in sparklines and bars, not weekly (D-078)
 # True while the whole app script runs (main.py); a fragment's own timer run sees False (D-069).
 FULL_RUN = "full_app_run"
 
@@ -44,6 +45,7 @@ def period_start(
     if period == ONE_DAY:
         return max(day_base if day_base is not None else end - pd.Timedelta(days=1), first)
     start = {
+        "1T": end - pd.Timedelta(days=7),
         "1M": end - pd.DateOffset(months=1),
         "3M": end - pd.DateOffset(months=3),
         "YTD": pd.Timestamp(end.year, 1, 1) - pd.Timedelta(days=1),  # measured from last year's close

@@ -62,7 +62,7 @@ def data_dir(tmp_path_factory):
 
 
 @pytest.mark.parametrize("page", list(PAGES))
-@pytest.mark.parametrize("period", ["1D", "1M", "Maks."])
+@pytest.mark.parametrize("period", ["1D", "1T", "1M", "Maks."])
 def test_analysis_pages_render_every_period(data_dir, monkeypatch, page, period):
     monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
     at = AppTest.from_file(PAGES[page], default_timeout=90)

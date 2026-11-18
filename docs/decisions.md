@@ -883,6 +883,12 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Measured** on the demo data (stream mode, Portfel open, period "Maks."): the Streamlit process used 21 % of one core at 1 s against 5.8 % at 5 s (D-071). The help text on Ustawienia says that 1–2 s costs noticeably more processor time.
 - **Consequences:** a redraw every second recomputes the tiles, the value chart and the positions table each time, even when no new price came (e.g. while the stream is silent, D-075).
 
+### D-078 "1T" (a week) in the period filter
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** after "1T" in the enlarged chart (D-076) the user wanted a week in the "Okres" filter too.
+- **Decision:** "1T" between "1D" and "1M" on Portfel, Zwroty and Dywidendy (`ui.data.RANGES`): the last 7 days, measured from the close seven days before the last day, like the other periods. A period of up to 14 days (`DAILY_POINTS_DAYS`) gets daily points instead of weekly ones: the tile sparklines on Portfel and Zwroty and the composition bars ("Wartość na koniec każdego dnia"). "Dzisiaj" keeps its last month of sessions.
+- **Verified in the browser** on demo data: Portfel 11.11–18.11 with daily sparklines and daily composition bars; Zwroty with daily sparklines; smoke tests of all three pages with "1T".
+
 ---
 
 ## Open questions

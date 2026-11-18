@@ -98,8 +98,8 @@ G: dict[str, str] = {
     "cash": "Wolne środki na rachunku maklerskim, w walucie rachunku.",
     # --- periods ------------------------------------------------------------------------------
     "periods": (
-        "1D: dzień z kafelka „Dzisiaj”, co 5 minut. 1M: ostatni miesiąc. 3M: trzy miesiące. YTD: od początku "
-        "bieżącego roku. 1R: ostatni rok. 3L: trzy lata. Maks.: cała historia."
+        "1D: dzień z kafelka „Dzisiaj”, co 5 minut. 1T: ostatni tydzień (7 dni). 1M: ostatni miesiąc. "
+        "3M: trzy miesiące. YTD: od początku bieżącego roku. 1R: ostatni rok. 3L: trzy lata. Maks.: cała historia."
     ),
     "breakdown": "Według czego podzielić portfel na wykresach poniżej.",
     "intraday": (

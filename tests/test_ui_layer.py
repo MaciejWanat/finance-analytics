@@ -239,3 +239,14 @@ def test_detail_chart_puts_today_every_5_minutes_after_the_daily_history():
     assert "%H:%M" in day.hovertemplate and fig.layout.hovermode == "closest"
     only_daily = detail_chart(daily, name="Wartość", mode="light", today=None)
     assert len(only_daily.data) == 1
+
+
+def test_one_week_period_starts_seven_days_back():
+    """D-078: "1T" is measured from the close seven days before the last day, never before the data starts."""
+    import pandas as pd
+    from ui.data import RANGES, period_start
+
+    end = pd.Timestamp("2026-11-18")
+    assert RANGES[:3] == ["1D", "1T", "1M"]
+    assert period_start("1T", pd.Timestamp("2020-01-01"), end) == pd.Timestamp("2026-11-11")
+    assert period_start("1T", pd.Timestamp("2026-11-15"), end) == pd.Timestamp("2026-11-15")

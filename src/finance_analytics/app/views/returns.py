@@ -7,7 +7,16 @@ import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, drawdown_chart, line_chart, returns_heatmap, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import ONE_DAY, RANGES, load_intraday, load_valuation, one_day, period_start, require_valued_data
+from ui.data import (
+    DAILY_POINTS_DAYS,
+    ONE_DAY,
+    RANGES,
+    load_intraday,
+    load_valuation,
+    one_day,
+    period_start,
+    require_valued_data,
+)
 from ui.fmt import fmt_date, fmt_money, fmt_pct
 from ui.glossary import G
 from ui.theme import color_map
@@ -58,6 +67,8 @@ cpi = reports.cpi_monthly(settings.db_path)
 levels, daily_cpi = inflation.daily_from_cpi(cpi, total.index) if not cpi.empty else (None, None)
 period_inflation = inflation.window_inflation(daily_cpi, start, end) if daily_cpi is not None else None
 
+# Sparkline points: weekly, daily for a week (1T, D-078).
+STEP = "D" if (end - start).days <= DAILY_POINTS_DAYS else "W-FRI"
 # 1D (D-070): the day's curves every 5 minutes, measured from the base close of the daily figures.
 intra = load_intraday(settings, v, DAY) if DAY is not None else None
 if intra is not None and len(intra.rows):
@@ -74,8 +85,8 @@ if intra is not None and len(intra.rows):
     when = "%H:%M"
 else:
     intra = None
-    twr_trend = (portfolio.index - 1).resample("W-FRI").last().round(4).tolist()
-    value_trend = total[total.index >= start].resample("W-FRI").last().round(0).tolist()
+    twr_trend = (portfolio.index - 1).resample(STEP).last().round(4).tolist()
+    value_trend = total[total.index >= start].resample(STEP).last().round(0).tolist()
     dd = portfolio.drawdown
     when = None
 
@@ -101,11 +112,11 @@ kpi_row(
             delta_color="off",
             help=G["drawdown"] + " "
                  + (f"Odrobiony {moment(dd.recovered)}." if dd.recovered is not None else "Jeszcze nieodrobiony."),
-            trend=dd.series.resample(INTRADAY_TREND if intra is not None else "W-FRI").min().round(4).tolist(),
+            trend=dd.series.resample(INTRADAY_TREND if intra is not None else STEP).min().round(4).tolist(),
             trend_kind="pct"),
         Kpi("Obecnie od szczytu", fmt_pct(dd.current), delta_color="off",
             help=G["drawdown_current"],
-            trend=dd.series.resample(INTRADAY_TREND if intra is not None else "W-FRI").last().round(4).tolist(),
+            trend=dd.series.resample(INTRADAY_TREND if intra is not None else STEP).last().round(4).tolist(),
             trend_kind="pct"),
     ]
 )
