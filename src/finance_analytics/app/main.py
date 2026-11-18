@@ -13,6 +13,7 @@ from ui.fmt import market_text, plural
 from ui.glossary import G
 
 from finance_analytics.config import get_settings
+from finance_analytics.diagnostics import get_monitor
 from finance_analytics.market.auto import maybe_update_market
 from finance_analytics.market.feed import get_feed
 from finance_analytics.market.hours import EXCHANGES
@@ -119,6 +120,10 @@ def network_status() -> None:
     except PreferencesError as exc:
         st.caption(f":material/error: Błędny plik ustawień: {exc}")
         return
+    # Resource use (D-073): the monitor samples in its own thread; a warning only when it is high.
+    if get_monitor().snapshot().level == "high":
+        st.page_link("views/settings.py", label=":red[Wysokie zużycie zasobów]", icon=":material/warning:",
+                     help="Aplikacja zużywa dużo procesora lub pamięci. Szczegóły i co zrobić: Ustawienia.")
     imported = _inbox_tick()
     if imported:
         st.session_state["inbox_toast"] = (

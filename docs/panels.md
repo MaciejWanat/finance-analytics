@@ -134,10 +134,13 @@ Profiled times are about 1.5–2× the real ones.
 ## Ustawienia (`views/settings.py`)
 
 - **Refresh:** full run on load and after saving a setting or a reset (`st.rerun()`). A reset also clears
-  `st.cache_data` and `st.cache_resource`.
-- **Inputs:** `config/settings.yaml`, the list of files in the data directory (reset).
+  `st.cache_data` and `st.cache_resource`. The fragment `resource_usage()` ("Zużycie zasobów", D-073) redraws
+  every 5 s.
+- **Inputs:** `config/settings.yaml`, the list of files in the data directory (reset), the resource monitor's
+  samples (`diagnostics.get_monitor`, sampled in its own thread every 5 s).
 - **Computed once per data version:** nothing.
-- **Computed on every redraw:** the form state.
+- **Computed on every redraw:** the form state; in the fragment only the 1- and 5-minute averages of at most
+  60 samples and four small tiles.
 - **Sent to the browser:** the whole page on each run (small).
 
 ## Sidebar (`main.py`)
@@ -147,7 +150,8 @@ Profiled times are about 1.5–2× the real ones.
   at most once a minute when new live quotes arrived; never while a dialog is open. The inbox check imports new
   exports at most once a minute and reruns the app if it did.
 - **Inputs:** `config/settings.yaml`, the feed status (`market.feed`), `live_quotes` (time of the last price), the
-  inbox folder, market hours (rules only, no network).
+  inbox folder, market hours (rules only, no network), the resource monitor (D-073): a red "Wysokie zużycie
+  zasobów" link to Ustawienia only while the 1-minute CPU or the memory is high.
 - **Computed once per data version:** nothing.
 - **Computed on every redraw:** the mode badge, the live lamp and text, the list of exchanges with the time to
   their next change. The feed itself runs in its own thread and is only `touch()`ed here.

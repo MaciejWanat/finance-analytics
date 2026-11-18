@@ -1,16 +1,19 @@
-"""Settings: network mode (D-021), live prices (D-069), inbox folder (D-028) and data reset (D-038)."""
+"""Settings: network mode (D-021), live prices (D-069), resource use (D-073), inbox folder (D-028) and data reset
+(D-038)."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import streamlit as st
 from ui.components import page_header, section
-from ui.fmt import interval_text, plural
+from ui.fmt import fmt_number, interval_text, plural
 from ui.glossary import G
+from ui.health import HealthTile, fmt_bytes, fmt_cpu, health_tiles
 
 from finance_analytics.config import get_settings
+from finance_analytics.diagnostics import advice, cpu_level, get_monitor
 from finance_analytics.preferences import load_preferences, save_preferences
 from finance_analytics.sources.reset import ResetChoice, backup_zip, files_for, reset_data
 
@@ -80,6 +83,51 @@ st.caption(
     if live_source == "stream" else
     "Najczęściej co 2 minuty, żeby Yahoo nie odrzucało zapytań; przy zamkniętych giełdach najwyżej co 5 minut."
 )
+
+section(
+    "Zużycie zasobów",
+    "Ile procesora i pamięci zużywa aplikacja na tym komputerze. Odświeża się co 5 sekund.",
+    help=G["resources"],
+)
+
+
+@st.fragment(run_every=timedelta(seconds=5))
+def resource_usage() -> None:
+    """Reads the background monitor (D-073); the sampling itself runs in its own thread."""
+    snapshot = get_monitor().snapshot()
+    current, cores = snapshot.current, get_monitor().cpu_count
+    machine = fmt_cpu(snapshot.cpu_1min / cores) if current else "–"
+    health_tiles([
+        HealthTile(
+            "Procesor (1 rdzeń)", fmt_cpu(snapshot.cpu_1min),
+            f"średnio 1 min · 5 min: {fmt_cpu(snapshot.cpu_5min)} · całość: {machine}",
+            snapshot.cpu_level if current else "info", hover=G["resources_cpu"],
+        ),
+        HealthTile(
+            "Pamięć", fmt_bytes(current.rss_bytes if current else None),
+            f"{fmt_cpu(current.mem_pct)} pamięci komputera" if current else "–",
+            snapshot.memory_level if current else "info", hover=G["resources_memory"],
+        ),
+        HealthTile(
+            "Wątek cen na żywo", fmt_cpu(snapshot.feed_cpu_1min),
+            "średnio 1 min" if preferences.online else "wyłączony (offline)",
+            cpu_level(snapshot.feed_cpu_1min) if current else "info", hover=G["resources_feed"],
+        ),
+        HealthTile("Wątki", fmt_number(current.threads) if current else "–", "wszystkie wątki aplikacji"),
+    ])
+    hint = advice(snapshot.level, preferences.live_source, preferences.stream_seconds, preferences.online)
+    # Always one line under the tiles, so the page does not jump when the level changes.
+    if current is None:
+        st.info("Zbieram pierwsze pomiary…", icon=":material/hourglass_top:")
+    elif snapshot.level == "high":
+        st.error(f"Wysokie zużycie. {hint}", icon=":material/warning:")
+    elif snapshot.level == "warn":
+        st.warning(f"Podwyższone zużycie. {hint}", icon=":material/info:")
+    else:
+        st.success("Zużycie w normie.", icon=":material/check_circle:")
+
+
+resource_usage()
 
 section(
     "Folder skrzynki XTB",

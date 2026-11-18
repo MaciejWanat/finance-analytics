@@ -6,6 +6,13 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Zużycie zasobów on Ustawienia:** how much processor and memory the app uses, averaged over the last minute
+  and five minutes, with the live price thread's part. Green, amber or red, with a hint what to change (e.g.
+  switch the stream to polling or redraw less often); while it is red, a warning link also shows in the sidebar.
+  Measured locally with the new `psutil` dependency (D-073).
+
 ### Changed
 
 - **Lighter live prices on Portfel:** a live redraw no longer values the whole history again. It is valued once

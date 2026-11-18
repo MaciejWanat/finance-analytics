@@ -834,6 +834,17 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Verified in the browser** (demo data, stream every 5 s): over 20 s the value chart updated 4 times with no replaced node and no empty frame; sparklines and the open dialog update in place; zoom kept across redraws and reset on 1D → Maks. → 1R; light and dark mode unchanged.
 - **Consequences:** about 4.7 MB of plotly.js is loaded once per browser session from this machine. The component relies on Streamlit's components v2 API; a Streamlit upgrade should be checked in the browser (the fallback keeps pages working).
 
+### D-073 Resource use on Ustawienia, colour-coded, with a sidebar warning when high
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** the user asked for a short diagnostic of how much CPU and memory the app takes, colour-coded, so they know when to switch the live prices from the stream to polling.
+- **Decision:**
+  - **psutil** (new dependency, chosen by the user over hand-written per-OS code): reads this process only, locally; nothing is sent (R-015).
+  - **A background sampler** (`diagnostics.ResourceMonitor`, thread `resource-monitor`): every 5 s, 15 minutes of history, started from the sidebar on every page. Ustawienia does not run Portfel's live fragments, so the page shows averages over 1 and 5 minutes, which include the page the user has just left.
+  - **CPU in % of one core**, with the share of the whole machine as a second line: the app runs mostly on one core (the GIL), so a share of all cores would stay small on a many-core computer however busy it is. The live feed's part is the CPU time of the `live-feed` and `live-stream` threads.
+  - **Levels:** CPU (1-minute average) amber from 25 %, red from 50 % of a core; memory (resident size) amber from 600 MB, red from 1,2 GB. For scale, D-071 measured about 6 % of a core with Portfel open and the stream every 5 s. The level is shown by colour and by a word ("w normie", "podwyższone", "wysokie"), with one always-present line of advice under the tiles.
+  - **Sidebar:** a red "Wysokie zużycie zasobów" link to Ustawienia only while the level is high; nothing otherwise.
+- **Consequences:** only the app's server process is measured, not the browser tab; several open tabs show up as one higher number.
+
 ---
 
 ## Open questions

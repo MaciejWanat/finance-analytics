@@ -185,3 +185,18 @@ def test_live_fragments_slow_down_while_markets_are_quiet():
     assert live_every(online, wednesday_night) == timedelta(seconds=60)
     assert live_every(online, saturday) == timedelta(minutes=5)
     assert live_every(Preferences(), wednesday_noon) is None
+
+
+def test_health_tiles_formatting_and_colours():
+    from ui.health import HealthTile, fmt_bytes, fmt_cpu, health_html
+
+    assert fmt_cpu(3.14) == "3,1%"
+    assert fmt_cpu(None) == "–"
+    assert fmt_bytes(412 * 2**20) == f"412{NBSP}MB"
+    assert fmt_bytes(int(1.4 * 2**30)) == f"1,4{NBSP}GB"
+    assert fmt_bytes(None) == "–"
+    tokens = TOKENS["light"]
+    page = health_html([HealthTile("Procesor", "30,0%", "średnio 1 min", "high"),
+                        HealthTile("Wątki", "12", "<b>", "info")], tokens)
+    assert tokens.bad in page and "wysokie" in page  # colour and the word
+    assert "&lt;b&gt;" in page  # texts are escaped

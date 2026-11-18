@@ -337,6 +337,25 @@ G: dict[str, str] = {
         "same, a to ustawienie mówi, co ile (od 5 do 60 sekund) odświeżać kafelki, wykres wartości i pozycje na "
         "stronie Portfel."
     ),
+    "resources": (
+        "Ile mocy komputera zużywa sama aplikacja (jej serwer na tym komputerze), mierzone co 5 sekund. Nie "
+        "obejmuje karty przeglądarki. Zielony: w normie, bursztynowy: podwyższone, czerwony: wysokie, warto "
+        "zmienić ustawienia cen na żywo. Pomiar zostaje na tym komputerze."
+    ),
+    "resources_cpu": (
+        "Procent jednego rdzenia procesora: aplikacja liczy głównie na jednym rdzeniu, więc 100% znaczy, że jest "
+        "nim w pełni zajęta. Pod spodem udział w całym procesorze, jak w menedżerze zadań. Średnia z ostatniej "
+        "minuty, więc obejmuje też stronę, z której właśnie przyszedłeś, np. Portfel odświeżany co kilka sekund. "
+        "Bursztynowy od 25%, czerwony od 50%."
+    ),
+    "resources_memory": (
+        "Pamięć RAM zajęta przez aplikację i jej udział w całej pamięci komputera. Bursztynowy od 600 MB, "
+        "czerwony od 1,2 GB."
+    ),
+    "resources_feed": (
+        "Część rdzenia zużywana przez wątek cen na żywo (odpytywanie albo strumień), średnio z ostatniej "
+        "minuty. Przerysowywanie stron liczy się osobno, w kafelku Procesor."
+    ),
     "today_tile": (
         "Od północy: nowy dzień zaczyna się o 0:00. Sesjami giełdy w USA: nowy dzień zaczyna się przy otwarciu "
         "sesji (zwykle 15:30), a po zamknięciu wynik zostaje do następnego otwarcia; ruchy walut i innych giełd "
