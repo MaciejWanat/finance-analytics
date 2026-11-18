@@ -99,3 +99,21 @@ def test_one_day_offline_without_quotes_offers_a_fetch(tmp_path, monkeypatch, da
         with closing(sqlite3.connect(data_dir.db_path)) as conn:
             conn.executemany("INSERT INTO intraday_quotes (ticker, ts, price) VALUES (?, ?, ?)", saved)
             conn.commit()
+
+
+def test_live_charts_use_the_in_place_component_when_static_serving_is_on(data_dir, monkeypatch):
+    """D-072: with the app's static folder served, the value chart and the sparklines are the in-place component;
+    without it (the AppTest default) they fall back to st.plotly_chart (the tests above)."""
+    from streamlit import config
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    previous = config.get_option("server.enableStaticServing")
+    config.set_option("server.enableStaticServing", True)
+    try:
+        at = AppTest.from_file(PAGES["portfolio"], default_timeout=90)
+        at.run()
+    finally:
+        config.set_option("server.enableStaticServing", previous)
+    assert not at.exception, at.exception
+    assert len(at.get("bidi_component")) >= 7  # six sparklines and the value chart
+    assert len(at.get("plotly_chart")) == 2  # composition and allocation stay Streamlit's own

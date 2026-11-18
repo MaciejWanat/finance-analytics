@@ -11,6 +11,9 @@ port = 8501
 runOnSave = false
 # No first-run e-mail prompt; `fa ui` opens the browser tab itself.
 headless = true
+# Serve the app's static/ folder (localhost only): plotly.js for charts that update in place, copied there from the
+# installed plotly package (ui/live_chart.py, D-072). Nothing is loaded from the internet.
+enableStaticServing = true
 
 [client]
 # Hide developer options but keep the settings menu (theme selector).

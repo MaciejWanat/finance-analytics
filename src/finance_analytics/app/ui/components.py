@@ -11,7 +11,7 @@ from typing import Literal
 import pandas as pd
 import streamlit as st
 
-from ui.charts import current_mode, detail_chart, show_detail, show_spark, sparkline
+from ui.charts import current_mode, detail_chart, is_intraday, show_detail, show_spark, sparkline
 from ui.fmt import MINUS, fmt_number, fmt_pct
 from ui.live_search import live_search
 from ui.theme import TOKENS
@@ -60,6 +60,12 @@ _CSS = """
    field) do not flash it, and only in a full run: the end-of-run marker (main.py, RUN_END_KEY) is
    stale until the whole script has run, while a live fragment's redraw every few seconds leaves it
    alone (D-069). */
+/* A live fragment's redraw (D-069, D-072) does not dim its elements: Streamlit marks them stale while the fragment
+   runs, which made the tiles and charts flash every few seconds. A full run (the end-of-run marker is stale) keeps
+   the default dimming next to the pill below. */
+.stApp:not(:has(.st-key-fa_run_end [data-stale="true"])) [data-testid="stElementContainer"][data-stale="true"] {
+  opacity: 1 !important; transition: none !important;
+}
 @keyframes fa-spin { to { transform: rotate(360deg); } }
 @keyframes fa-show { to { opacity: 1; } }
 .stApp[data-test-script-state="running"]:has(.st-key-fa_run_end [data-stale="true"])::before,
@@ -256,7 +262,9 @@ def _open_detail(kpi: Kpi) -> None:
             st.caption(kpi.series_note)
         st.caption("Przybliżaj kółkiem myszy albo zaznaczając obszar; dwuklik przywraca cały widok.")
         show_detail(detail_chart(kpi.series, name=kpi.label, mode=current_mode(), kind=kpi.trend_kind,
-                                 start=kpi.series_start), key=f"kpi_detail_{kpi.label}")
+                                 start=kpi.series_start), key=f"kpi_detail_{kpi.label}",
+                    # Zoom survives live redraws; another period (its start, daily or within a day) starts afresh.
+                    view=f"{kpi.series_start}|{is_intraday(kpi.series.index)}")
 
     detail()
 

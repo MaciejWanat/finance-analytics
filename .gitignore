@@ -63,3 +63,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 .claude/settings.local.json
+
+# --- plotly.js copied from the plotly package at runtime (ui/live_chart.py, D-072) ---
+src/finance_analytics/app/static/

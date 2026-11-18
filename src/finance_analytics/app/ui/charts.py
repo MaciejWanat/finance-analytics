@@ -18,6 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from ui import live_chart
 from ui.fmt import fmt_pct
 from ui.theme import PLOTLY_CONFIG, TOKENS, Mode, color_map, template
 
@@ -416,14 +417,34 @@ def detail_chart(
     return fig
 
 
-def show_detail(fig: go.Figure, *, key: str) -> None:
-    st.plotly_chart(fig, theme=None, config=DETAIL_CONFIG, key=key)
+def _render(fig: go.Figure, *, key: str | None, config: dict, live: bool) -> None:
+    """A live chart updates in place on the next run with the same key (D-072); others are Streamlit's own."""
+    if live and key and live_chart.available():
+        live_chart.live_plotly(fig, key=key, config=config)
+    else:
+        st.plotly_chart(fig, theme=None, config=config, key=key)
+
+
+def show_detail(fig: go.Figure, *, key: str, view: str | None = None) -> None:
+    """The enlarged KPI chart; live, since an open dialog is redrawn with every live tick. `view` as in `show`."""
+    if view is not None:
+        fig.update_layout(uirevision=view)
+    _render(fig, key=key, config=DETAIL_CONFIG, live=True)
 
 
 def show_spark(fig: go.Figure, *, key: str) -> None:
-    st.plotly_chart(fig, theme=None, config={"displayModeBar": False}, key=key)
+    """A KPI tile sparkline; live, since the tiles redraw with every live tick."""
+    _render(fig, key=key, config={"displayModeBar": False}, live=True)
 
 
-def show(fig: go.Figure, *, key: str | None = None) -> None:
-    """Render with our own template (theme=None) and the trimmed modebar."""
-    st.plotly_chart(fig, theme=None, config=PLOTLY_CONFIG, key=key)
+def show(fig: go.Figure, *, key: str | None = None, live: bool = False, view: str | None = None) -> None:
+    """Render with our own template (theme=None) and the trimmed modebar. `live=True` for a chart in a live fragment:
+    it then changes in place instead of being drawn again from scratch (D-072).
+
+    `view` names what the chart shows (e.g. the period). The viewer's zoom and pan survive live redraws of the same
+    view; a new view starts from the figure's own axes. Without it Plotly would carry a zoom on "Maks." over to the
+    hours of "1D", since the chart is no longer drawn anew.
+    """
+    if view is not None:
+        fig.update_layout(uirevision=view)
+    _render(fig, key=key, config=PLOTLY_CONFIG, live=live)

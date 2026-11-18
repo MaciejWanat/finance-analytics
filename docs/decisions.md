@@ -823,6 +823,17 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - The first fast redraw after an exchange opens can come up to a minute late (the quiet interval).
   - The live overlay assumes live quotes change only the last day, which is how D-021/D-069 already defined them; a future change to that rule must change `apply_live` too (the equivalence test will catch it).
 
+### D-072 Live charts update in place: a Plotly component instead of `st.plotly_chart`
+- **Date:** 2026-11-18 · **Status:** Accepted
+- **Context:** after D-071 the user saw the tiles and the "Wartość portfela" chart blink on every live redraw: the chart disappeared for a moment and came back. Measured in the browser: on each redraw Streamlit dimmed the fragment's elements to 33 % opacity while it ran, and replaced every Plotly chart whose data changed. `st.plotly_chart` (Streamlit 1.67) computes the element ID from the whole figure, and its frontend reads the figure only on mount (`useState` per ID), so new data means a new chart drawn from scratch: about 25 ms (one or two frames) of an empty area. Keeping the ID stable (tried) made the chart stop updating at all. The replaced charts were also kept hidden in the page for a while (`data-retained`, up to ~100 before Streamlit cleaned them up).
+- **Decision:**
+  - **`ui/live_chart.py`:** a small Streamlit component (components v2, in the page, no iframe) that keeps one `div` per key and hands it each new figure with `Plotly.react`. Used by `show(..., live=True)` (the value chart on Portfel), `show_spark` (all KPI sparklines) and `show_detail` (the "Pełny wykres" dialog). Charts outside live fragments stay on `st.plotly_chart`.
+  - **plotly.js stays local (D-011, R-015):** copied once per version from the installed `plotly` package into the app's `static/` folder (git-ignored, not shipped in the wheel) and served by Streamlit (`server.enableStaticServing`, also passed by `fa ui`). The component always uses its own copy, kept apart from the global `Plotly` that Streamlit's charts set (another version), so one chart is never drawn by one version and updated by another. If the copy fails or static serving is off, charts fall back to `st.plotly_chart`.
+  - **Zoom:** `view=` (the period and "Po inflacji" on Portfel; the period start and daily or intraday in the dialog) becomes the figure's `uirevision`: the viewer's zoom survives live redraws of the same view and resets on another. Without it Plotly carried a zoom on "Maks." over to "1D" (the axis showed 2000–2001).
+  - **No dimming on a live redraw:** CSS keeps elements at full opacity while a fragment runs. A full run still dims and shows "Przeliczam…" (D-060).
+- **Verified in the browser** (demo data, stream every 5 s): over 20 s the value chart updated 4 times with no replaced node and no empty frame; sparklines and the open dialog update in place; zoom kept across redraws and reset on 1D → Maks. → 1R; light and dark mode unchanged.
+- **Consequences:** about 4.7 MB of plotly.js is loaded once per browser session from this machine. The component relies on Streamlit's components v2 API; a Streamlit upgrade should be checked in the browser (the fallback keeps pages working).
+
 ---
 
 ## Open questions

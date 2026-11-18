@@ -326,6 +326,8 @@ def _launch_ui(settings: Settings, port: int, dev: bool, open_browser: bool) -> 
         "--server.headless", "true",
         # Dev mode: rerun the app automatically when a source file is saved.
         "--server.runOnSave", "true" if dev else "false",
+        # The app's static/ folder: the local plotly.js of charts that update in place (D-072).
+        "--server.enableStaticServing", "true",
     ]
     url = f"http://localhost:{port}"
     click.echo(f"Data directory: {settings.data_dir}")

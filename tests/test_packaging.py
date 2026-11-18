@@ -21,7 +21,8 @@ def test_every_ui_file_is_listed_as_package_data():
     """A file the patterns miss would be absent from the wheel, and the installed app would break."""
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     patterns = pyproject["tool"]["setuptools"]["package-data"]["finance_analytics"]
-    files = [p for p in APP.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    # static/ holds plotly.js copied at runtime from the plotly package (D-072); it is not shipped.
+    files = [p for p in APP.rglob("*") if p.is_file() and "__pycache__" not in p.parts and "static" not in p.parts]
     assert APP / "main.py" in files and APP / ".streamlit" / "config.toml" in files
     missed = [
         p.relative_to(PACKAGE).as_posix() for p in files

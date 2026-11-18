@@ -11,6 +11,12 @@ has a section with all five fields.
 - The browser keeps one WebSocket to Streamlit. There is no page reload: a *full run* reruns the page script after a
   click, a page change or `st.rerun()`. A *fragment* (`@st.fragment(run_every=…)`) reruns only its own function on
   a timer, and only its elements go to the browser.
+- `st.plotly_chart` gives a chart a new element ID whenever its figure changes, and its frontend reads the figure only
+  on mount: a live redraw removed the chart and drew it from scratch, empty for a frame or two (a blink). Charts in
+  live fragments therefore use `ui.live_chart` (`show(..., live=True)`, `show_spark`, `show_detail`): one chart per
+  key, updated in place with `Plotly.react`, plotly.js served locally from the app's `static/` folder (D-072).
+  While a fragment runs, its elements are not dimmed (CSS in `ui.components`); a full run still dims and shows
+  "Przeliczam…".
 - A fragment must draw all of its elements on every run; what it does not draw disappears. So "redraw only when
   something changed" is not possible inside a fragment. Instead, the work behind each redraw is kept small (below),
   and live fragments slow down while markets are quiet (`ui.data.live_every`, D-071):
@@ -57,8 +63,10 @@ Profiled times are about 1.5–2× the real ones.
     (`returns.position_result_trends`, one as-of join), the table.
 - **Sent to the browser:** per `headline()` run: six KPI tiles with sparklines (~3.5 KB each) and the value chart
   (~44 KB on Maks.). Per `positions()` run: the holdings table (~55 KB with 26 positions). Whole page ~142 KB
-  (Maks.), ~117 KB (1D). Charts keep zoom and hover across redraws (`uirevision`), and an open KPI dialog stays
-  open.
+  (Maks.), ~117 KB (1D). The value chart, the sparklines and the "Pełny wykres" dialog are live charts
+  (`ui.live_chart`, D-072): the same chart takes each new figure with `Plotly.react`, so it never disappears. Zoom
+  survives redraws of the same view (`view=` period and unit) and resets on a new one. An open KPI dialog stays
+  open. The composition and allocation charts outside the fragments stay on `st.plotly_chart`.
 
 ## Zwroty (`views/returns.py`)
 

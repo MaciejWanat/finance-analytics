@@ -14,6 +14,13 @@ All notable changes to this project are listed here. The format follows
   one core on the demo data). While markets are closed the page redraws less
   often: every minute while only currencies trade, every 5 minutes at weekends (D-071).
 
+### Fixed
+
+- **No more blinking on live redraws:** the "Wartość portfela" chart, the tile sparklines and an open "Pełny
+  wykres" now change in place instead of disappearing and being drawn again every few seconds, and the tiles no
+  longer fade while they refresh. Zoom on the value chart stays while prices update and resets when you pick
+  another period (D-072).
+
 ## [0.11.0] - 2026-11-18
 
 Prices that move by themselves: live every few seconds through a stream, and a "1D" period that

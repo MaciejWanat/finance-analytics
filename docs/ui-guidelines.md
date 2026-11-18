@@ -115,6 +115,9 @@ Load the `dataviz` skill before designing a new chart form.
 - Live fragments redraw everything they show, so keep each run cheap: compute what does not depend on live quotes once
   per data version, and lay the quotes over the last day (`valuation.apply_live`, D-071). Use `ui.data.live_every`
   for `run_every`, never a fixed interval.
+- A chart inside a live fragment uses `show(fig, key=..., live=True, view=...)` (sparklines and the KPI dialog do it
+  already): `st.plotly_chart` would be removed and drawn anew on every redraw, a visible blink (D-072). `view` names
+  what the chart shows (period, unit), so zoom survives redraws but not a change of period.
 - `docs/panels.md` describes, per page, what triggers a rerun, what it reads, what is cached and what is recomputed
   on every redraw. A change to a page, its fragments or what it computes updates that page's section.
 

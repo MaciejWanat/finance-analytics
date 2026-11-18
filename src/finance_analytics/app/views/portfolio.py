@@ -97,6 +97,8 @@ UNIT = "w dzisiejszych złotych" if real_view else "w PLN"
 DAY = one_day(settings, v) if period == ONE_DAY else None
 start = period_start(period, total.index[0], end, day_base=DAY.base if DAY else None)
 INTRADAY_TREND = "15min"  # sparkline points within one day
+# What the value chart shows: a new period or unit resets its zoom; live redraws keep it (D-072).
+CHART_VIEW = f"{period}|{real_view}"
 
 
 def day_values(v, window):
@@ -294,7 +296,7 @@ def headline() -> None:
     if day is None:
         section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}."
                 f"{live_note}", help=G["portfolio_value"])
-        show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
+        show(area_total(window, name="Portfel", mode=mode, height=340), key="total", live=True, view=CHART_VIEW)
         return
     flat = f" Bez notowań w ciągu dnia (linia płaska): {', '.join(intra.missing)}." if intra.missing else ""
     section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, {fmt_date(day.day)} co 5 minut, względem "
@@ -310,7 +312,7 @@ def headline() -> None:
     baseline = float(window.iloc[0])
     show(intraday_chart(curve, baseline=baseline, until=day.until, mode=mode, height=340,
                         baseline_label=f"Zamknięcie {day.base:%d.%m}: {fmt_money(baseline, decimals=0)}"),
-         key="total")
+         key="total", live=True, view=CHART_VIEW)
 
 
 headline()
