@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, show, stacked_bars
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import RANGES, load_valuation, period_start, require_valued_data
+from ui.data import ONE_DAY, RANGES, load_valuation, one_day, period_start, require_valued_data
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct, plural
 from ui.glossary import G
 from ui.theme import OTHER_LABEL, color_map
@@ -44,7 +44,8 @@ if paid.empty:
 period = st.segmented_control("Okres", RANGES, default="Maks.", key="dividends_period", required=True,
                               help=G["periods"])
 end = v.total.index[-1]
-start = period_start(period, min(paid["date"].min(), v.total.index[0]), end)
+day_base = one_day(settings, v).base if period == ONE_DAY else None  # 1D: the day of the "Dzisiaj" tile (D-070)
+start = period_start(period, min(paid["date"].min(), v.total.index[0]), end, day_base=day_base)
 window = paid[(paid["date"] > start) & (paid["date"] <= end)] if period != "Maks." else paid
 
 if paid["rate"].isna().any():
@@ -83,16 +84,19 @@ mode = current_mode()
 
 # --------------------------------------------------------------------------------- over time
 section("Dywidendy w czasie", "Netto w PLN, suma w każdym miesiącu, według spółki.", help=G["dividend_net"])
-by_month = window.pivot_table(index="date", columns="symbol", values="net_pln", aggfunc="sum").resample("ME").sum()
-by_month = by_month.reindex(pd.date_range(by_month.index.min(), by_month.index.max(), freq="ME"), fill_value=0.0)
-totals = by_month.sum().sort_values(ascending=False)
-companies = sorted(totals.index)
-if len(companies) > MAX_COMPANIES:
-    kept = sorted(totals.index[: MAX_COMPANIES - 1])
-    by_month[OTHER_LABEL] = by_month.drop(columns=kept).sum(axis=1)
-    by_month, companies = by_month[kept + [OTHER_LABEL]], kept + [OTHER_LABEL]
-colors = color_map([c for c in companies if c != OTHER_LABEL], mode)
-show(stacked_bars(by_month[companies], mode=mode, colors=colors, height=320), key="dividends_by_month")
+if window.empty:  # a short period (1D, 1M) often has no payment
+    st.caption("W wybranym okresie nie było wypłat dywidend.")
+else:
+    by_month = window.pivot_table(index="date", columns="symbol", values="net_pln", aggfunc="sum").resample("ME").sum()
+    by_month = by_month.reindex(pd.date_range(by_month.index.min(), by_month.index.max(), freq="ME"), fill_value=0.0)
+    totals = by_month.sum().sort_values(ascending=False)
+    companies = sorted(totals.index)
+    if len(companies) > MAX_COMPANIES:
+        kept = sorted(totals.index[: MAX_COMPANIES - 1])
+        by_month[OTHER_LABEL] = by_month.drop(columns=kept).sum(axis=1)
+        by_month, companies = by_month[kept + [OTHER_LABEL]], kept + [OTHER_LABEL]
+    colors = color_map([c for c in companies if c != OTHER_LABEL], mode)
+    show(stacked_bars(by_month[companies], mode=mode, colors=colors, height=320), key="dividends_by_month")
 
 # ------------------------------------------------------------------------------- per company
 section("Spółki", "Suma wypłat w wybranym okresie.", help=G["dividend_payments"])

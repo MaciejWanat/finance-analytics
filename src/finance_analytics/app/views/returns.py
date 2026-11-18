@@ -1,4 +1,5 @@
-"""Returns: TWR, XIRR, drawdowns and monthly returns (D-022)."""
+"""Returns: TWR, XIRR, drawdowns and monthly returns (D-022). "1D": the day of the "Dzisiaj" tile, its curves
+every 5 minutes (D-070)."""
 
 from __future__ import annotations
 
@@ -6,17 +7,18 @@ import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, drawdown_chart, line_chart, returns_heatmap, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import RANGES, load_valuation, period_start, require_valued_data
+from ui.data import ONE_DAY, RANGES, load_intraday, load_valuation, one_day, period_start, require_valued_data
 from ui.fmt import fmt_date, fmt_money, fmt_pct
 from ui.glossary import G
 from ui.theme import color_map
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.market.intraday import coverage
 from finance_analytics.market.network import is_online
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import attribute
-from finance_analytics.portfolio.returns import monthly_returns, returns_for
+from finance_analytics.portfolio.returns import drawdown, monthly_returns, returns_for
 
 PORTFOLIO = "Cały portfel"
 
@@ -30,8 +32,10 @@ period = st.segmented_control(
     "Okres", RANGES, default="Maks.", key="returns_period", required=True, help=G["periods"]
 )
 end = total.index[-1]
-start = period_start(period, total.index[0], end)
+DAY = one_day(settings, v) if period == ONE_DAY else None
+start = period_start(period, total.index[0], end, day_base=DAY.base if DAY else None)
 days = (end - start).days
+INTRADAY_TREND = "15min"
 
 flows = v.flows.set_index("date")["amount_pln"].sort_index()
 portfolio = returns_for(total, flows, start, end)
@@ -54,28 +58,55 @@ cpi = reports.cpi_monthly(settings.db_path)
 levels, daily_cpi = inflation.daily_from_cpi(cpi, total.index) if not cpi.empty else (None, None)
 period_inflation = inflation.window_inflation(daily_cpi, start, end) if daily_cpi is not None else None
 
+# 1D (D-070): the day's curves every 5 minutes, measured from the base close of the daily figures.
+intra = load_intraday(settings, v, DAY) if DAY is not None else None
+if intra is not None and len(intra.rows):
+    base_value = float(total.asof(start))
+    day_index = pd.concat([pd.Series([base_value], index=[intra.total.index[0] - pd.Timedelta(minutes=5)]),
+                           intra.total]) / base_value
+
+    def growth(series: pd.Series) -> pd.Series:
+        return series.resample(INTRADAY_TREND).last().dropna()
+
+    twr_trend = (growth(day_index) - 1).round(4).tolist()
+    value_trend = growth(intra.total).round(0).tolist()
+    dd = drawdown(day_index)
+    when = "%H:%M"
+else:
+    intra = None
+    twr_trend = (portfolio.index - 1).resample("W-FRI").last().round(4).tolist()
+    value_trend = total[total.index >= start].resample("W-FRI").last().round(0).tolist()
+    dd = portfolio.drawdown
+    when = None
+
+
+def moment(value) -> str:
+    return fmt_date(value) if when is None else f"{value:%H:%M}"
+
+
 # ------------------------------------------------------------------------------------------- KPIs
-dd = portfolio.drawdown
 kpi_row(
     [
         Kpi("TWR w okresie", fmt_pct(portfolio.twr),
             delta=f"{fmt_pct(portfolio.twr_annual)} rocznie" if portfolio.twr_annual is not None else None,
             help=G["twr"],
-            trend=(portfolio.index - 1).resample("W-FRI").last().round(4).tolist(), trend_kind="pct"),
+            trend=twr_trend, trend_kind="pct"),
         Kpi("XIRR (rocznie)", fmt_pct(portfolio.xirr) if portfolio.xirr is not None else "–",
             delta_color="off",
             delta=None if portfolio.xirr is not None else "dla okresów od roku",
             help=G["xirr"],
-            trend=total[total.index >= start].resample("W-FRI").last().round(0).tolist()),
+            trend=value_trend),
         Kpi("Największy spadek", fmt_pct(dd.max_drawdown),
-            delta=f"{fmt_date(dd.peak)} → {fmt_date(dd.trough)}" if dd.trough is not None else None,
+            delta=f"{moment(dd.peak)} → {moment(dd.trough)}" if dd.trough is not None else None,
             delta_color="off",
             help=G["drawdown"] + " "
-                 + (f"Odrobiony {fmt_date(dd.recovered)}." if dd.recovered is not None else "Jeszcze nieodrobiony."),
-            trend=dd.series.resample("W-FRI").min().round(4).tolist(), trend_kind="pct"),
+                 + (f"Odrobiony {moment(dd.recovered)}." if dd.recovered is not None else "Jeszcze nieodrobiony."),
+            trend=dd.series.resample(INTRADAY_TREND if intra is not None else "W-FRI").min().round(4).tolist(),
+            trend_kind="pct"),
         Kpi("Obecnie od szczytu", fmt_pct(dd.current), delta_color="off",
             help=G["drawdown_current"],
-            trend=dd.series.resample("W-FRI").last().round(4).tolist(), trend_kind="pct"),
+            trend=dd.series.resample(INTRADAY_TREND if intra is not None else "W-FRI").last().round(4).tolist(),
+            trend_kind="pct"),
     ]
 )
 
@@ -84,14 +115,29 @@ mode = current_mode()
 # --------------------------------------------------------------------------------- TWR over time
 section(
     "Stopa zwrotu w czasie (TWR)",
-    f"Skumulowana, od {fmt_date(start)} do {fmt_date(end)}. 0% oznacza wynik zerowy.",
+    (f"Skumulowana, {fmt_date(DAY.day)} co 5 minut, od zamknięcia {fmt_date(DAY.base)}. 0% oznacza wynik zerowy."
+     if intra is not None else f"Skumulowana, od {fmt_date(start)} do {fmt_date(end)}. 0% oznacza wynik zerowy."),
     help=G["twr"],
 )
-lines = pd.DataFrame({PORTFOLIO: portfolio.index - 1})
-for account, result in per_account.items():
-    lines[account] = result.index - 1
 colors = color_map([PORTFOLIO, *per_account], mode)
-show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.1%}", y_tickformat=".0%"), key="twr")
+if intra is not None and coverage(settings.db_path, DAY.start, DAY.end) is None:
+    st.info("Brak notowań z tego dnia, więc linie są płaskie. W trybie online pobierają się same; offline pobierzesz "
+            "je na stronie Portfel przy okresie 1D.", icon=":material/schedule:")
+if intra is not None:
+    # Within one day there are no deposits to remove: each curve is its value over its own base close.
+    by_account = intra.by("account")
+    lines = pd.DataFrame({PORTFOLIO: intra.total / base_value - 1})
+    for account in per_account:
+        account_base = float(account_values[account].asof(start))
+        if account in by_account.columns and account_base:
+            lines[account] = by_account[account] / account_base - 1
+    show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.2%}", y_tickformat=".1%",
+                    until=DAY.until), key="twr")
+else:
+    lines = pd.DataFrame({PORTFOLIO: portfolio.index - 1})
+    for account, result in per_account.items():
+        lines[account] = result.index - 1
+    show(line_chart(lines, mode=mode, colors=colors, height=360, hover="%{y:.1%}", y_tickformat=".0%"), key="twr")
 
 # ------------------------------------------------------------------------------ after inflation
 section("Po inflacji", "Zwrot nominalny (TWR) i realny, czyli po odjęciu wzrostu cen według CPI z GUS.",
@@ -109,6 +155,8 @@ if cpi.empty:
         st.page_link("views/market.py", label="Przejdź do danych rynkowych", icon=":material/arrow_forward:")
     else:
         st.page_link("views/settings.py", label="Przejdź do ustawień", icon=":material/arrow_forward:")
+elif intra is not None or period == ONE_DAY:
+    st.caption("Przez jeden dzień ceny w sklepach praktycznie stoją, więc zwrot realny pokazujemy od okresu 1M.")
 else:
     if period_inflation is None:
         st.caption(f"CPI zaczyna się od {fmt_date(levels.index[0])}, więc dla tego okresu nie ma inflacji.")
@@ -160,10 +208,16 @@ else:
              "w ich walucie. Waluty: zmiana kursu NBP waluty notowania oraz gotówki w walutach. Pozostałe: "
              "dywidendy, odsetki, podatki, opłaty i różnica między ceną zakupu a ceną zamknięcia w dniu zakupu.",
     )
-    parts = attribution.cumulative.rename(columns={
-        "total": "Razem (TWR)", "price": "Ceny instrumentów", "fx": "Kursy walut", "other": "Pozostałe",
-    })[["Razem (TWR)", "Ceny instrumentów", "Kursy walut", "Pozostałe"]]
-    show(line_chart(parts, mode=mode, height=320, hover="%{y:.1%}", y_tickformat=".0%"), key="attribution")
+    names = {"total": "Razem (TWR)", "price": "Ceny instrumentów", "fx": "Kursy walut", "other": "Pozostałe"}
+    if intra is not None:  # the day every 5 minutes, from its first moment (rates at market, not NBP)
+        st.caption("Wykres: od początku dnia co 5 minut, z kursami rynkowymi; liczby wyżej: od zamknięcia "
+                   f"{fmt_date(DAY.base)}, z kursami NBP.")
+        parts = intra.split().rename(columns=names)[list(names.values())]
+        show(line_chart(parts, mode=mode, height=320, hover="%{y:.2%}", y_tickformat=".1%", until=DAY.until),
+             key="attribution")
+    else:
+        parts = attribution.cumulative.rename(columns=names)[list(names.values())]
+        show(line_chart(parts, mode=mode, height=320, hover="%{y:.1%}", y_tickformat=".0%"), key="attribution")
 
     st.markdown(
         "**Waluty**: wynik z kursu na pozycjach i gotówce w danej walucie.",
@@ -192,8 +246,8 @@ else:
                "price_change": G["price_change"], "fx_change": G["fx_change"]},
     )
 
-section("Spadki od szczytu", "Jak daleko cały portfel był pod swoim poprzednim maksimum (indeks TWR).",
-        help=G["drawdown"])
+section("Spadki od szczytu", "Jak daleko cały portfel był pod swoim poprzednim maksimum (indeks TWR)"
+        + (", co 5 minut." if intra is not None else "."), help=G["drawdown"])
 show(drawdown_chart(dd.series, mode=mode), key="drawdown")
 
 # ------------------------------------------------------------------------------- per account

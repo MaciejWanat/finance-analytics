@@ -21,7 +21,8 @@ from finance_analytics.sources.cash import cash_file
 from finance_analytics.sources.sync import SyncResult, sync
 
 MARKET_TABLES = (
-    "prices", "corporate_actions", "ticker_info", "fx_rates", "cpi_monthly", "live_quotes", "fetch_log",
+    "prices", "corporate_actions", "ticker_info", "fx_rates", "cpi_monthly", "live_quotes", "intraday_quotes",
+    "fetch_log",
 )
 
 

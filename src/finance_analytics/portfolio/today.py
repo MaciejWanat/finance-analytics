@@ -27,6 +27,7 @@ class Today:
     day: pd.Timestamp  # the day (or session) the tile describes
     change: tuple[float, float] | None  # (PLN, return) from the close before it; None without an earlier close
     per_day: pd.Series  # the return of every such day, for the sparkline
+    base: pd.Timestamp | None = None  # the close the result is measured from (the day before, or the previous session)
 
 
 def today_result(
@@ -38,11 +39,12 @@ def today_result(
     if not by_us_session:
         day = moved[-1] if len(moved) else end
         per_day = returns[returns.index.isin(moved)] if len(moved) else returns
-        return Today(day, change_since(values, flows, day - pd.Timedelta(days=1)), per_day)
+        base = day - pd.Timedelta(days=1)
+        return Today(day, change_since(values, flows, base), per_day, base)
     session = pd.Series([pd.Timestamp(session_of(d.date())) for d in values.index], index=values.index)
     opened = pd.Timestamp(last_opened_session(now))
     shown = sorted(s for s in set(session[session.index.isin(moved)]) if s <= opened)
     day = shown[-1] if shown else end
     base = pd.Timestamp(previous_trading_day(day.date()))
     per_day = chained_returns(returns, session)
-    return Today(day, change_since(values, flows, base, min(day, end)), per_day[per_day.index.isin(shown)])
+    return Today(day, change_since(values, flows, base, min(day, end)), per_day[per_day.index.isin(shown)], base)

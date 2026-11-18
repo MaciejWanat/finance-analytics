@@ -103,7 +103,7 @@ def test_migration_0009_recreates_instruments_and_forces_a_rebuild(tmp_path, exp
         assert conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] > 0
         conn.execute("PRAGMA user_version = 8")
         conn.commit()
-        assert migrate(conn) == [available_migrations()[8][1]]
+        assert migrate(conn)[0] == available_migrations()[8][1]  # 0009 first, then any later ones
         assert conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 0
         conn.execute("INSERT INTO instruments (xtb_symbol, asset_class) VALUES ('T.DE', 'precious_metals')")
         conn.execute("DELETE FROM instruments")

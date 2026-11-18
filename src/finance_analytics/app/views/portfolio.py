@@ -1,26 +1,41 @@
-"""Portfolio: value of everything in PLN, day by day."""
+"""Portfolio: value of everything in PLN, day by day.
+
+In online mode the headline (KPI tiles and the value chart) and the positions table are live fragments: they
+redraw with the newest quotes (`Preferences.redraw_seconds`), without rerunning the rest of the page (D-069).
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
-from ui.charts import area_total, current_mode, segmented_bar, show, stacked_bars
+from ui.charts import area_total, current_mode, intraday_chart, segmented_bar, show, stacked_bars
 from ui.components import Kpi, kpi_row, page_header, section, table
-from ui.data import RANGES, load_valuation, period_start, require_valued_data
+from ui.data import (
+    FULL_RUN,
+    ONE_DAY,
+    RANGES,
+    load_intraday,
+    load_valuation,
+    one_day,
+    period_start,
+    require_valued_data,
+)
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct
 from ui.glossary import G
 from ui.theme import OTHER_LABEL, color_map
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
+from finance_analytics.market.intraday import coverage, update_intraday
+from finance_analytics.market.live import live_symbols
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
 from finance_analytics.portfolio.returns import period_return, twr_index, underwater
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import market_days
-from finance_analytics.preferences import PreferencesError, load_preferences
+from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 
 BREAKDOWNS = {"Klasa aktywów": "asset_class", "Rachunek": "account", "Instrument": "symbol", "Waluta": "currency"}
 # Fixed order = fixed palette slot per class, so a class keeps its colour whatever else the portfolio holds.
@@ -34,8 +49,14 @@ MAX_PARTS = 8
 page_header("Portfel", "Wartość wszystkich rachunków w PLN, dzień po dniu.")
 settings = get_settings()
 require_valued_data(settings, "wartość portfela w czasie, podział na rachunki i klasy aktywów oraz bieżące pozycje")
+try:
+    preferences = load_preferences(settings)
+except PreferencesError:  # the sidebar reports a broken settings file
+    preferences = Preferences()
+LIVE_EVERY = timedelta(seconds=preferences.redraw_seconds) if preferences.online else None
+STREAMING = preferences.streaming  # the stream says "na żywo" without the time of the last price (D-069)
 v, live_at = load_valuation(settings)
-daily, total = v.daily, v.total
+total = v.total
 
 # Inflation (D-025, D-058): the price level per day, from the saved GUS CPI; nothing without it.
 cpi = reports.cpi_monthly(settings.db_path)
@@ -55,8 +76,6 @@ with real_col:
     real_view = st.toggle("Po inflacji", key="real_view", disabled=daily_cpi is None, help=real_help)
 real_view = bool(real_view and daily_cpi is not None)
 
-flows = v.flows.set_index("date")["amount_pln"].sort_index()
-lots = v.lots
 end = total.index[-1]
 factor = None
 if real_view:
@@ -70,53 +89,68 @@ if real_view:
     if factor.isna().any() or not factor.between(0.2, 5).all():
         st.warning("Dane o inflacji (CPI z GUS) w bazie wyglądają na uszkodzone, więc pokazuję wartości "
                    "nominalne. Pobierz je ponownie na stronie Dane rynkowe.", icon=":material/warning:")
-        real_view = False
-if real_view:
-    total = total * factor
-    flows = flows * factor.reindex(flows.index).fillna(1.0).to_numpy()
-    daily = daily.assign(value_pln=daily["value_pln"] * daily["date"].map(factor).fillna(1.0))
-    lots = lots.assign(cost_pln=lots["cost_pln"] * lots["open_date"].map(lambda d: factor.asof(d)).fillna(1.0))
+        real_view, factor = False, None
 UNIT = "w dzisiejszych złotych" if real_view else "w PLN"
-
-start = period_start(period, total.index[0], end)
-window = total[total.index >= start]
-
-# ------------------------------------------------------------------------------------------- KPIs
-value_now = total.iloc[-1]
-in_window = flows[(flows.index > start) & (flows.index <= end)].sum()
-result = value_now - window.iloc[0] - in_window
-index = twr_index(total, flows)
-twr_period = period_return(index, start, end)
-contributed = flows.sum()
+# "1D" (D-070): the day of the "Dzisiaj" tile, every 5 minutes; daily figures are measured from its base close.
+DAY = one_day(settings, v) if period == ONE_DAY else None
+start = period_start(period, total.index[0], end, day_base=DAY.base if DAY else None)
+INTRADAY_TREND = "15min"  # sparkline points within one day
 
 
-# Every tile gets a sparkline over the selected period, so the tiles line up and read alike.
-cumulative_flows = flows.groupby(level=0).sum().reindex(total.index, fill_value=0.0).cumsum()
-step = "W-FRI" if (end - start).days <= 180 else "ME"
+def day_values(v, window):
+    """The 1D rows of a valuation, in today's złoty with "Po inflacji" (the factor of that day)."""
+    intra = load_intraday(settings, v, window)
+    if factor is not None and len(intra.rows):
+        scale = float(factor.get(window.day, 1.0))
+        intra.rows[["value_pln", "fx_pln"]] *= scale
+    return intra
 
 
-def trend(series: pd.Series) -> list[float]:
-    return series[series.index >= start].resample(step).last().dropna().round(0).tolist()
+def fetch_today_button() -> None:
+    """Offline the 1D quotes come only on request (D-031): a two-run button with a spinner (ui-guidelines §6)."""
+    busy = st.session_state.get("intraday_fetching", False)
+    if st.button("Pobierz notowania z dziś", icon="spinner" if busy else ":material/download:", disabled=busy,
+                 help=G["intraday_fetch"], key="intraday_fetch"):
+        st.session_state["intraday_fetching"] = True
+        st.rerun(scope="fragment")
+    if busy:
+        try:
+            update_intraday(settings, live_symbols(settings), manual=True)
+        except Exception as exc:  # the network or Yahoo refused: say so, keep the page
+            st.session_state["intraday_error"] = str(exc)
+        finally:
+            st.session_state["intraday_fetching"] = False
+        st.rerun(scope="fragment")
+    if error := st.session_state.pop("intraday_error", None):
+        st.warning(f"Nie udało się pobrać notowań: {error}", icon=":material/sync_problem:")
 
 
-period_result = total - window.iloc[0] - (cumulative_flows - cumulative_flows.asof(start))
-# How far below the money put in the portfolio has been (D-049): (value - deposits) / deposits.
-uw = underwater(total, cumulative_flows, start)
-in_window_ratio = uw.series[uw.series.index >= start].dropna()
-lowest = (f"min. {fmt_pct(uw.worst)} ({uw.day:%m.%Y})" if uw.worst is not None and uw.worst < 0
-          else "nigdy poniżej wpłat" if uw.worst is not None else None)
-ratio_help = (G["profit_ratio"]
-              + (f" Najniżej {fmt_date(uw.day)}: {fmt_pct(uw.worst)}, czyli "
-                 f"{fmt_money(uw.profit, decimals=0, signed=True)} względem wpłat." if uw.day is not None else "")
-              + (" Wpłaty i wartości w dzisiejszych złotych." if real_view else ""))
-# Currency gain or loss (D-059): what foreign holdings earned or lost on the NBP rate alone, day by day.
-fx_daily = fx_pnl(v)
-if factor is not None:
-    fx_daily = fx_daily.mul(factor.reindex(fx_daily.index).fillna(1.0), axis=0)
-fx_window = fx_daily[(fx_daily.index > start) & (fx_daily.index <= end)]
-fx_by_currency = fx_window.sum().sort_values(key=abs, ascending=False)
-fx_total = float(fx_by_currency.sum())
-fx_cumulative = fx_window.sum(axis=1).cumsum()
+def scaled(v):
+    """(daily, total, flows, lots) of a valuation, in today's złoty with "Po inflacji" (D-058)."""
+    daily, total, lots = v.daily, v.total, v.lots
+    flows = v.flows.set_index("date")["amount_pln"].sort_index()
+    if factor is not None:
+        total = total * factor.reindex(total.index).fillna(1.0)
+        flows = flows * factor.reindex(flows.index).fillna(1.0).to_numpy()
+        daily = daily.assign(value_pln=daily["value_pln"] * daily["date"].map(factor).fillna(1.0))
+        lots = lots.assign(cost_pln=lots["cost_pln"] * lots["open_date"].map(lambda d: factor.asof(d)).fillna(1.0))
+    return daily, total, flows, lots
+
+
+def live_valuation():
+    """The valuation for a live fragment: the full run's one, or a fresh one with the newest quotes on the
+    fragment's own timer runs. A new day (midnight) reruns the whole page, so every block moves to it."""
+    if st.session_state.get(FULL_RUN, True):
+        return v, live_at
+    fresh, fresh_at = load_valuation(settings, live_run=True)
+    if fresh.total.index[-1] != end:
+        st.rerun(scope="app")
+    return fresh, fresh_at
+
+
+# Today (D-063, D-067): the result of the last day, counted from midnight (the default) or by US sessions (with US
+# instruments held).
+by_us_session = preferences.today_tile == "us_session" and reports.holds_us_listed(settings.db_path)
 
 
 def _short(amount: float) -> str:
@@ -130,76 +164,153 @@ def _short(amount: float) -> str:
     return text.replace("-", "−")
 
 
-# The tile shows the two currencies that mattered most as coloured badges; the help lists all of them.
-fx_badges = [(f"{currency} {_short(amount)}", float(amount)) for currency, amount in fx_by_currency.head(2).items()]
-fx_help = G["fx_result"] + "".join(
-    f" {currency}: {fmt_money(amount, decimals=0, signed=True)}." for currency, amount in fx_by_currency.items())
-# Today (D-063, D-067): the result of the last day, counted from midnight (the default) or by US sessions (with US
-# instruments held). When that day is not today the tooltip names it (no badge: the user found it noisy, D-067).
-try:
-    today_tile = load_preferences(settings).today_tile
-except PreferencesError:  # the sidebar reports a broken settings file
-    today_tile = "calendar_day"
-by_us_session = today_tile == "us_session" and reports.holds_us_listed(settings.db_path)
-tile = today_result(total, flows, market_days(v), by_us_session=by_us_session, now=datetime.now(UTC))
-session, today, session_returns = tile.day, tile.change, tile.per_day
-today_badges = [(fmt_money(today[0], decimals=0, signed=True), today[0])] if today else []
-today_help = (G["today"] + (G["today_us_session"] if by_us_session else G["today_calendar_day"])
-              + (f" Teraz widać sesję z {fmt_date(session)}." if session < end else "")
-              + (f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at
-                 else " Ceny z ostatnich pobranych notowań.")
-              + (" Kwota w dzisiejszych złotych." if real_view else ""))
-today_note = ("Wynik każdej sesji giełdy w USA w procentach (TWR), razem z ruchami walut i innych giełd od "
-              "poprzedniej sesji, bez wpłat i wypłat. Na kafelku: ostatni miesiąc." if by_us_session else
-              "Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań (weekendy, święta) "
-              "są pominięte. Na kafelku: ostatni miesiąc.")
-# One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
-kpi_row(
-    [
-        Kpi("Wartość portfela", fmt_money_compact(value_now),
-            delta=fmt_money_compact(value_now - window.iloc[0]).replace("−", "-"),
-            help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
-                 "małej wartości startowej).", trend=trend(total),
-            series=total, series_start=start, series_note=f"Wartość wszystkich rachunków {UNIT}, dzień po dniu."),
-        Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
-            delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
-            help=today_help,
-            trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
-            trend_kind="pct", trend_water=True, series=session_returns, series_start=start, series_note=today_note),
-        Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
-            delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
-            help=G["result_period"],
-            trend=trend(period_result), trend_water=True,
-            series=period_result[period_result.index >= start],
-            series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
-                        "nad kafelkami."),
-        Kpi("Wynik na walutach", fmt_money(fx_total, decimals=0, signed=True) if len(fx_by_currency) else "–",
-            delta=None if fx_badges else "brak walut obcych", delta_color="off", badges=fx_badges, help=fx_help,
-            trend=fx_cumulative.resample(step).last().dropna().round(0).tolist(), trend_water=True,
-            series=fx_cumulative,
-            series_note="Zysk (+) lub strata (−) na samych kursach walut, narastająco od początku okresu: wartość "
-                        "w walucie razy zmiana kursu NBP, dzień po dniu."),
-        Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
-            delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
-            help=G["contributed"] + (" Każda wpłata przeliczona na dzisiejsze złote." if real_view else ""),
-            trend=trend(cumulative_flows),
-            series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco."),
-        Kpi("Zysk do wpłat", fmt_pct(uw.current) if uw.current is not None else "–",
-            delta=lowest, delta_color="off", help=ratio_help,
-            trend=in_window_ratio.resample(step).last().dropna().round(4).tolist(),
-            trend_kind="pct", trend_water=True, series=in_window_ratio,
-            series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
-                        "niż wpłacone pieniądze."),
-    ]
-)
+@st.fragment(run_every=LIVE_EVERY)
+def headline() -> None:
+    """KPI tiles and the value chart; live in online mode (D-069)."""
+    v, live_at = live_valuation()
+    _, total, flows, _ = scaled(v)
+    window = total[total.index >= start]
+    mode = current_mode()
+    day = one_day(settings, v) if DAY is not None else None  # its end moves with the clock
+    intra = day_values(v, day) if day is not None else None
+    curve = intra.total if intra is not None else None
+    # ------------------------------------------------------------------------------------------- KPIs
+    value_now = total.iloc[-1]
+    in_window = flows[(flows.index > start) & (flows.index <= end)].sum()
+    result = value_now - window.iloc[0] - in_window
+    index = twr_index(total, flows)
+    twr_period = period_return(index, start, end)
+    contributed = flows.sum()
 
+    # Every tile gets a sparkline over the selected period, so the tiles line up and read alike.
+    cumulative_flows = flows.groupby(level=0).sum().reindex(total.index, fill_value=0.0).cumsum()
+    step = "W-FRI" if (end - start).days <= 180 else "ME"
+
+    def trend(series: pd.Series, decimals: int = 0) -> list[float]:
+        if series.index.tz is not None:  # within one day (1D)
+            return series.resample(INTRADAY_TREND).last().dropna().round(decimals).tolist()
+        return series[series.index >= start].resample(step).last().dropna().round(decimals).tolist()
+
+    period_result = total - window.iloc[0] - (cumulative_flows - cumulative_flows.asof(start))
+    # How far below the money put in the portfolio has been (D-049): (value - deposits) / deposits.
+    uw = underwater(total, cumulative_flows, start)
+    in_window_ratio = uw.series[uw.series.index >= start].dropna()
+    lowest = (f"min. {fmt_pct(uw.worst)} ({uw.day:%m.%Y})" if uw.worst is not None and uw.worst < 0
+              else "nigdy poniżej wpłat" if uw.worst is not None else None)
+    ratio_help = (G["profit_ratio"]
+                  + (f" Najniżej {fmt_date(uw.day)}: {fmt_pct(uw.worst)}, czyli "
+                     f"{fmt_money(uw.profit, decimals=0, signed=True)} względem wpłat." if uw.day is not None else "")
+                  + (" Wpłaty i wartości w dzisiejszych złotych." if real_view else ""))
+    # Currency gain or loss (D-059): what foreign holdings earned or lost on the NBP rate alone, day by day.
+    fx_daily = fx_pnl(v)
+    if factor is not None:
+        fx_daily = fx_daily.mul(factor.reindex(fx_daily.index).fillna(1.0), axis=0)
+    fx_window = fx_daily[(fx_daily.index > start) & (fx_daily.index <= end)]
+    fx_by_currency = fx_window.sum().sort_values(key=abs, ascending=False)
+    fx_total = float(fx_by_currency.sum())
+    fx_cumulative = fx_window.sum(axis=1).cumsum()
+    contributed_ratio = None
+    if curve is not None:
+        # Within one day the curves come from the 5-minute values; the tile numbers stay the daily ones, measured
+        # from the same close (D-070).
+        period_result = curve - window.iloc[0] - in_window
+        fx_cumulative = intra.fx_part
+        deposits = cumulative_flows.iloc[-1]
+        contributed_ratio = (curve - deposits) / deposits if deposits > 0 else None
+        in_window_ratio = contributed_ratio if contributed_ratio is not None else in_window_ratio
+
+    # The tile shows the two currencies that mattered most as coloured badges; the help lists all of them.
+    fx_badges = [(f"{currency} {_short(amount)}", float(amount)) for currency, amount in fx_by_currency.head(2).items()]
+    fx_help = G["fx_result"] + "".join(
+        f" {currency}: {fmt_money(amount, decimals=0, signed=True)}." for currency, amount in fx_by_currency.items())
+    # Today (D-063, D-067): the result of the last day, counted from midnight (the default) or by US sessions (with US
+    # instruments held). When that day is not today the tooltip names it (no badge: the user found it noisy, D-067).
+    tile = today_result(total, flows, market_days(v), by_us_session=by_us_session, now=datetime.now(UTC))
+    session, today, session_returns = tile.day, tile.change, tile.per_day
+    today_badges = [(fmt_money(today[0], decimals=0, signed=True), today[0])] if today else []
+    today_help = (G["today"] + (G["today_us_session"] if by_us_session else G["today_calendar_day"])
+                  + (f" Teraz widać sesję z {fmt_date(session)}." if session < end else "")
+                  + (" Ceny na żywo ze strumienia." if live_at and STREAMING
+                     else f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at
+                     else " Ceny z ostatnich pobranych notowań.")
+                  + (" Kwota w dzisiejszych złotych." if real_view else ""))
+    today_note = ("Wynik każdej sesji giełdy w USA w procentach (TWR), razem z ruchami walut i innych giełd od "
+                  "poprzedniej sesji, bez wpłat i wypłat. Na kafelku: ostatni miesiąc." if by_us_session else
+                  "Wynik każdej sesji w procentach (TWR dnia), bez wpłat i wypłat. Dni bez notowań (weekendy, święta) "
+                  "są pominięte. Na kafelku: ostatni miesiąc.")
+    # One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
+    kpi_row(
+        [
+            Kpi("Wartość portfela", fmt_money_compact(value_now),
+                delta=fmt_money_compact(value_now - window.iloc[0]).replace("−", "-"),
+                help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
+                     "małej wartości startowej).", trend=trend(curve if curve is not None else total),
+                series=curve if curve is not None else total, series_start=start,
+                series_note=f"Wartość wszystkich rachunków {UNIT}, "
+                            + ("co 5 minut." if curve is not None else "dzień po dniu.")),
+            Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
+                delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
+                help=today_help,
+                trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
+                trend_kind="pct", trend_water=True, series=session_returns, series_start=start, series_note=today_note),
+            Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
+                delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
+                help=G["result_period"],
+                trend=trend(period_result), trend_water=True,
+                series=period_result if curve is not None else period_result[period_result.index >= start],
+                series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
+                            "nad kafelkami."),
+            Kpi("Wynik na walutach", fmt_money(fx_total, decimals=0, signed=True) if len(fx_by_currency) else "–",
+                delta=None if fx_badges else "brak walut obcych", delta_color="off", badges=fx_badges, help=fx_help,
+                trend=trend(fx_cumulative) if curve is not None
+                else fx_cumulative.resample(step).last().dropna().round(0).tolist(), trend_water=True,
+                series=fx_cumulative,
+                series_note="Zysk (+) lub strata (−) na samych kursach walut, narastająco od początku okresu: wartość "
+                            + ("w walucie razy zmiana kursu rynkowego, co 5 minut." if curve is not None
+                               else "w walucie razy zmiana kursu NBP, dzień po dniu.")),
+            Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
+                delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
+                help=G["contributed"] + (" Każda wpłata przeliczona na dzisiejsze złote." if real_view else ""),
+                trend=trend(pd.Series(contributed, index=curve.index) if curve is not None else cumulative_flows),
+                series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco."),
+            Kpi("Zysk do wpłat", fmt_pct(uw.current) if uw.current is not None else "–",
+                delta=lowest, delta_color="off", help=ratio_help,
+                trend=trend(in_window_ratio, 4) if curve is not None
+                else in_window_ratio.resample(step).last().dropna().round(4).tolist(),
+                trend_kind="pct", trend_water=True, series=in_window_ratio,
+                series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
+                            "niż wpłacone pieniądze."),
+        ]
+    )
+
+    # -------------------------------------------------------------------------------- value over time
+    live_note = (" Dzisiejsza wartość na żywo." if live_at and STREAMING
+                 else f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else "")
+    if day is None:
+        section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}."
+                f"{live_note}", help=G["portfolio_value"])
+        show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
+        return
+    flat = f" Bez notowań w ciągu dnia (linia płaska): {', '.join(intra.missing)}." if intra.missing else ""
+    section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, {fmt_date(day.day)} co 5 minut, względem "
+            f"zamknięcia {fmt_date(day.base)}.{live_note}{flat}", help=G["intraday"])
+    if coverage(settings.db_path, day.start, day.end) is None:
+        if preferences.online:
+            st.info("Notowania z dziś pobierają się w tle; wykres pojawi się za chwilę.", icon=":material/schedule:")
+        else:
+            st.info("Brak notowań z tego dnia. W trybie offline aplikacja sama ich nie pobiera; możesz pobrać je "
+                    "jednorazowo przyciskiem.", icon=":material/cloud_off:")
+            fetch_today_button()
+        return
+    baseline = float(window.iloc[0])
+    show(intraday_chart(curve, baseline=baseline, until=day.until, mode=mode, height=340,
+                        baseline_label=f"Zamknięcie {day.base:%d.%m}: {fmt_money(baseline, decimals=0)}"),
+         key="total")
+
+
+headline()
 mode = current_mode()
-
-# -------------------------------------------------------------------------------- value over time
-live_note = f" Dzisiejsza wartość na żywo: ceny z {live_at.astimezone():%H:%M}." if live_at else ""
-section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}."
-        f"{live_note}", help=G["portfolio_value"])
-show(area_total(window, name="Portfel", mode=mode, height=340), key="total")
+daily = scaled(v)[0]
 
 # ---------------------------------------------------------------------------- composition and parts
 # The breakdown filter sits right above the charts it changes.
@@ -225,11 +336,24 @@ else:
 window_days = (end - start).days
 frequency, frequency_label = ("W-FRI", "tygodnia") if window_days <= 100 else ("ME", "miesiąca")
 bars = wide[wide.index >= start][parts].resample(frequency).last()
+if DAY is not None:  # 1D (D-070): the value at the end of each hour of the day
+    hourly = day_values(v, DAY).rows
+    if len(hourly):
+        hourly = hourly.assign(part=hourly[column])
+        if column == "asset_class":
+            hourly["part"] = hourly["part"].map(ASSET_CLASS_LABELS).fillna(hourly["part"])
+        by_hour = hourly.pivot_table(index="ts", columns="part", values="value_pln", aggfunc="sum").fillna(0.0)
+        if OTHER_LABEL in parts:
+            by_hour[OTHER_LABEL] = by_hour.drop(columns=[p for p in parts if p != OTHER_LABEL], errors="ignore").sum(
+                axis=1)
+        bars = by_hour.reindex(columns=parts, fill_value=0.0).resample("h").last()
+        frequency_label = "godziny"
 
 left, right = st.columns([3, 2], gap="large")
 with left:
-    section(f"Skład portfela: {breakdown.lower()}", f"Wartość na koniec każdego {frequency_label}, {UNIT}.",
-            help=G["composition"])
+    section(f"Skład portfela: {breakdown.lower()}",
+            f"Wartość na koniec każdej {frequency_label}, {UNIT}." if frequency_label == "godziny"
+            else f"Wartość na koniec każdego {frequency_label}, {UNIT}.", help=G["composition"])
     show(stacked_bars(bars, mode=mode, colors=colors, height=340), key="composition")
 with right:
     section("Alokacja dziś", f"{breakdown}: udział w wartości portfela.",
@@ -246,61 +370,70 @@ with right:
     )
 
 # ------------------------------------------------------------------------------- current holdings
-section("Bieżące pozycje", "Wartość po ostatnim kursie zamknięcia i kursie NBP; koszt po kursie z dnia zakupu"
-        + (", przeliczony na dzisiejsze złote." if real_view else "."), help=G["position"])
-last_day = daily[(daily["date"] == end) & (daily["kind"] == "position")]
-holdings = last_day.groupby(["account", "symbol", "name", "asset_class", "currency"], as_index=False).agg(
-    qty=("qty", "sum"), price=("price", "last"), value=("value_pln", "sum")
-)
-open_lots = lots[lots["close_date"].isna()].assign(account=lambda d: d["account_id"].map(
-    daily.drop_duplicates("account_id").set_index("account_id")["account"]))
-cost = open_lots.groupby(["account", "symbol"])["cost_pln"].sum(min_count=1)  # all unknown -> unknown, not 0
-holdings["cost"] = [cost.get((a, s)) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
-holdings["pnl"] = holdings["value"] - holdings["cost"]
-# A cost of zero (or below) is not a real cost: show the result % as unknown rather than +∞.
-holdings["pnl_pct"] = holdings["pnl"] / holdings["cost"].where(holdings["cost"] > 0)
-holdings["share"] = holdings["value"] / value_now
-# The 90-day trend is the result (value minus the cost of the lots held that day), so a purchase
-# does not bend the line (D-054).
-recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedelta(days=90))]
-recent_value = recent.groupby(["account", "symbol", "date"])["value_pln"].sum()
-all_lots = lots.assign(account=lambda d: d["account_id"].map(
-    daily.drop_duplicates("account_id").set_index("account_id")["account"]), cost=lambda d: d["cost_pln"].fillna(0.0))
-cost_steps = pd.concat([
-    all_lots[["account", "symbol", "open_date", "cost"]].rename(columns={"open_date": "date"}),
-    all_lots.dropna(subset=["close_date"])[["account", "symbol", "close_date", "cost"]]
-    .rename(columns={"close_date": "date"}).assign(cost=lambda d: -d["cost"]),
-]).groupby(["account", "symbol", "date"])["cost"].sum()
+section("Bieżące pozycje", "Wartość po ostatniej cenie i kursie waluty (w trybie online na żywo); koszt po kursie NBP "
+        "z dnia zakupu" + (", przeliczony na dzisiejsze złote." if real_view else "."), help=G["position"])
 
 
-def result_trend(account: str, symbol: str) -> list[float]:
-    values = recent_value.loc[(account, symbol)]
-    steps = cost_steps.loc[(account, symbol)].sort_index().cumsum()
-    held_cost = steps.reindex(steps.index.union(values.index)).ffill().reindex(values.index).fillna(0.0)
-    return (values - held_cost).round(0).tolist()
+@st.fragment(run_every=LIVE_EVERY)
+def positions() -> None:
+    """The holdings table; live in online mode (D-069)."""
+    v, _ = live_valuation()
+    daily, total, _, lots = scaled(v)
+    value_now = total.iloc[-1]
+    last_day = daily[(daily["date"] == end) & (daily["kind"] == "position")]
+    holdings = last_day.groupby(["account", "symbol", "name", "asset_class", "currency"], as_index=False).agg(
+        qty=("qty", "sum"), price=("price", "last"), value=("value_pln", "sum")
+    )
+    open_lots = lots[lots["close_date"].isna()].assign(account=lambda d: d["account_id"].map(
+        daily.drop_duplicates("account_id").set_index("account_id")["account"]))
+    cost = open_lots.groupby(["account", "symbol"])["cost_pln"].sum(min_count=1)  # all unknown -> unknown, not 0
+    holdings["cost"] = [cost.get((a, s)) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
+    holdings["pnl"] = holdings["value"] - holdings["cost"]
+    # A cost of zero (or below) is not a real cost: show the result % as unknown rather than +∞.
+    holdings["pnl_pct"] = holdings["pnl"] / holdings["cost"].where(holdings["cost"] > 0)
+    holdings["share"] = holdings["value"] / value_now
+    # The 90-day trend is the result (value minus the cost of the lots held that day), so a purchase
+    # does not bend the line (D-054).
+    recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedelta(days=90))]
+    recent_value = recent.groupby(["account", "symbol", "date"])["value_pln"].sum()
+    aliases = daily.drop_duplicates("account_id").set_index("account_id")["account"]
+    all_lots = lots.assign(account=lambda d: d["account_id"].map(aliases), cost=lambda d: d["cost_pln"].fillna(0.0))
+    cost_steps = pd.concat([
+        all_lots[["account", "symbol", "open_date", "cost"]].rename(columns={"open_date": "date"}),
+        all_lots.dropna(subset=["close_date"])[["account", "symbol", "close_date", "cost"]]
+        .rename(columns={"close_date": "date"}).assign(cost=lambda d: -d["cost"]),
+    ]).groupby(["account", "symbol", "date"])["cost"].sum()
+
+    def result_trend(account: str, symbol: str) -> list[float]:
+        values = recent_value.loc[(account, symbol)]
+        steps = cost_steps.loc[(account, symbol)].sort_index().cumsum()
+        held_cost = steps.reindex(steps.index.union(values.index)).ffill().reindex(values.index).fillna(0.0)
+        return (values - held_cost).round(0).tolist()
+
+    holdings["trend"] = [result_trend(a, s) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
+    holdings["asset_class"] = holdings["asset_class"].map(ASSET_CLASS_LABELS).fillna(holdings["asset_class"])
+    holdings = holdings.sort_values("value", ascending=False)
+    table(
+        holdings[["symbol", "account", "name", "asset_class", "qty", "price", "currency", "value", "share", "cost",
+                  "pnl", "pnl_pct", "trend"]],
+        numbers={"qty": 4, "price": 2, "value": 2, "cost": 2, "pnl": 2},
+        percents=["share", "pnl_pct"],
+        signed=["pnl", "pnl_pct"],
+        trends=["trend"],
+        search="positions",
+        missing_labels={"cost": "unknown"},
+        labels={
+            "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "asset_class": "Klasa", "qty": "Ilość",
+            "price": "Kurs",
+            "currency": "Waluta", "value": "Wartość (zł)", "share": "Udział", "cost": "Koszt (zł)",
+            "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "trend": "90 dni",
+        },
+        helps={"symbol": G["ticker"], "asset_class": G["asset_class"], "price": G["last_price"], "cost": G["cost"],
+               "pnl": G["pnl"], "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
+    )
 
 
-holdings["trend"] = [result_trend(a, s) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
-holdings["asset_class"] = holdings["asset_class"].map(ASSET_CLASS_LABELS).fillna(holdings["asset_class"])
-holdings = holdings.sort_values("value", ascending=False)
-table(
-    holdings[["symbol", "account", "name", "asset_class", "qty", "price", "currency", "value", "share", "cost", "pnl",
-              "pnl_pct", "trend"]],
-    numbers={"qty": 4, "price": 2, "value": 2, "cost": 2, "pnl": 2},
-    percents=["share", "pnl_pct"],
-    signed=["pnl", "pnl_pct"],
-    trends=["trend"],
-    search="positions",
-    missing_labels={"cost": "unknown"},
-    labels={
-        "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "asset_class": "Klasa", "qty": "Ilość",
-        "price": "Kurs",
-        "currency": "Waluta", "value": "Wartość (zł)", "share": "Udział", "cost": "Koszt (zł)",
-        "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "trend": "90 dni",
-    },
-    helps={"symbol": G["ticker"], "asset_class": G["asset_class"], "price": G["last_price"], "cost": G["cost"],
-           "pnl": G["pnl"], "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
-)
+positions()
 
 if v.warnings:
     with st.expander(f":material/warning: Uwagi do wyceny ({len(v.warnings)})"):

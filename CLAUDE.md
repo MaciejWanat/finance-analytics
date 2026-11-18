@@ -51,7 +51,7 @@ fa import xtb <folder|zip>  # archive an export (folder, xStation zip or .xlsx) 
 fa import inbox         # import new exports from the inbox folder set on Ustawienia (D-028)
 fa sync / fa rebuild    # rebuild projection tables when files changed / always
 fa reset [--keep-…] [--market] [--backup ZIP]   # delete source files in the data dir, rebuild (D-038)
-fa settings [--online|--offline] [--refresh N]   # network mode (offline by default, D-021)
+fa settings [--online|--offline] [--live poll|stream] [--refresh 2m|5s]   # network mode (offline by default, D-021, D-069)
 fa update-market        # download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); an explicit request, so offline too (D-031)
 pytest                  # no network access in tests (.venv/Scripts/python.exe -m pytest -q)
 ruff check .
@@ -73,8 +73,8 @@ report, never from memory.
 - `src/finance_analytics/`: all logic. No Streamlit imports outside `app/` (a test enforces it).
   - `cli.py`: the `fa` command.
   - `config.py`: where the app lives (checkout or installed package) and the data directory layout (D-065).
-  - `preferences.py`: `config/settings.yaml` (`network`, `refresh_minutes`, `inbox_dir`, `today_tile`).
-  - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0009_*.sql`, version in `PRAGMA user_version`.
+  - `preferences.py`: `config/settings.yaml` (`network`, `live_source`, `poll_seconds`, `stream_seconds`, `inbox_dir`, `today_tile`).
+  - `db/`: plain `sqlite3`. Numbered migrations `db/migrations/0001..0010_*.sql`, version in `PRAGMA user_version`.
   - `sources/`: files → projection tables. Contents:
     - `xtb/schema.py` and `xtb/parser.py` for the export;
     - `accounts.py` for `accounts.yaml` (XTB, bonds and bank accounts);
@@ -93,13 +93,16 @@ report, never from memory.
     - `update.py`: works out what the portfolio needs (tickers, currencies of accounts, bank balances and prices) and runs the incremental update;
     - `yahoo.py` for prices, splits and dividends; `nbp.py` for FX rates; `gus.py` for the CPI (D-025);
     - `cache.py` for the covered ranges (`fetch_log`);
-    - `live.py`: live quotes in online mode; `auto.py`: the daily auto-update schedule.
+    - `live.py`: live quotes in online mode (polling client, `live_quotes`); `auto.py`: the daily auto-update schedule.
+    - `feed.py`: the background live price feed: polling or Yahoo's stream, in its own thread (D-069).
+    - `intraday.py`: 5-minute bars and live points in `intraday_quotes` for the 1D range (D-070).
     - `hours.py`: hours, holidays and pre/post-market of the US, London, Xetra and GPW, from rules only, no network
       (sidebar list D-068, session-based "Dzisiaj" D-067).
   - `portfolio/`: pandas maths, pure functions of their inputs.
     - `valuation.py`: daily holdings and PLN value of positions, broker cash, bonds and bank cash (D-019, D-026, D-027); `MODEL_VERSION` keys the UI cache.
     - `returns.py`: TWR, XIRR, drawdown, monthly returns (D-022).
     - `today.py`: the "Dzisiaj" tile: which day or US session it shows and its result (D-063, D-067).
+    - `intraday.py`: the portfolio within one day every 5 minutes, anchored to the daily valuation (D-070).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).

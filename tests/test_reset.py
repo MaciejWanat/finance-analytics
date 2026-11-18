@@ -41,7 +41,7 @@ def settings(tmp_path, export, monkeypatch):
     import_xtb(export, settings)
     write_mock_bonds(bonds_file(settings.manual_dir))
     write_mock_cash(settings.accounts_file, cash_file(settings.manual_dir))
-    save_preferences(settings, load_preferences(settings).model_copy(update={"refresh_minutes": 7}))
+    save_preferences(settings, load_preferences(settings).model_copy(update={"poll_seconds": 600}))
     sync(settings)
     with closing(sqlite3.connect(settings.db_path)) as conn, conn:
         conn.execute("INSERT INTO fx_rates (currency, date, mid) VALUES ('USD', '2024-01-02', 4.0)")
@@ -65,7 +65,7 @@ def test_full_reset_empties_projection_and_keeps_preferences(settings):
     assert result.removed
     assert not any(p.is_file() for p in settings.raw_dir.rglob("*"))
     assert not bonds_file(settings.manual_dir).exists() and not settings.accounts_file.exists()
-    assert load_preferences(settings).refresh_minutes == 7  # settings.yaml kept
+    assert load_preferences(settings).poll_seconds == 600  # settings.yaml kept
     for table in ("accounts", "positions", "cash_ledger", "bond_lots", "cash_snapshots"):
         assert _count(settings, table) == 0, table
     with closing(sqlite3.connect(settings.db_path)) as conn:
@@ -120,4 +120,4 @@ def test_settings_page_saves_the_today_tile_mode(settings):
     next(b for b in at.button if b.label == "Zapisz").click().run()
     assert not at.exception
     assert load_preferences(settings).today_tile == "us_session"
-    assert load_preferences(settings).refresh_minutes == 7  # the other settings stay
+    assert load_preferences(settings).poll_seconds == 600  # the other settings stay

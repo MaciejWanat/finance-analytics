@@ -120,3 +120,12 @@ def market_text(status, now: datetime, tz: tzinfo | None = None) -> tuple[str, s
         hover += f" · pre-market {fmt_when(status.next_change, now, tz)}"
     hover += f" · otwarcie {fmt_when(status.next_open, now, tz)}"
     return "do otwarcia", fmt_duration(status.next_open - now), hover
+
+
+def interval_text(seconds: int) -> str:
+    """A refresh interval: '5 s', '30 s', '1 min', '15 min', '1 h'."""
+    if seconds < 60 or seconds % 60:
+        return f"{seconds} s"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600} h"
+    return f"{seconds // 60} min"

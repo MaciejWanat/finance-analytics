@@ -123,25 +123,60 @@ def reset(keep_exports: bool, keep_manual: bool, keep_accounts: bool, market: bo
     click.echo(f"Deleted {len(result.removed)} file(s)." + (" Market cache cleared." if result.market_cleared else ""))
 
 
+def _refresh_seconds(ctx: click.Context, param: click.Parameter, value: str | None) -> int | None:
+    """'5s', '30s', '5m' or a bare number of minutes (as before D-069) -> seconds; the range depends on the
+    source and is checked in the command."""
+    if value is None:
+        return None
+    text = value.strip().lower()
+    try:
+        seconds = int(text[:-1]) if text.endswith("s") else int(text.removesuffix("m")) * 60
+    except ValueError:
+        raise click.BadParameter("use e.g. 5s, 30s, 5m or a number of minutes") from None
+    if seconds <= 0:
+        raise click.BadParameter("must be positive")
+    return seconds
+
+
+def _interval_text(seconds: int) -> str:
+    return f"{seconds // 60} min" if seconds % 60 == 0 else f"{seconds} s"
+
+
 @main.command("settings")
 @click.option("--online/--offline", "online", default=None, help="Switch the network mode (default: offline).")
-@click.option("--refresh", type=click.IntRange(1, 60), default=None, help="Live price refresh, minutes.")
-def settings_command(online: bool | None, refresh: int | None) -> None:
-    """Show or change preferences: network mode and live refresh interval (D-021)."""
-    from finance_analytics.preferences import load_preferences, save_preferences
+@click.option("--live", "live_source", type=click.Choice(["poll", "stream"]), default=None,
+              help="How live prices arrive online: poll Yahoo every interval, or one streaming connection (D-069).")
+@click.option("--refresh", callback=_refresh_seconds, default=None,
+              help="Interval of the chosen source: polling 2m-60m, stream redraw 5s-60s (a bare number means "
+                   "minutes).")
+def settings_command(online: bool | None, live_source: str | None, refresh: int | None) -> None:
+    """Show or change preferences: network mode and live prices (D-021, D-069)."""
+    from finance_analytics.preferences import POLL_SECONDS, STREAM_SECONDS, load_preferences, save_preferences
 
     settings = get_settings()
     preferences = load_preferences(settings)
-    if online is not None or refresh is not None:
-        changes = {}
-        if online is not None:
-            changes["network"] = "online" if online else "offline"
-        if refresh is not None:
-            changes["refresh_minutes"] = refresh
+    changes: dict[str, object] = {}
+    if online is not None:
+        changes["network"] = "online" if online else "offline"
+    if live_source is not None:
+        changes["live_source"] = live_source
+    if refresh is not None:
+        stream = (live_source or preferences.live_source) == "stream"
+        low, high = STREAM_SECONDS if stream else POLL_SECONDS
+        if not low <= refresh <= high:
+            raise click.BadParameter(
+                f"{'the stream redraws' if stream else 'polling runs'} every {_interval_text(low)} to "
+                f"{_interval_text(high)}", param_hint="--refresh")
+        changes["stream_seconds" if stream else "poll_seconds"] = refresh
+    if changes:
         preferences = preferences.model_copy(update=changes)
         save_preferences(settings, preferences)
     click.echo(f"Network mode: {preferences.network}")
-    click.echo(f"Live refresh: every {preferences.refresh_minutes} min (online mode only)")
+    if preferences.live_source == "stream":
+        click.echo(f"Live prices: stream; Portfel redraws every {_interval_text(preferences.stream_seconds)} "
+                   "(online mode only)")
+    else:
+        click.echo(f"Live prices: polling every {_interval_text(preferences.poll_seconds)} (online mode only)")
     if preferences.online:
         click.echo("Online: tickers, currency codes and dates are sent to Yahoo Finance and NBP, and the public CPI "
                    "file is downloaded from GUS; nothing else.")

@@ -37,14 +37,14 @@ everything in one local SQLite file and shows it in a browser UI on `localhost`,
 
 | Page | What it shows |
 |---|---|
-| **Portfel** | Value of everything in PLN over time; tiles for today's result, the result for the period (TWR), the result on currencies, contributed capital and profit vs deposits; allocation by account, asset class, instrument or currency; current holdings with cost (NBP rate of the purchase day), result and a 90-day sparkline; a "Po inflacji" switch that shows everything in today's złoty. |
-| **Zwroty** | TWR, XIRR, maximum and current drawdown for 1M / 3M / YTD / 1R / 3L / Maks.; cumulative TWR for the portfolio and each account; nominal vs real (after CPI) return; the split of the PLN return into prices × currencies × other, per instrument and per currency; underwater chart; per-account table; monthly returns heatmap. |
+| **Portfel** | Value of everything in PLN over time, or within today every 5 minutes (1D); live in online mode; tiles for today's result, the result for the period (TWR), the result on currencies, contributed capital and profit vs deposits; allocation by account, asset class, instrument or currency; current holdings with cost (NBP rate of the purchase day), result and a 90-day sparkline; a "Po inflacji" switch that shows everything in today's złoty. |
+| **Zwroty** | TWR, XIRR, maximum and current drawdown for 1D / 1M / 3M / YTD / 1R / 3L / Maks.; cumulative TWR for the portfolio and each account; nominal vs real (after CPI) return; the split of the PLN return into prices × currencies × other, per instrument and per currency; underwater chart; per-account table; monthly returns heatmap. |
 | **Dywidendy** | Gross, withholding tax and net dividends in PLN at the NBP rate of the day before payment (D-1), monthly, per company and per tax year, with an estimate of the Polish tax still due (PIT-38; none on IKE/IKZE). |
 | **Obligacje** | Treasury bonds valued from the issue-letter rules: gross value, accrued interest, current rate and where it comes from, payout today after the early-redemption fee and tax; a form to add or delete purchases. |
 | **Gotówka** | Bank balances valued in PLN; stale balances are flagged; forms to add bank accounts and balances. |
 | **Importy** | Upload xStation exports, rebuild the database, check the inbox folder; download, template and validated upload of the manual CSV files; accounts, cash operations, positions and import warnings. |
 | **Dane rynkowe** | What is cached locally: prices per instrument, NBP rates, GUS CPI; a button to fetch what is missing. |
-| **Ustawienia** | Offline / online mode, live refresh interval, the XTB inbox folder, resetting your data. |
+| **Ustawienia** | Offline / online mode, live prices (polling every 2 min to 1 h, or a stream with the page redrawn every 5 to 60 s), the XTB inbox folder, resetting your data. |
 
 Under the hood:
 
@@ -282,7 +282,7 @@ export FA_DATA_DIR="$HOME/finanse/data"  # macOS / Linux, this shell only
 | `fa import xtb <folder\|zip\|xlsx>` | Archive an xStation export into the data folder and sync. |
 | `fa import inbox` | Check the inbox folder set on *Ustawienia* once. |
 | `fa update-market` | Download missing prices (Yahoo), FX rates (NBP) and CPI (GUS); works in offline mode too, because you asked. |
-| `fa settings [--online\|--offline] [--refresh N]` | Show or change the network mode and the live refresh interval (minutes). |
+| `fa settings [--online\|--offline] [--live poll\|stream] [--refresh 5s]` | Show or change the network mode and live prices: polling (`--refresh 2m` to `60m`) or a stream (`--refresh 5s` to `60s`, how often Portfel redraws); a bare number means minutes. |
 | `fa sync` / `fa rebuild` | Rebuild the database when a file changed / always. |
 | `fa reset [--keep-exports] [--keep-manual] [--keep-accounts] [--market] [--backup ZIP] [--yes]` | Delete source files in the data folder and rebuild. |
 | `fa mock-xtb [OUT_DIR]` | Write a synthetic xStation export. |
@@ -298,7 +298,7 @@ can be edited by hand or through the UI.
 | `manual/bonds.csv` | Bond purchases: `account_id,series,purchase_date,quantity,note`. Series like `EDO0736`; date `YYYY-MM-DD` (or `DD.MM.YYYY`); whole bonds of 100 zł. |
 | `manual/cash_balances.csv` | Bank balances: `account_id,date,balance,note`. The balance is in the account's currency and holds until the next row for that account; decimal comma accepted. |
 | `config/accounts.yaml` | Accounts: `id, institution, kind (broker / bank / bonds), currency, alias, external_no, tax_wrapper (null / IKE / IKZE)`. XTB and bond accounts are added automatically, bank accounts on *Gotówka*; change `alias` to rename. |
-| `config/settings.yaml` | Preferences: `network (offline / online)`, `refresh_minutes (1–60)`, `inbox_dir`. |
+| `config/settings.yaml` | Preferences: `network (offline / online)`, `live_source (poll / stream)`, `poll_seconds (120–3600)`, `stream_seconds (5–60)`, `inbox_dir`, `today_tile`. |
 | `config/yahoo_tickers.yaml` | Optional: `XTB_SYMBOL: YAHOO_TICKER` for instruments the suffix rule maps wrongly. |
 | `config/instruments.yaml` | Optional: `instruments: {SYMBOL: {asset_class: stock / etf / precious_metals / other}}`. |
 | `config/bond_series.yaml` | Optional: a series or an official rate newer than the app, as `series: {CODE: {first_rate, margin, early_fee, maturity_interest, rates: {period: rate}}}`. |

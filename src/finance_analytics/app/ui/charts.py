@@ -4,6 +4,7 @@ Form choices follow the data's job:
 - one series over time (total value)      -> area_total: 2px line + 10% wash
 - several series over time (comparison)   -> line_chart
 - composition over time (value per part)  -> stacked_bars (e.g. monthly)
+- one series during one day (the 1D range) -> intraday_chart: line, wash, dashed previous close (D-070)
 Part-to-whole at a glance is a segmented bar, not a donut (added with the
 allocation view).
 """
@@ -11,6 +12,7 @@ allocation view).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -29,6 +31,17 @@ _DATE_TICK_STOPS = [
 ]
 
 
+def _time_axis(fig: go.Figure) -> None:
+    """Hours instead of dates, for charts within one day (1D, D-070)."""
+    fig.layout.xaxis.tickformatstops = ()  # update_xaxes(tickformatstops=[]) would keep the date stops of _base
+    fig.update_xaxes(tickformat="%H:%M", hoverformat="%H:%M")
+
+
+def is_intraday(index: pd.Index) -> bool:
+    """Moments within a day carry a time zone; daily dates do not."""
+    return isinstance(index, pd.DatetimeIndex) and index.tz is not None
+
+
 def current_mode() -> Mode:
     """Light or dark, following the theme the viewer picked in Streamlit."""
     return "dark" if st.context.theme.type == "dark" else "light"
@@ -41,7 +54,8 @@ def _rgba(hex_color: str, alpha: float) -> str:
 
 def _base(mode: Mode, height: int) -> go.Figure:
     tokens = TOKENS[mode]
-    fig = go.Figure(layout={"template": template(mode), "height": height})
+    # A constant uirevision keeps the viewer's zoom and pan when a live fragment redraws the chart (D-069).
+    fig = go.Figure(layout={"template": template(mode), "height": height, "uirevision": "keep"})
     fig.update_xaxes(
         tickformatstops=_DATE_TICK_STOPS,
         hoverformat="%d.%m.%Y",
@@ -84,10 +98,16 @@ def line_chart(
     height: int = 360,
     hover: str = HOVER_PLN,
     y_tickformat: str = ",.0f",
+    until: datetime | None = None,
 ) -> go.Figure:
-    """Several series over time. Index: dates; one column per series, in a stable order."""
+    """Several series over time. Index: dates, or moments within one day (hours on the axis, up to `until`);
+    one column per series, in a stable order."""
     colors = colors or color_map(list(df.columns), mode)
     fig = _base(mode, height)
+    if is_intraday(df.index):
+        _time_axis(fig)
+        if until is not None and len(df):
+            fig.update_xaxes(range=[df.index[0], until])
     for column in df.columns:
         fig.add_trace(
             go.Scatter(
@@ -112,7 +132,7 @@ def stacked_bars(
     height: int = 360,
     hover: str = HOVER_PLN,
 ) -> go.Figure:
-    """Composition over time. Index: periods; one column per part, in a stable order.
+    """Composition over time. Index: periods (or hours within one day); one column per part, in a stable order.
 
     Segments are separated by a thin line in the surface colour (the "surface gap"),
     and the top of each stack has 4px rounded corners.
@@ -120,6 +140,8 @@ def stacked_bars(
     tokens = TOKENS[mode]
     colors = colors or color_map(list(df.columns), mode)
     fig = _base(mode, height)
+    if is_intraday(df.index):
+        _time_axis(fig)
     for column in df.columns:
         fig.add_trace(
             go.Bar(
@@ -135,10 +157,49 @@ def stacked_bars(
     return fig
 
 
+def intraday_chart(
+    series: pd.Series, *, baseline: float | None, baseline_label: str, until: datetime, mode: Mode,
+    height: int = 340,
+) -> go.Figure:
+    """One series during one day, the 1D range (D-070): a 2px line with a 10% wash down to the lowest point (a
+    day's moves would vanish on an axis from zero), a dashed line at the previous close (a real threshold, named
+    in ink), hours on the axis up to `until`, so the line grows to the right while the day lasts. The hover adds
+    the change since that close."""
+    tokens = TOKENS[mode]
+    color = tokens.series[0]
+    fig = _base(mode, height)
+    _time_axis(fig)
+    values = series.astype(float)
+    low, high = float(values.min()), float(values.max())
+    if baseline is not None:
+        low, high = min(low, baseline), max(high, baseline)
+    pad = (high - low) * 0.12 or abs(high) * 0.002 or 1.0
+    floor = low - pad
+    fig.add_trace(go.Scatter(x=series.index, y=[floor] * len(series), mode="lines", line={"width": 0},
+                             hoverinfo="skip", showlegend=False))
+    change = (values / baseline - 1).to_numpy() if baseline else [0.0] * len(values)
+    fig.add_trace(go.Scatter(
+        x=series.index, y=values, name="Portfel", mode="lines", line={"color": color, "width": 2},
+        fill="tonexty", fillcolor=_rgba(color, 0.10), customdata=change,
+        hovertemplate=f"{HOVER_PLN} · %{{customdata:+.2%}}<extra></extra>" if baseline else
+        f"{HOVER_PLN}<extra></extra>",
+    ))
+    if baseline is not None:
+        fig.add_hline(y=baseline, line={"color": tokens.ink_muted, "width": 1, "dash": "dash"},
+                      annotation={"text": baseline_label, "font": {"color": tokens.ink_secondary, "size": 12}},
+                      annotation_position="top left")
+    fig.update_xaxes(range=[series.index[0], until])
+    fig.update_yaxes(range=[floor, high + pad])
+    fig.update_layout(showlegend=False)
+    return fig
+
+
 def drawdown_chart(series: pd.Series, *, mode: Mode, height: int = 220) -> go.Figure:
     """Underwater chart: how far below its previous peak the series is (values <= 0)."""
     color = TOKENS[mode].bad
     fig = _base(mode, height)
+    if is_intraday(series.index):
+        _time_axis(fig)
     fig.add_trace(
         go.Scatter(
             x=series.index, y=series.values, name="Spadek od szczytu", mode="lines",
@@ -325,7 +386,8 @@ def detail_chart(
     height: int = 520,
 ) -> go.Figure:
     """Full history of one KPI for the enlarged view: zoom with the wheel or a box, a range slider
-    below and range buttons above. Opens on `start` (the page's period) when given."""
+    below and range buttons above. Opens on `start` (the page's period) when given. A series within one day
+    (1D, D-070) gets hours on the axis and no slider or range buttons."""
     tokens = TOKENS[mode]
     color = tokens.series[0]
     fig = _base(mode, height)
@@ -334,6 +396,12 @@ def detail_chart(
         fill="tozeroy", fillcolor=_rgba(color, 0.10), hovertemplate=f"{DETAIL_HOVER[kind]}<extra></extra>",
     ))
     fig.update_layout(showlegend=False, hovermode="x", dragmode="zoom", margin={"t": 48})
+    if is_intraday(series.index):
+        # A day's moves would vanish on an axis from zero: the line alone, on an axis that fits it.
+        _time_axis(fig)
+        fig.update_traces(fill="none")
+        fig.update_yaxes(tickformat=",.1%" if kind == "pct" else ",.0f", fixedrange=False, rangemode="normal")
+        return fig
     fig.update_xaxes(
         rangeslider={"visible": True, "thickness": 0.08, "bgcolor": tokens.surface, "bordercolor": tokens.gridline},
         rangeselector={

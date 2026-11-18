@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -45,23 +46,34 @@ _CSS = """
 [class*="st-key-kpi_tile"] { container-type: inline-size; }
 [class*="st-key-kpi_tile"] [data-testid="stMetricValue"] { font-size: clamp(1rem, 18cqi, 1.7rem); }
 
+/* Live prices lamp in the sidebar (D-069): a slow pulse while the stream is connected. The phase comes from the
+   clock (a negative delay), so redrawing the line every few seconds does not restart the pulse. */
+@keyframes fa-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  60% { opacity: 0.35; box-shadow: 0 0 0 0.3rem transparent; }
+}
+.fa-pulse { animation: fa-pulse 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .fa-pulse { animation: none; } }
+
 /* While the page recalculates (D-060): a small floating pill with a spinner at the top, over the
    content, so nothing moves. It appears only after 0.4 s, so quick reruns (typing in a search
-   field, the 30-second background check) do not flash it. */
+   field) do not flash it, and only in a full run: the end-of-run marker (main.py, RUN_END_KEY) is
+   stale until the whole script has run, while a live fragment's redraw every few seconds leaves it
+   alone (D-069). */
 @keyframes fa-spin { to { transform: rotate(360deg); } }
 @keyframes fa-show { to { opacity: 1; } }
-.stApp[data-test-script-state="running"]::before,
-.stApp[data-test-script-state="running"]::after {
+.stApp[data-test-script-state="running"]:has(.st-key-fa_run_end [data-stale="true"])::before,
+.stApp[data-test-script-state="running"]:has(.st-key-fa_run_end [data-stale="true"])::after {
   position: fixed; top: 0.9rem; z-index: 1000000; opacity: 0; pointer-events: none;
   animation: fa-show 0.2s ease-out 0.4s forwards;
 }
-.stApp[data-test-script-state="running"]::before {
+.stApp[data-test-script-state="running"]:has(.st-key-fa_run_end [data-stale="true"])::before {
   content: "Przeliczam…"; left: 50%; transform: translateX(-50%);
   padding: 0.35rem 0.9rem 0.35rem 2.1rem; border-radius: 999px;
   background: rgba(32, 32, 30, 0.88); color: #f6f5f2;  /* one neutral pill, readable on light and dark */
   font-size: 0.85rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); border: 1px solid rgba(255, 255, 255, 0.14);
 }
-.stApp[data-test-script-state="running"]::after {
+.stApp[data-test-script-state="running"]:has(.st-key-fa_run_end [data-stale="true"])::after {
   content: ""; left: calc(50% - 3.1rem); top: calc(0.9rem + 0.42rem);
   width: 0.85rem; height: 0.85rem; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.25); border-top-color: #f6f5f2;
@@ -110,6 +122,42 @@ def status_list(title: str, rows: Sequence[StatusRow], *, help: str | None = Non
         "margin-top:-0.85rem;font-size:0.875rem;line-height:1.5;white-space:nowrap;"
         f'font-variant-numeric:tabular-nums">{"".join(cells)}</div>'
     )
+
+
+LiveState = Literal["streaming", "polling", "connecting", "error", "paused"]
+PULSE_SECONDS = 2.4
+
+
+def live_status(state: LiveState, text: str, *, hover: str | None = None) -> None:
+    """The sidebar line for live prices (D-069): a lamp, "Online" and a short state.
+
+    The lamp says the state by shape as well as colour: full green pulsing (stream connected), full green
+    (polling), amber ring (connecting), full red (error, retrying), grey ring (markets closed).
+    """
+    tokens = TOKENS[current_mode()]
+    color = {"streaming": tokens.good, "polling": tokens.good, "connecting": tokens.caution, "error": tokens.bad,
+             "paused": tokens.ink_muted}[state]
+    filled = state in ("streaming", "polling", "error")
+    lamp = (f"display:inline-block;flex:none;width:0.6rem;height:0.6rem;border-radius:50%;box-sizing:border-box;"
+            f"border:1.5px solid {color};background:{color if filled else 'transparent'};color:{color}")
+    pulse = ""
+    if state == "streaming":
+        phase = time.time() % PULSE_SECONDS
+        pulse = ' class="fa-pulse"'
+        lamp += f";animation-delay:-{phase:.2f}s"
+    title = f' title="{html.escape(hover)}"' if hover else ""
+    st.html(
+        f'<div{title} style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;line-height:1.5;'
+        f'color:{tokens.ink_secondary};font-variant-numeric:tabular-nums">'
+        f'<span{pulse} style="{lamp}"></span><span><b style="color:{tokens.ink_primary}">Online</b> · '
+        f"{html.escape(text)}</span></div>"
+    )
+
+
+def run_end_marker() -> None:
+    """Draw last in every full run: while it is stale, a full rerun is in progress (the "Przeliczam…" pill)."""
+    with st.sidebar.container(key=RUN_END_KEY):
+        st.html("<span></span>")
 
 
 def apply_global_styles() -> None:
@@ -177,14 +225,21 @@ def kpi_row(kpis: Sequence[Kpi]) -> None:
             if kpi.trend and len(kpi.trend) > 1:
                 show_spark(sparkline(kpi.trend, color=_trend_color(kpi, delta), kind=kpi.trend_kind,
                                      mode=current_mode(), water=kpi.trend_water), key=f"kpi_spark_{kpi.label}")
-            if kpi.series is not None and len(kpi.series) > 1 and st.button(
-                "Pełny wykres", icon=":material/open_in_full:", type="tertiary", key=f"kpi_open_{kpi.label}",
-                help="Otwiera wykres w dużym oknie: przybliżanie kółkiem myszy lub zaznaczeniem, suwak zakresu.",
-            ):
-                _open_detail(kpi)
+            if kpi.series is not None and len(kpi.series) > 1:
+                clicked = st.button(
+                    "Pełny wykres", icon=":material/open_in_full:", type="tertiary", key=f"kpi_open_{kpi.label}",
+                    help="Otwiera wykres w dużym oknie: przybliżanie kółkiem myszy lub zaznaczeniem, suwak zakresu.",
+                )
+                # A live fragment redraws the row every few seconds (D-069): the open dialog is drawn again with
+                # the new data, or it would close.
+                still_open = st.session_state.get(DIALOG_OPEN) and st.session_state.get(DIALOG_KPI) == kpi.label
+                if clicked or still_open:
+                    _open_detail(kpi)
 
 
+RUN_END_KEY = "fa_run_end"  # the marker drawn last in every full run (main.py); the pill CSS keys on it
 DIALOG_OPEN = "dialog_open"  # main.py does not rerun the whole app while a dialog is open (it would close it)
+DIALOG_KPI = "dialog_kpi"  # the label of the tile whose dialog is open
 
 
 def _close_detail() -> None:
@@ -193,6 +248,7 @@ def _close_detail() -> None:
 
 def _open_detail(kpi: Kpi) -> None:
     st.session_state[DIALOG_OPEN] = True
+    st.session_state[DIALOG_KPI] = kpi.label
 
     @st.dialog(kpi.label, width="large", on_dismiss=_close_detail)
     def detail() -> None:

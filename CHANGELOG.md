@@ -17,6 +17,16 @@ All notable changes to this project are listed here. The format follows
   sessions, for a portfolio with US-listed instruments: a new day starts at the US open, the result
   stays after the close until the next open, and moves between sessions (currencies, other
   exchanges, weekends) count towards the next one (D-067).
+- **Live prices every few seconds** in online mode: choose on Ustawienia between polling (every
+  2 min to 1 h, so Yahoo does not refuse) and a streaming connection to Yahoo, where prices arrive by
+  themselves and Portfel redraws every 5 to 60 s. US
+  pre-market and post-market prices count too. On Portfel the tiles, the value chart and the
+  positions table redraw on their own, without reloading the page; a pulsing lamp in the sidebar
+  shows the stream is live (D-069).
+- **"1D" period** on Portfel, Zwroty and Dywidendy: the day of the "Dzisiaj" tile every 5 minutes,
+  live, against the previous close; hourly composition bars and the day's TWR, falls and
+  price / currency split. Online, 5-minute quotes from Yahoo arrive in the background; offline
+  one button fetches them (D-070).
 
 ### Changed
 
@@ -26,6 +36,14 @@ All notable changes to this project are listed here. The format follows
   result tiles.
 - In online mode market data is also updated shortly after each US close, so the session's
   closing prices are final (D-067).
+- Live prices are fetched in the background, so the network never delays a page; they count only
+  on the day they arrive. The interval is set per source (`poll_seconds`, `stream_seconds`); an older
+  `refresh_minutes` setting becomes the polling interval, at least 2 minutes (D-069).
+- The "Przeliczam…" pill shows only when the whole page recalculates, not on live redraws (D-069).
+
+### Fixed
+
+- Dywidendy no longer fails for a period without any payment (e.g. 1M); it says there were none.
 
 ## [0.10.0] - 2026-11-18
 

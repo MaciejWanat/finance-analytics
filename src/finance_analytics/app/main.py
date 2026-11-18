@@ -7,14 +7,16 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import streamlit as st
-from ui.components import DIALOG_OPEN, StatusRow, apply_global_styles, status_list
+from ui.components import DIALOG_OPEN, StatusRow, apply_global_styles, live_status, run_end_marker, status_list
+from ui.data import FULL_RUN
 from ui.fmt import market_text, plural
 from ui.glossary import G
 
 from finance_analytics.config import get_settings
 from finance_analytics.market.auto import maybe_update_market
+from finance_analytics.market.feed import get_feed
 from finance_analytics.market.hours import EXCHANGES
-from finance_analytics.market.live import read_live, update_live
+from finance_analytics.market.live import read_live
 from finance_analytics.preferences import PreferencesError, load_preferences
 from finance_analytics.sources.inbox import check_inbox
 
@@ -81,14 +83,36 @@ def _inbox_tick() -> int:
     return len(result.copied)
 
 
-@st.fragment(run_every=timedelta(seconds=30))
-def network_status() -> None:
-    """Sidebar badge; in online mode also the live refresh loop (D-021).
+LIVE_PAGES = {"Zwroty", "Dywidendy"}  # read live quotes but redraw only on a full run (Portfel has live fragments)
+LIVE_RERUN_SECONDS = 60  # at most this often a page in LIVE_PAGES is redrawn for new live quotes
+STREAM_TEXT = {"streaming": "na żywo", "connecting": "łączę ze strumieniem…", "error": "ponawiam połączenie…",
+               "paused": "rynki zamknięte"}
 
-    Runs every 30 s. The first run of a page only draws the badge, so network work
-    never delays a page; later runs poll. The update functions throttle themselves
-    (refresh interval, daily schedule), so most runs only read the database. When new
-    data arrives the whole app reruns, so every page shows it.
+
+def _live_line(preferences, fetched: datetime | None) -> None:
+    """The lamp and text of the live prices line (D-069). With the stream no time of the last price: it would
+    change every second; the pulsing lamp says the prices are live. Polling shows when the last prices came."""
+    status = get_feed(settings).status()
+    hover = G["live_status"] + (f" {status.message}" if status.message else "")
+    if preferences.live_source == "stream":
+        state = {"live": "streaming", "off": "connecting"}.get(status.state, status.state)
+        live_status(state, STREAM_TEXT[state], hover=hover)
+        return
+    prices = f"ceny z {fetched.astimezone():%H:%M}" if fetched else "ceny z ostatnich notowań"
+    if status.state == "paused":
+        live_status("paused", f"rynki zamknięte · {prices}", hover=hover)
+    else:  # after a failed poll the last prices stay; the red lamp and the hover say why
+        live_status("error" if status.state == "error" else "polling", prices, hover=hover)
+
+
+@st.fragment(run_every=timedelta(seconds=5))
+def network_status() -> None:
+    """Sidebar badge; in online mode it also keeps the live price feed running (D-021, D-069).
+
+    Runs every 5 s and only reads: the feed (`market.feed`) fetches prices in its own thread. The first run of a
+    page only draws the badge, so the daily update never delays a page. The whole app reruns when the daily
+    update brings new data; for live quotes Portfel has its own live fragments, Zwroty and Dywidendy rerun at
+    most once a minute.
     """
     try:
         preferences = load_preferences(settings)
@@ -107,15 +131,20 @@ def network_status() -> None:
     changed = False
     first_run = not st.session_state.get("network_started")
     st.session_state["network_started"] = True
-    if settings.db_path.exists() and not first_run:
-        try:
-            changed = maybe_update_market(settings) is not None
-            changed |= update_live(settings).updated
-        except Exception as exc:  # network trouble must never break the page
-            st.caption(f":material/sync_problem: Nie udało się odświeżyć: {exc}")
-    _, _, fetched = read_live(settings.db_path, timedelta(hours=12)) if settings.db_path.exists() else (0, 0, None)
-    when = f" · ceny z {fetched.astimezone():%H:%M}" if fetched else ""
-    st.caption(f":material/cloud_done: **Online**{when}")
+    if settings.db_path.exists():
+        get_feed(settings).touch()
+        if not first_run:
+            try:
+                changed = maybe_update_market(settings) is not None
+            except Exception as exc:  # network trouble must never break the page
+                st.caption(f":material/sync_problem: Nie udało się odświeżyć: {exc}")
+    fetched = read_live(settings.db_path)[2] if settings.db_path.exists() else None
+    _live_line(preferences, fetched)
+    if fetched is not None and fetched != st.session_state.get("live_seen") and navigation.title in LIVE_PAGES:
+        last = st.session_state.get("live_rerun_at", 0.0)
+        if time.monotonic() - last >= LIVE_RERUN_SECONDS:
+            st.session_state["live_seen"], st.session_state["live_rerun_at"] = fetched, time.monotonic()
+            changed = True
     # Rerun the whole app only when this was the fragment's own timer run: in a full run (a click, a page
     # change) the page renders after this fragment and already reads the new data, so a second rerun would
     # only cost time and could swallow the click. A full rerun would also close an open dialog (KPI chart).
@@ -134,13 +163,16 @@ def market_clock() -> None:
     status_list("Giełdy", rows, help=G["markets"])
 
 
-FULL_RUN = "full_app_run"  # True while the whole script runs; a fragment's timer rerun sees False
-st.session_state[FULL_RUN] = True
+st.session_state[FULL_RUN] = True  # a fragment's timer rerun sees False
+# A full run means any open dialog is gone (a click outside it, a page change); only a live fragment's own run may
+# keep one open (components.kpi_row), so a stale flag never reopens it.
+st.session_state[DIALOG_OPEN] = False
 try:
     with st.sidebar:
         network_status()
         market_clock()
         st.caption(":material/lock: Dane zostają na tym komputerze.")
     navigation.run()
+    run_end_marker()
 finally:  # also after st.stop() in a page
     st.session_state[FULL_RUN] = False

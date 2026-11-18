@@ -98,10 +98,20 @@ G: dict[str, str] = {
     "cash": "Wolne środki na rachunku maklerskim, w walucie rachunku.",
     # --- periods ------------------------------------------------------------------------------
     "periods": (
-        "1M: ostatni miesiąc. 3M: trzy miesiące. YTD: od początku bieżącego roku. 1R: ostatni rok. "
-        "3L: trzy lata. Maks.: cała historia."
+        "1D: dzień z kafelka „Dzisiaj”, co 5 minut. 1M: ostatni miesiąc. 3M: trzy miesiące. YTD: od początku "
+        "bieżącego roku. 1R: ostatni rok. 3L: trzy lata. Maks.: cała historia."
     ),
     "breakdown": "Według czego podzielić portfel na wykresach poniżej.",
+    "intraday": (
+        "Wartość portfela w ciągu dnia z kafelka „Dzisiaj”, co 5 minut, razem z pre-market i post-market w USA. "
+        "Każda pozycja zmienia się z ceną instrumentu i kursem waluty, a ostatni punkt to dzisiejsza wycena. Przed "
+        "otwarciem giełdy jej instrumenty stoją na poprzednim zamknięciu. Przerywana linia to wartość na "
+        "zamknięciu, od którego liczy się dzisiejszy wynik. Skład portfela jest ten z końca dnia przez cały dzień."
+    ),
+    "intraday_fetch": (
+        "Pobiera z Yahoo 5-minutowe notowania posiadanych instrumentów i kursy walut z ostatnich 5 dni. Wysyła "
+        "tylko tickery. Jednorazowo: w trybie offline aplikacja sama nic nie pobiera."
+    ),
     # --- currencies and market data -------------------------------------------------------------
     "nbp_rate": (
         "Kurs średni NBP (tabela A), publikowany w dni robocze ok. 12:00. Stosowany do wyceny historii, kosztów "
@@ -310,6 +320,22 @@ G: dict[str, str] = {
     "online": (
         "Aplikacja odświeża ceny i kursy. Wysyła wyłącznie tickery, kody walut i daty, nigdy kwoty, ilości "
         "ani numery rachunków."
+    ),
+    "live_status": (
+        "Stan cen na żywo. Pulsująca zielona lampka: strumień działa i ceny przychodzą same. Pełna zielona: ceny "
+        "odpytywane co ustawiony czas; obok godzina ostatnich cen. Pusta bursztynowa: łączenie. Czerwona: błąd, "
+        "aplikacja ponawia próbę. Pusta szara: giełdy i rynek walut są zamknięte."
+    ),
+    "live_source": (
+        "Odpytywanie: aplikacja co ustawiony czas pyta Yahoo o ostatnią cenę każdego instrumentu. Strumień: jedno "
+        "stałe połączenie, przez które Yahoo samo przysyła każdą nową cenę, gdy giełda działa. W obu trybach "
+        "liczą się też ceny z pre-market i post-market w USA, a wysyłane są tylko tickery."
+    ),
+    "live_refresh": (
+        "Odpytywanie: co ile pobierać ceny, od 2 minut do godziny; częściej Yahoo mogłoby odrzucać zapytania. "
+        "Gdy żadna giełda nie działa, a handlują tylko waluty, najwyżej co 5 minut. Strumień: ceny przychodzą "
+        "same, a to ustawienie mówi, co ile (od 5 do 60 sekund) odświeżać kafelki, wykres wartości i pozycje na "
+        "stronie Portfel."
     ),
     "today_tile": (
         "Od północy: nowy dzień zaczyna się o 0:00. Sesjami giełdy w USA: nowy dzień zaczyna się przy otwarciu "
