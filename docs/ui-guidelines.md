@@ -35,7 +35,7 @@ Every page in `src/finance_analytics/app/views/` follows this order (skip what d
 | 1 | Title + one-line purpose | `page_header(title, caption)` |
 | 2 | Guard states (no DB, no data, missing prerequisite) | `empty_state(...)` + `st.page_link` to the page that fixes it, then `st.stop()` |
 | 3 | Page-wide filter | `st.segmented_control`, one row, label in Polish |
-| 4 | KPI row (≤ 5 tiles, Portfel has 7 by request in two rows, 4 + 3 with `kpi_row(..., columns=4)` (D-063, D-080, D-081); keep deltas short so they do not wrap; values shrink to fit a narrow tile) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
+| 4 | KPI row (≤ 5 tiles, Portfel has 8 by request in two rows of four (D-063, D-080, D-081, D-083); `kpi_row(..., columns=4)` keeps a shorter row's tile width; keep deltas short so they do not wrap; values shrink to fit a narrow tile) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
 | 5 | Main chart | `section(...)` + one builder from `ui/charts.py` |
 | 6 | Block filter + detail charts | control directly above `st.columns([3, 2])` |
 | 7 | Table | `table(...)`, sorted by the most important column |

@@ -16,6 +16,7 @@ from finance_analytics.portfolio.returns import (
     returns_for,
     twr_index,
     xirr,
+    xirr_curve,
 )
 
 D = pd.Timestamp
@@ -166,3 +167,24 @@ def test_position_result_trend_is_value_minus_the_cost_held_that_day():
     trends = position_result_trends(daily, lots, days[-1])
     assert trends == {("XTB", "X.US"): [0.0, 10.0, 15.0, 25.0, 15.0]}
     assert position_result_trends(daily, lots, days[-1], days=2)[("XTB", "X.US")] == [25.0, 15.0]
+
+
+def test_xirr_curve_covers_the_whole_period():
+    """D-084: the tile's curve: XIRR from the period start to each week, from the first week on."""
+    days = pd.date_range("2024-01-01", "2026-01-01", freq="D")
+    values = pd.Series(1000 * 1.10 ** ((days - days[0]).days / 365.25), index=days)  # +10% a year, no flows
+    curve = xirr_curve(values, pd.Series(dtype=float, index=pd.DatetimeIndex([])), days[0])
+    assert curve.index[0] <= D("2024-01-07") and curve.index[-1] <= days[-1]
+    assert curve.to_numpy() == pytest.approx(0.10, abs=1e-6)
+    empty = xirr_curve(values, pd.Series(dtype=float), days[-1])  # nothing after the start
+    assert empty.empty and isinstance(empty.index, pd.DatetimeIndex)  # still comparable with dates ("1R" crash)
+    assert empty[empty.index < D("2026-01-01")].empty
+
+
+def test_xirr_of_a_short_period_is_put_on_a_yearly_basis():
+    """D-084: a day or a month is annualised too, even far beyond the old ±1000% bracket."""
+    assert xirr([(date(2026, 11, 18), -1000), (date(2026, 11, 19), 1008.4)]) == pytest.approx(
+        1.0084 ** 365.25 - 1, rel=1e-6)
+    assert xirr([(date(2026, 11, 18), -1000), (date(2026, 11, 19), 950)]) == pytest.approx(-1, abs=1e-6)
+    assert xirr([(date(2026, 10, 19), -1000), (date(2026, 11, 19), 1040)]) == pytest.approx(
+        1.04 ** (365.25 / 31) - 1, rel=1e-6)

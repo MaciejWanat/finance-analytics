@@ -36,7 +36,14 @@ from finance_analytics.market.live import live_symbols
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
 from finance_analytics.portfolio.benchmark import compare
-from finance_analytics.portfolio.returns import period_return, position_result_trends, twr_index, underwater
+from finance_analytics.portfolio.returns import (
+    period_return,
+    period_xirr,
+    position_result_trends,
+    twr_index,
+    underwater,
+    xirr_curve,
+)
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import market_days
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
@@ -82,19 +89,22 @@ with real_col:
 real_view = bool(real_view and daily_cpi is not None)
 
 end = total.index[-1]
-factor = None
-if real_view:
-    # Every amount in the złoty of the last day: value, flows and costs times level(end) / level(day).
-    # The formulas below stay the same; only their inputs change (D-058).
+# Every amount in the złoty of the last day: value, flows and costs times level(end) / level(day). With "Po
+# inflacji" the formulas below stay the same; only their inputs change (D-058). The real XIRR uses it either way.
+cpi_factor = None
+if daily_cpi is not None:
     level = daily_cpi["level"].reindex(total.index)
     level = level.where(level > 0).ffill().bfill()
-    factor = level.iloc[-1] / level
+    cpi_factor = level.iloc[-1] / level
     # Polish prices did not rise more than five-fold, nor fall by four fifths, within one portfolio's life: a
     # factor outside that range means broken CPI data, and using it would turn every figure into nonsense.
-    if factor.isna().any() or not factor.between(0.2, 5).all():
-        st.warning("Dane o inflacji (CPI z GUS) w bazie wyglądają na uszkodzone, więc pokazuję wartości "
-                   "nominalne. Pobierz je ponownie na stronie Dane rynkowe.", icon=":material/warning:")
-        real_view, factor = False, None
+    if cpi_factor.isna().any() or not cpi_factor.between(0.2, 5).all():
+        cpi_factor = None
+        if real_view:
+            st.warning("Dane o inflacji (CPI z GUS) w bazie wyglądają na uszkodzone, więc pokazuję wartości "
+                       "nominalne. Pobierz je ponownie na stronie Dane rynkowe.", icon=":material/warning:")
+            real_view = False
+factor = cpi_factor if real_view else None
 UNIT = "w dzisiejszych złotych" if real_view else "w PLN"
 # "1D" (D-070): the day of the "Dzisiaj" tile, every 5 minutes; daily figures are measured from its base close.
 DAY = one_day(settings, v) if period == ONE_DAY else None
@@ -172,6 +182,13 @@ def _short(amount: float) -> str:
     else:
         text = f"{amount:+.0f}"
     return text.replace("-", "−")
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def xirr_history(values: pd.Series, flows: pd.Series, start: pd.Timestamp, freq: str) -> pd.Series:
+    """The XIRR curve up to the day before the last (D-083): it does not move with live quotes, so live redraws
+    reuse it and add only the last day."""
+    return xirr_curve(values, flows, start, freq)
 
 
 @st.fragment(run_every=LIVE_EVERY)
@@ -298,6 +315,34 @@ def headline() -> None:
         market_tile = Kpi("Czy pobiłeś giełdę?", "–",
                           delta="czeka na zamknięcie" if waiting else "brak notowań S&P 500", delta_color="off",
                           help=G["beat_market_waiting" if waiting else "beat_market_missing"])
+    # "Roczny zwrot (XIRR)" (D-083, D-084): the money-weighted annual rate of the period, for every period: a short
+    # one is put on a yearly basis too, as the user asked. With "Po inflacji" the amounts are in today's złoty, so
+    # it is the real rate; the delta gives the other.
+    xirr_tile = Kpi("Roczny zwrot (XIRR)", "–", delta="brak wyniku", delta_color="off",
+                    help=G["xirr_tile"] + " " + G["xirr_none"])
+    rate = period_xirr(total, flows, start, end)
+    if rate is not None:
+        if real_view:
+            other = period_xirr(v.total, nominal_flows, start, end)
+            other_text = f"nominalnie {fmt_pct(other)}" if other is not None else None
+        else:
+            other = (period_xirr(total * cpi_factor.reindex(total.index).fillna(1.0),
+                                 flows * cpi_factor.reindex(flows.index).fillna(1.0).to_numpy(), start, end)
+                     if cpi_factor is not None else None)
+            other_text = f"realnie {fmt_pct(other)}" if other is not None else None
+        span_days = (end - start).days
+        freq, freq_text = (("D", "dnia") if span_days <= 92 else ("W-FRI", "tygodnia") if span_days <= 3 * 365
+                           else ("ME", "miesiąca"))
+        history = xirr_history(total.iloc[:-1], flows[flows.index < end], start, freq)
+        curve_xirr = pd.concat([history[history.index < end], pd.Series([rate], index=[end])])
+        xirr_tile = Kpi(
+            "Roczny zwrot (XIRR)", fmt_pct(rate),
+            delta=other_text, delta_color="off", help=G["xirr_tile"],
+            trend=curve_xirr.round(4).tolist(), trend_kind="pct", trend_water=True,
+            series=curve_xirr, series_start=start,
+            series_note=f"Roczny zwrot (XIRR) od początku wybranego okresu do końca każdego {freq_text}: jak "
+                        "zmieniało się Twoje średnie roczne oprocentowanie. Na początku okresu, po kilku dniach, "
+                        "stopa roczna mocno skacze.")
     deposits_now = float(cumulative_flows.iloc[-1])
     fx_before_today = float(fx_cumulative.iloc[-2]) if curve is None and len(fx_cumulative) > 1 else 0.0
     # Value, today, period result, currencies; deposits, profit vs deposits, vs the S&P 500 (D-055, D-059, D-063,
@@ -347,11 +392,12 @@ def headline() -> None:
                           if deposits_now > 0 else None),
             series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
                         "niż wpłacone pieniądze."),
+        xirr_tile,
         market_tile,
     ]
-    # Two rows, 4 + 3 with an empty place, so seven tiles keep their labels readable (D-081).
+    # Two rows of four, so every label stays readable (D-081, D-083).
     kpi_row(tiles[:4])
-    kpi_row(tiles[4:], columns=4)
+    kpi_row(tiles[4:])
 
     # -------------------------------------------------------------------------------- value over time
     live_note = (" Dzisiejsza wartość na żywo." if live_at and STREAMING

@@ -13,6 +13,10 @@ All notable changes to this project are listed here. The format follows
   the same money into the S&P 500 (with dividends, in PLN) on the same days; the tooltip explains it and gives both
   returns. The index is downloaded with the other market data (D-080). The Portfel tiles are now in two rows,
   4 + 3, so their labels fit (D-081).
+- **"Roczny zwrot (XIRR)" on Portfel:** the average annual return of the selected period, with deposits and
+  withdrawals counted on their dates, and the same rate after inflation (or nominal, with "Po inflacji") below it.
+  "Pełny wykres" shows how it developed. Shown for every period; a shorter one is put on a yearly basis too, so
+  the numbers can be large. It fills the second row of tiles (D-083, D-084).
 - **"1T" (a week) in "Okres"** on Portfel, Zwroty and Dywidendy, with daily points in the tile sparklines and
   the composition bars (D-078).
 - **Zużycie zasobów on Ustawienia:** how much processor and memory the app uses, averaged over the last minute

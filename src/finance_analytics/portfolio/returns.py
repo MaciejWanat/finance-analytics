@@ -87,6 +87,9 @@ def annualize(total_return: float, days: float) -> float | None:
 # ----------------------------------------------------------------------------------- XIRR
 
 
+XIRR_LOW, XIRR_HIGH = -1 + 1e-12, 1e6  # the bracket of the bisection: −100% (exclusive) to +100 000 000%
+
+
 def xirr(cashflows: Sequence[tuple[date, float]], *, guess: float = 0.1) -> float | None:
     """Annual internal rate of return of dated cash flows (investor's view: money in < 0).
 
@@ -106,19 +109,26 @@ def xirr(cashflows: Sequence[tuple[date, float]], *, guess: float = 0.1) -> floa
         return sum(-t * a / (1 + rate) ** (t + 1) for t, a in years)
 
     rate = guess
-    for _ in range(100):
-        value, slope = npv(rate), dnpv(rate)
-        if slope == 0:
-            break
-        step = value / slope
-        rate -= step
-        if rate <= -0.9999:
-            break
-        if abs(step) < 1e-10:
-            return rate
-    # Bisection on a wide bracket.
-    low, high = -0.9999, 10.0
-    f_low, f_high = npv(low), npv(high)
+    try:
+        for _ in range(100):
+            value, slope = npv(rate), dnpv(rate)
+            if slope == 0:
+                break
+            step = value / slope
+            rate -= step
+            if rate <= XIRR_LOW:
+                break
+            if abs(step) < 1e-10:
+                return rate
+    except (OverflowError, ZeroDivisionError):  # Newton ran off to an extreme rate; bisection below
+        pass
+    # Bisection on a wide bracket: a result of a few days put on a yearly basis can be thousands of percent, or
+    # almost −100% (D-084).
+    low, high = XIRR_LOW, XIRR_HIGH
+    try:
+        f_low, f_high = npv(low), npv(high)
+    except (OverflowError, ZeroDivisionError):  # decades of flows at an extreme rate: no usable answer
+        return None
     if math.isnan(f_low) or math.isnan(f_high) or f_low * f_high > 0:
         return None
     for _ in range(300):
@@ -141,6 +151,20 @@ def period_xirr(values: pd.Series, flows: pd.Series, start: pd.Timestamp, end: p
     cashflows += [(d.date(), -float(a)) for d, a in inside.items()]
     cashflows.append((end.date(), float(values.asof(end))))
     return xirr(cashflows)
+
+
+def xirr_curve(values: pd.Series, flows: pd.Series, start: pd.Timestamp, freq: str = "W-FRI") -> pd.Series:
+    """XIRR from `start` to each later day, on the last day of every `freq` period (D-083, D-084): how the annual
+    rate of the period developed. A few days after `start` it is a short result put on a yearly basis, so it swings
+    hard. Days without a solution are left out."""
+    flows = flows.groupby(level=0).sum()
+    days = values[values.index > start]
+    ends = days.groupby(pd.Grouper(freq=freq)).tail(1).index if len(days) else []
+    rates = {end: period_xirr(values, flows, start, end) for end in ends}
+    rates = {day: rate for day, rate in rates.items() if rate is not None}
+    # A date index even when empty (e.g. "1R": no point a year after the start before the last day), so callers
+    # can compare it with dates.
+    return pd.Series(list(rates.values()), index=pd.DatetimeIndex(list(rates)), dtype=float)
 
 
 # ------------------------------------------------------------------------------- drawdown

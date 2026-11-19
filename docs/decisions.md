@@ -910,7 +910,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Consequences:** one more Yahoo ticker per market update. The index is not an instrument, so it is not listed in "Dane rynkowe" coverage; a download error shows with the others.
 
 ### D-081 Portfel tiles in two rows: 4 + 3
-- **Date:** 2026-11-19 · **Status:** Accepted (changes the one-row layout of D-063 and D-080)
+- **Date:** 2026-11-19 · **Status:** Accepted (changes the one-row layout of D-063 and D-080); the empty place is superseded by D-083
 - **Context:** with "Czy pobiłeś giełdę?" (D-080) Portfel had seven tiles in one row; at about 1366 px their labels were cut off ("Czy pob…").
 - **Decision:** two rows of four places: "Wartość portfela", "Dzisiaj", "Wynik w okresie", "Wynik na walutach"; then "Wpłacony kapitał", "Zysk do wpłat", "Czy pobiłeś giełdę?" and one empty place, so every tile has the same width. `kpi_row(kpis, columns=)` leaves the places after the last tile empty.
 
@@ -918,6 +918,24 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 - **Date:** 2026-11-19 · **Status:** Accepted
 - **Context:** the positions table on Portfel showed ten rows and scrolled inside itself; the user wants every position visible at once.
 - **Decision:** `table(..., height="content")` draws the table as tall as its rows (Streamlit's `height="content"`, capped at 10 000 px); "Bieżące pozycje" uses it. Other tables keep the default of ten rows. The "Szukaj" field still narrows the table.
+
+### D-083 "Roczny zwrot (XIRR)" tile: two full rows of four on Portfel
+- **Date:** 2026-11-19 · **Status:** Accepted (fills the empty place of D-081); "only for a year or more" and the curve's start superseded by D-084
+- **Context:** the second row of Portfel tiles had an empty place; of the proposed tiles the user picked the annual money-weighted return.
+- **Decision:**
+  - "Roczny zwrot (XIRR)" in the second row, before "Czy pobiłeś giełdę?": `period_xirr` of the selected period, shown only for periods of a year or more (D-022); shorter ones show "–" and "dla okresów od roku".
+  - The delta is the same rate the other way round: "realnie" from the GUS CPI in the nominal view, "nominalnie" with "Po inflacji" (where the tile itself is real). Without CPI there is no delta.
+  - Sparkline and "Pełny wykres": XIRR from the period start to the end of every week (monthly over three years), from a year after the start (`returns.xirr_curve`). The curve up to the day before the last is cached (`st.cache_data`), so a live redraw solves XIRR only for the last day.
+  - The CPI factor is computed whenever CPI is saved (`cpi_factor`), not only with "Po inflacji".
+
+### D-084 The XIRR tile shows an annual rate for every period
+- **Date:** 2026-11-19 · **Status:** Accepted (supersedes the one-year rule of D-083 for this tile; Zwroty keeps D-022)
+- **Context:** "Roczny zwrot (XIRR)" showed "–" for periods under a year and no curve at "1R" (one point). The user: "daj zawsze roczny XIRR. Użytkownik powinien zawsze dostać o co prosi."
+- **Decision:**
+  - The tile shows the annual XIRR of any period, "1D" included. Short periods are put on a yearly basis too, so the numbers can be very large (a month at +4% is about +60% a year, a day at +1% thousands of percent); the tooltip says so with those examples.
+  - The curve starts on the first day after the period start: daily points up to 92 days, weekly up to three years, monthly beyond. Its first points swing hard, which the chart note says.
+  - `returns.xirr` searches a wider bracket, from just above −100% to +100 000 000% (`XIRR_LOW`, `XIRR_HIGH`), and treats an overflow as "no answer". Results that were found before do not change.
+  - "–" with "brak wyniku" only when there is no solution (e.g. nothing at the start and no deposits).
 
 ---
 

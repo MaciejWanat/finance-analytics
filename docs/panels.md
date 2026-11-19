@@ -57,12 +57,13 @@ Profiled times are about 1.5–2× the real ones.
 - **Computed on every redraw:**
   - `headline()`: live valuation (`apply_live`, cached per live key, 6 entries); `total`, flows, TWR, underwater,
     `fx_pnl` and "Dzisiaj" over the whole history (cheap vector maths, still the largest part); the shadow S&P 500
-    portfolio of the period (`benchmark.compare`, vector maths); seven sparklines
+    portfolio of the period (`benchmark.compare`, vector maths); XIRR of the period, nominal and real, plus the last
+    point of its curve (the rest of the curve is cached, `xirr_history`; daily points up to 92 days, D-083, D-084); eight sparklines
     (one Plotly constructor each); the value chart. With 1D also `one_day` and `load_intraday`
     (`intraday_values`, every row × every 5 minutes, vectorised).
   - `positions()`: holdings on the last day, cost of open lots, 90-day result trends
     (`returns.position_result_trends`, one as-of join), the table.
-- **Sent to the browser:** per `headline()` run: seven KPI tiles in two rows (4 + 3, D-081) with sparklines (~3.5 KB each) and the value chart
+- **Sent to the browser:** per `headline()` run: eight KPI tiles in two rows of four (D-081, D-083) with sparklines (~3.5 KB each) and the value chart
   (~44 KB on Maks.). Per `positions()` run: the holdings table (~55 KB with 26 positions), every row shown (D-082). Whole page ~142 KB
   (Maks.), ~117 KB (1D). The value chart, the sparklines and the "Pełny wykres" dialog are live charts
   (`ui.live_chart`, D-072): the same chart takes each new figure with `Plotly.react`, so it never disappears. Zoom

@@ -18,6 +18,14 @@ G: dict[str, str] = {
         "oprocentowanie lokaty, która z tych samych wpłat dałaby Ci dziś tę samą kwotę. "
         "Pokazywany dla okresów od roku."
     ),
+    "xirr_tile": (
+        "Ile średnio rocznie zarabia Twój portfel w wybranym okresie, z uwzględnieniem dat i kwot wpłat i wypłat "
+        "(XIRR): oprocentowanie lokaty, która z tych samych wpłat dałaby Ci dziś tę samą kwotę. Łatwo porównać z "
+        "inflacją albo lokatą. Pod spodem ta sama stopa realnie (po inflacji) albo, z włączonym „Po inflacji”, "
+        "nominalnie. Okres krótszy niż rok też jest przeliczany na rok, więc liczby bywają bardzo duże: +4% w miesiąc "
+        "to ok. +60% rocznie, a +1% w jeden dzień to kilka tysięcy procent."
+    ),
+    "xirr_none": "Dla tego okresu nie da się policzyć stopy, np. bez wartości na jego początku i bez wpłat.",
     "drawdown": (
         "Spadek od szczytu: o ile procent portfel był poniżej swojego najwyższego wcześniejszego poziomu. "
         "Liczony na TWR, więc nowe wpłaty nie ukrywają spadków."
