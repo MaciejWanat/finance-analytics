@@ -51,18 +51,19 @@ Profiled times are about 1.5–2× the real ones.
   that finds a new day, or a change of market pace, reruns the whole page.
 - **Inputs:** `ui.data.load_valuation` (positions, cash ledger, prices, NBP rates, bonds, bank balances,
   `live_quotes`), `cpi_monthly` (Po inflacji), `intraday_quotes` (1D), `config/settings.yaml`.
-- **Computed once per data version:** the valuation of the whole history (`_history`); the CPI factor; the
-  composition and allocation block (`wide`, bars, segmented bar, shares table), which is outside the fragments and
+- **Computed once per data version:** the valuation of the whole history (`_history`); the CPI factor; the S&P 500
+  in PLN for "Czy pobiłeś giełdę?" (`ui.data.load_benchmark`, D-080); the composition and allocation block (`wide`, bars, segmented bar, shares table), which is outside the fragments and
   so changes only on a full run.
 - **Computed on every redraw:**
   - `headline()`: live valuation (`apply_live`, cached per live key, 6 entries); `total`, flows, TWR, underwater,
-    `fx_pnl` and "Dzisiaj" over the whole history (cheap vector maths, still the largest part); six sparklines
+    `fx_pnl` and "Dzisiaj" over the whole history (cheap vector maths, still the largest part); the shadow S&P 500
+    portfolio of the period (`benchmark.compare`, vector maths); seven sparklines
     (one Plotly constructor each); the value chart. With 1D also `one_day` and `load_intraday`
     (`intraday_values`, every row × every 5 minutes, vectorised).
   - `positions()`: holdings on the last day, cost of open lots, 90-day result trends
     (`returns.position_result_trends`, one as-of join), the table.
-- **Sent to the browser:** per `headline()` run: six KPI tiles with sparklines (~3.5 KB each) and the value chart
-  (~44 KB on Maks.). Per `positions()` run: the holdings table (~55 KB with 26 positions). Whole page ~142 KB
+- **Sent to the browser:** per `headline()` run: seven KPI tiles in two rows (4 + 3, D-081) with sparklines (~3.5 KB each) and the value chart
+  (~44 KB on Maks.). Per `positions()` run: the holdings table (~55 KB with 26 positions), every row shown (D-082). Whole page ~142 KB
   (Maks.), ~117 KB (1D). The value chart, the sparklines and the "Pełny wykres" dialog are live charts
   (`ui.live_chart`, D-072): the same chart takes each new figure with `Plotly.react`, so it never disappears. Zoom
   survives redraws of the same view (`view=` period and unit) and resets on a new one. An open KPI dialog stays

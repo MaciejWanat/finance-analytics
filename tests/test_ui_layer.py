@@ -220,6 +220,35 @@ def test_global_styles_install_the_rolling_digits_once_per_run():
     assert len(at.get("bidi_component")) == 1
 
 
+def test_kpi_row_can_leave_empty_places_after_the_last_tile():
+    """D-081: a shorter second row (4 + 3) keeps the tile width of the first."""
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        from ui.components import Kpi, kpi_row
+
+        kpi_row([Kpi(f"Kafelek {n}", "1 zł") for n in range(3)], columns=4)
+
+    at = AppTest.from_function(page).run()
+    assert not at.exception, at.exception
+    assert len(at.columns) == 4 and len(at.metric) == 3
+
+
+def test_table_can_show_every_row():
+    """D-082: "Bieżące pozycje" shows all rows instead of ten and a scrollbar."""
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import pandas as pd
+        from ui.components import table
+
+        table(pd.DataFrame({"symbol": [f"S{n}" for n in range(30)]}), height="content")
+
+    at = AppTest.from_function(page).run()
+    assert not at.exception, at.exception
+    assert len(at.dataframe) == 1 and len(at.dataframe[0].value) == 30
+
+
 def test_detail_chart_puts_today_every_5_minutes_after_the_daily_history():
     """D-076: "1D" in the enlarged chart shows today's 5-minute curve, joined to the daily history."""
     from datetime import datetime

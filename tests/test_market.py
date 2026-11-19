@@ -15,6 +15,7 @@ from finance_analytics.db import connect, migrate
 from finance_analytics.market import cache, nbp, yahoo
 from finance_analytics.market.update import update_market
 from finance_analytics.mock.xtb_export import write_mock_export
+from finance_analytics.portfolio.benchmark import BENCHMARK_TICKER
 from finance_analytics.sources.sync import import_xtb, sync
 
 TODAY = date(2026, 11, 16)  # a Monday
@@ -268,10 +269,10 @@ def test_update_market_on_imported_mock_export(tmp_path):
         progress=lambda *args: steps.append(args),
     )
     assert not report.errors and not report.unresolved
-    assert [s[2] for s in steps] == list(range(15)) and {s[3] for s in steps} == {15}  # 13 tickers, NBP, GUS
+    assert [s[2] for s in steps] == list(range(16)) and {s[3] for s in steps} == {16}  # 13 tickers, S&P 500, NBP, GUS
     assert [s[0] for s in steps[-2:]] == ["nbp", "gus"]
     assert set(report.prices.fetched) == {"NVDA", "TSLA", "AMD", "MSFT", "AAPL", "GOOGL", "AMZN", "META",
-                                          "VUAA.L", "IWDA.L", "VWRA.L", "EIMI.L", "SGLN.L"}
+                                          "VUAA.L", "IWDA.L", "VWRA.L", "EIMI.L", "SGLN.L", BENCHMARK_TICKER}
     assert set(report.fx.fetched) == {"USD", "EUR"}  # account + price currencies, never PLN
     with closing(sqlite3.connect(settings.db_path)) as c:
         first_fx = c.execute("SELECT MIN(date) FROM fx_rates WHERE currency = 'USD'").fetchone()[0]

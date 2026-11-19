@@ -35,7 +35,7 @@ Every page in `src/finance_analytics/app/views/` follows this order (skip what d
 | 1 | Title + one-line purpose | `page_header(title, caption)` |
 | 2 | Guard states (no DB, no data, missing prerequisite) | `empty_state(...)` + `st.page_link` to the page that fixes it, then `st.stop()` |
 | 3 | Page-wide filter | `st.segmented_control`, one row, label in Polish |
-| 4 | KPI row (≤ 5 tiles, Portfel has 6 by request (D-063); keep deltas short so they do not wrap; values shrink to fit a narrow tile) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
+| 4 | KPI row (≤ 5 tiles, Portfel has 7 by request in two rows, 4 + 3 with `kpi_row(..., columns=4)` (D-063, D-080, D-081); keep deltas short so they do not wrap; values shrink to fit a narrow tile) | `kpi_row([Kpi(...)])`; every tile has a `trend` so heights match |
 | 5 | Main chart | `section(...)` + one builder from `ui/charts.py` |
 | 6 | Block filter + detail charts | control directly above `st.columns([3, 2])` |
 | 7 | Table | `table(...)`, sorted by the most important column |
@@ -49,7 +49,7 @@ Use `layout="wide"` (set once in `main.py`). Sections are separated by `section(
 |---|---|---|
 | Money, numbers, %, dates | `ui/fmt.py`: `fmt_money`, `fmt_money_compact`, `fmt_number`, `fmt_pct`, `fmt_date` | f-strings with `:,.2f`, English separators |
 | KPI tiles | `kpi_row`, `Kpi(label, value, delta, help, trend, trend_kind, series)`; with `series` (daily history) the tile gets a "Pełny wykres" button that opens a zoomable chart in a dialog (`detail_chart`, range buttons and slider); the sparkline is our own Plotly chart with a Polish hover (`trend_kind="money"` → `12 345,67 zł`, `"pct"` → `+3,4%`) | bare `st.metric`; its built-in `chart_data` sparkline (raw numbers in the hover) |
-| Tables | `table(df, numbers=, percents=, signed=, datetimes=, trends=, labels=, search=)`; `search="key"` adds a live filter field (D-057) | bare `st.dataframe`; `column_config` number formats |
+| Tables | `table(df, numbers=, percents=, signed=, datetimes=, trends=, labels=, search=)`; `search="key"` adds a live filter field (D-057); `height="content"` shows every row instead of ten (D-082) | bare `st.dataframe`; `column_config` number formats |
 | Charts | `area_total`, `line_chart`, `stacked_bars`, `segmented_bar`, then `show(fig, key=)` | `px.*` defaults, `st.plotly_chart` directly, `theme="streamlit"` |
 | Colours | `ui/theme.py`: `TOKENS[mode]`, `color_map(keys, mode)` | hex codes in pages |
 | Empty / guard states | `empty_state(title, body, icon=, steps=)` | `st.info` walls of text |

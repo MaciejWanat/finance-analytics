@@ -18,6 +18,7 @@ from ui.data import (
     ONE_DAY,
     RANGES,
     live_every,
+    load_benchmark,
     load_intraday,
     load_valuation,
     one_day,
@@ -34,6 +35,7 @@ from finance_analytics.market.intraday import coverage, update_intraday
 from finance_analytics.market.live import live_symbols
 from finance_analytics.portfolio import inflation
 from finance_analytics.portfolio.attribution import fx_pnl
+from finance_analytics.portfolio.benchmark import compare
 from finance_analytics.portfolio.returns import period_return, position_result_trends, twr_index, underwater
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import market_days
@@ -267,57 +269,89 @@ def headline() -> None:
             return make(curves) if curves is not None else None
         return build
 
+    # "Czy pobiłeś giełdę?" (D-080): the portfolio against the same money put into the S&P 500 on the same days.
+    # Computed in nominal złoty (the index is nominal); with "Po inflacji" the gap is then put in today's złoty.
+    nominal_flows = v.flows.set_index("date")["amount_pln"].sort_index()
+    index_pln = load_benchmark(settings, v.total.index)
+    vs = compare(v.total, nominal_flows, index_pln, start)
+    if vs is not None and len(vs.gap) > 1:
+        gap = vs.gap * factor.reindex(vs.gap.index).fillna(1.0) if factor is not None else vs.gap
+        gap_now = float(gap.iloc[-1])
+        # The index return is nominal, so the portfolio's TWR next to it is the nominal one too.
+        twr_nominal = period_return(twr_index(v.total, nominal_flows), start, end) if real_view else twr_period
+        market_tile = Kpi(
+            "Czy pobiłeś giełdę?", "Tak" if gap_now > 0 else "Nie",
+            delta=("+" if gap_now > 0 else "") + fmt_money_compact(gap_now),
+            help=G["beat_market"]
+            + f" Różnica: {fmt_money(gap_now, decimals=0, signed=True)}"
+            + (" w dzisiejszych złotych" if real_view else "")
+            + f". W tym okresie Twój portfel zarobił {fmt_pct(twr_nominal)} (TWR), a S&P 500 "
+              f"{fmt_pct(vs.index_return)} w PLN."
+            + (f" Stan na zamknięcie indeksu z {fmt_date(gap.index[-1])}." if gap.index[-1] < end else ""),
+            trend=gap.resample(step).last().dropna().round(0).tolist(), trend_water=True,
+            series=gap, series_start=start,
+            series_note="Twój portfel minus portfel-cień, który za te same wpłaty, w te same dni, kupował indeks "
+                        "S&P 500 (z dywidendami, w PLN). Powyżej zera wygrywasz z indeksem, poniżej przegrywasz.")
+    else:
+        # Quotes up to the period start but no close after it (1D before the US close): wait, do not ask to download.
+        waiting = index_pln[index_pln.index <= start].notna().any()
+        market_tile = Kpi("Czy pobiłeś giełdę?", "–",
+                          delta="czeka na zamknięcie" if waiting else "brak notowań S&P 500", delta_color="off",
+                          help=G["beat_market_waiting" if waiting else "beat_market_missing"])
     deposits_now = float(cumulative_flows.iloc[-1])
     fx_before_today = float(fx_cumulative.iloc[-2]) if curve is None and len(fx_cumulative) > 1 else 0.0
-    # One row: value, today, period result, currencies, deposits, profit vs deposits (D-055, D-059, D-063).
-    kpi_row(
-        [
-            Kpi("Wartość portfela", fmt_money_compact(value_now),
-                delta=fmt_money_compact(value_now - window.iloc[0]).replace("−", "-"),
-                help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
-                     "małej wartości startowej).", trend=trend(curve if curve is not None else total),
-                series=curve if curve is not None else total, series_start=start,
-                series_today=from_today(lambda c: c.total),
-                series_note=f"Wartość wszystkich rachunków {UNIT}, "
-                            + ("co 5 minut." if curve is not None else "dzień po dniu.")),
-            Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
-                delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
-                help=today_help,
-                trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
-                trend_kind="pct", trend_water=True, series=session_returns, series_start=start, series_note=today_note),
-            Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
-                delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
-                help=G["result_period"],
-                trend=trend(period_result), trend_water=True,
-                series=period_result if curve is not None else period_result[period_result.index >= start],
-                series_today=from_today(lambda c: c.total - window.iloc[0] - in_window),
-                series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
-                            "nad kafelkami."),
-            Kpi("Wynik na walutach", fmt_money(fx_total, decimals=0, signed=True) if len(fx_by_currency) else "–",
-                delta=None if fx_badges else "brak walut obcych", delta_color="off", badges=fx_badges, help=fx_help,
-                trend=trend(fx_cumulative) if curve is not None
-                else fx_cumulative.resample(step).last().dropna().round(0).tolist(), trend_water=True,
-                series=fx_cumulative, series_today=from_today(lambda c: fx_before_today + c.fx_part),
-                series_note="Zysk (+) lub strata (−) na samych kursach walut, narastająco od początku okresu: wartość "
-                            + ("w walucie razy zmiana kursu rynkowego, co 5 minut." if curve is not None
-                               else "w walucie razy zmiana kursu NBP, dzień po dniu.")),
-            Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
-                delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
-                help=G["contributed"] + (" Każda wpłata przeliczona na dzisiejsze złote." if real_view else ""),
-                trend=trend(pd.Series(contributed, index=curve.index) if curve is not None else cumulative_flows),
-                series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco.",
-                series_today=from_today(lambda c: pd.Series(deposits_now, index=c.total.index))),
-            Kpi("Zysk do wpłat", fmt_pct(uw.current) if uw.current is not None else "–",
-                delta=lowest, delta_color="off", help=ratio_help,
-                trend=trend(in_window_ratio, 4) if curve is not None
-                else in_window_ratio.resample(step).last().dropna().round(4).tolist(),
-                trend_kind="pct", trend_water=True, series=in_window_ratio,
-                series_today=(from_today(lambda c: (c.total - deposits_now) / deposits_now)
-                              if deposits_now > 0 else None),
-                series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
-                            "niż wpłacone pieniądze."),
-        ]
-    )
+    # Value, today, period result, currencies; deposits, profit vs deposits, vs the S&P 500 (D-055, D-059, D-063,
+    # D-080).
+    tiles = [
+        Kpi("Wartość portfela", fmt_money_compact(value_now),
+            delta=fmt_money_compact(value_now - window.iloc[0]).replace("−", "-"),
+            help="Przyrost wartości w wybranym okresie, razem z wpłatami (procent byłby mylący przy "
+                 "małej wartości startowej).", trend=trend(curve if curve is not None else total),
+            series=curve if curve is not None else total, series_start=start,
+            series_today=from_today(lambda c: c.total),
+            series_note=f"Wartość wszystkich rachunków {UNIT}, "
+                        + ("co 5 minut." if curve is not None else "dzień po dniu.")),
+        Kpi("Dzisiaj", fmt_pct(today[1], 2) if today else "–",
+            delta=None if today else "brak poprzedniej sesji", delta_color="off", badges=today_badges,
+            help=today_help,
+            trend=session_returns[session_returns.index > end - pd.Timedelta(days=30)].round(5).tolist(),
+            trend_kind="pct", trend_water=True, series=session_returns, series_start=start, series_note=today_note),
+        Kpi("Wynik w okresie", fmt_money(result, decimals=0, signed=True),
+            delta=f"{fmt_pct(twr_period)} TWR" + (" realnie" if real_view else ""),
+            help=G["result_period"],
+            trend=trend(period_result), trend_water=True,
+            series=period_result if curve is not None else period_result[period_result.index >= start],
+            series_today=from_today(lambda c: c.total - window.iloc[0] - in_window),
+            series_note="Zysk lub strata od początku wybranego okresu, bez wpłat i wypłat. Inny okres wybierzesz "
+                        "nad kafelkami."),
+        Kpi("Wynik na walutach", fmt_money(fx_total, decimals=0, signed=True) if len(fx_by_currency) else "–",
+            delta=None if fx_badges else "brak walut obcych", delta_color="off", badges=fx_badges, help=fx_help,
+            trend=trend(fx_cumulative) if curve is not None
+            else fx_cumulative.resample(step).last().dropna().round(0).tolist(), trend_water=True,
+            series=fx_cumulative, series_today=from_today(lambda c: fx_before_today + c.fx_part),
+            series_note="Zysk (+) lub strata (−) na samych kursach walut, narastająco od początku okresu: wartość "
+                        + ("w walucie razy zmiana kursu rynkowego, co 5 minut." if curve is not None
+                           else "w walucie razy zmiana kursu NBP, dzień po dniu.")),
+        Kpi("Wpłacony kapitał", fmt_money_compact(contributed), delta_color="off",
+            delta=fmt_money_compact(in_window) + " w okresie" if in_window else None,
+            help=G["contributed"] + (" Każda wpłata przeliczona na dzisiejsze złote." if real_view else ""),
+            trend=trend(pd.Series(contributed, index=curve.index) if curve is not None else cumulative_flows),
+            series=cumulative_flows, series_start=start, series_note="Suma wpłat minus wypłaty, narastająco.",
+            series_today=from_today(lambda c: pd.Series(deposits_now, index=c.total.index))),
+        Kpi("Zysk do wpłat", fmt_pct(uw.current) if uw.current is not None else "–",
+            delta=lowest, delta_color="off", help=ratio_help,
+            trend=trend(in_window_ratio, 4) if curve is not None
+            else in_window_ratio.resample(step).last().dropna().round(4).tolist(),
+            trend_kind="pct", trend_water=True, series=in_window_ratio,
+            series_today=(from_today(lambda c: (c.total - deposits_now) / deposits_now)
+                          if deposits_now > 0 else None),
+            series_note="(Wartość portfela − wpłaty) / wpłaty, dzień po dniu. Poniżej zera portfel był wart mniej "
+                        "niż wpłacone pieniądze."),
+        market_tile,
+    ]
+    # Two rows, 4 + 3 with an empty place, so seven tiles keep their labels readable (D-081).
+    kpi_row(tiles[:4])
+    kpi_row(tiles[4:], columns=4)
 
     # -------------------------------------------------------------------------------- value over time
     live_note = (" Dzisiejsza wartość na żywo." if live_at and STREAMING
@@ -443,6 +477,7 @@ def positions() -> None:
         signed=["pnl", "pnl_pct"],
         trends=["trend"],
         search="positions",
+        height="content",  # every position at once, no scrolling inside the table (D-082)
         missing_labels={"cost": "unknown"},
         labels={
             "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "asset_class": "Klasa", "qty": "Ilość",

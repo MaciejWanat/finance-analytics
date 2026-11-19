@@ -14,6 +14,7 @@ from finance_analytics.market.gus import CpiFetch, CpiReport, fetch_cpi, update_
 from finance_analytics.market.nbp import Fetch, FxReport, fetch_rates, update_fx
 from finance_analytics.market.network import require_online
 from finance_analytics.market.yahoo import PriceClient, PriceReport, update_prices
+from finance_analytics.portfolio.benchmark import BENCHMARK_TICKER
 
 Progress = Callable[[str, str, int, int], None]  # (source: yahoo/nbp/gus, item, steps done, total steps)
 
@@ -79,6 +80,24 @@ def closed_until(conn: sqlite3.Connection) -> dict[str, date]:
     return {ticker: date.fromisoformat(last) for ticker, still_open, last in rows if not still_open}
 
 
+def portfolio_start(conn: sqlite3.Connection, tickers: dict[str, date]) -> date | None:
+    """The first day anything is valued: a broker operation, a trade, a bank balance or a bond purchase."""
+    days = [d for (d,) in conn.execute(
+        "SELECT MIN(substr(ts, 1, 10)) FROM cash_ledger UNION ALL SELECT MIN(date) FROM cash_snapshots "
+        "UNION ALL SELECT MIN(purchase_date) FROM bond_lots") if d]
+    firsts = [date.fromisoformat(d) for d in days] + list(tickers.values())
+    return min(firsts) if firsts else None
+
+
+def with_benchmark(conn: sqlite3.Connection, tickers: dict[str, date]) -> dict[str, date]:
+    """The portfolio's tickers plus the S&P 500 index from the portfolio's first day (D-080), for the
+    "Czy pobiłeś giełdę?" tile. Nothing to compare before there is a portfolio."""
+    first = portfolio_start(conn, tickers)
+    if first is None:
+        return tickers
+    return {**tickers, BENCHMARK_TICKER: min(first, tickers.get(BENCHMARK_TICKER, first))}
+
+
 def needed_currencies(conn: sqlite3.Connection, tickers: dict[str, date]) -> dict[str, date]:
     """Currency -> first day it is needed: currencies of accounts with operations or bank balances, and of prices."""
     needed: dict[str, date] = {}
@@ -116,7 +135,8 @@ def update_market(
     `manual=True` marks an explicit request by the user (the button on "Dane rynkowe",
     `fa update-market`); it is allowed in offline mode too, because offline means "never
     on its own" (D-031). Automatic callers leave it False and are refused offline.
-    `progress` is called before each step: every Yahoo ticker, then NBP, then GUS.
+    `progress` is called before each step: every Yahoo ticker (the S&P 500 index among them, D-080), then NBP,
+    then GUS.
     """
     if not manual:
         require_online(settings)
@@ -124,6 +144,7 @@ def update_market(
     with closing(connect(settings.db_path)) as conn:
         migrate(conn)
         tickers, unresolved = needed_tickers(conn)
+        tickers = with_benchmark(conn, tickers)
         total = len(tickers) + 2
 
         def step(source: str, item: str, done: int) -> None:

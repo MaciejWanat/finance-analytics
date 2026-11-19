@@ -8,6 +8,11 @@ All notable changes to this project are listed here. The format follows
 
 ### Added
 
+- **"Czy pobiłeś giełdę?" on Portfel:** "Tak" or "Nie" for the selected period, with the amount the portfolio is
+  ahead of or behind the S&P 500, and a chart of that gap over time. The comparison is a shadow portfolio that put
+  the same money into the S&P 500 (with dividends, in PLN) on the same days; the tooltip explains it and gives both
+  returns. The index is downloaded with the other market data (D-080). The Portfel tiles are now in two rows,
+  4 + 3, so their labels fit (D-081).
 - **"1T" (a week) in "Okres"** on Portfel, Zwroty and Dywidendy, with daily points in the tile sparklines and
   the composition bars (D-078).
 - **Zużycie zasobów on Ustawienia:** how much processor and memory the app uses, averaged over the last minute
@@ -25,6 +30,7 @@ All notable changes to this project are listed here. The format follows
 
 ### Changed
 
+- **"Bieżące pozycje" shows every position** on Portfel, without scrolling inside the table (D-082).
 - **Lighter live prices on Portfel:** a live redraw no longer values the whole history again. It is valued once
   and today's prices are laid over the last day, with exactly the same numbers. With the stream every 5 seconds
   the Portfel page itself now uses less than half the processor time it did (about 3 % instead of 7 % of

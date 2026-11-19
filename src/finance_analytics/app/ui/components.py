@@ -221,10 +221,14 @@ def _badges_html(badges: Sequence[tuple[str, float]]) -> str:
     return f'<div style="margin-top:-0.6rem">{"".join(pills)}</div>'
 
 
-def kpi_row(kpis: Sequence[Kpi]) -> None:
+def kpi_row(kpis: Sequence[Kpi], columns: int | None = None) -> None:
     """A row of bordered KPI tiles of equal height. Sparklines are our own Plotly charts, because
-    Streamlit's built-in metric sparkline shows raw numbers ("-26118") in its hover."""
-    for column, kpi in zip(st.columns(len(kpis)), kpis, strict=True):
+    Streamlit's built-in metric sparkline shows raw numbers ("-26118") in its hover.
+
+    `columns`: the row's width in tiles, when it is wider than `kpis`; the places after the last tile stay empty, so
+    a shorter second row keeps the tile width of the first (e.g. 4 + 3 on Portfel, D-081)."""
+    columns = max(columns or len(kpis), len(kpis))
+    for column, kpi in zip(st.columns(columns)[: len(kpis)], kpis, strict=True):
         # Streamlit reads the delta's direction from a leading ASCII "-".
         delta = kpi.delta.replace(MINUS, "-") if kpi.delta else None
         with column.container(border=True, height="stretch", gap="small", key=f"kpi_tile_{kpi.label}"):
@@ -303,8 +307,11 @@ def table(
     helps: dict[str, str] | None = None,
     missing_labels: dict[str, str] | None = None,
     search: str | None = None,
+    height: Literal["auto", "content"] = "auto",
 ) -> None:
     """A dataframe with Polish number formatting that still sorts numerically.
+
+    height: "auto" shows at most ten rows and scrolls; "content" shows every row (D-082).
 
     search: a unique key; adds a "Szukaj" field above the table that keeps only the rows
     whose text columns contain the typed text (case-insensitive), e.g. "am" -> AMD.
@@ -362,7 +369,7 @@ def table(
     config: dict[str, object] = {col: st.column_config.Column(help=text) for col, text in tooltip.items()}
     for col in trends:  # sparkline columns are the one place column_config shapes the display
         config[col] = st.column_config.LineChartColumn(col, width="small", help=tooltip.get(col))
-    st.dataframe(styler, hide_index=True, width="stretch", column_config=config)
+    st.dataframe(styler, hide_index=True, width="stretch", height=height, column_config=config)
 
 
 def empty_state(title: str, body: str, *, icon: str = ":material/inbox:", steps: Sequence[str] = ()) -> None:

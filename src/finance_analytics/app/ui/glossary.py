@@ -53,6 +53,23 @@ G: dict[str, str] = {
         "Zmiana wartości portfela w okresie po odjęciu wpłat i dodaniu wypłat, czyli to, co faktycznie zarobiłeś "
         "w złotych. Procent obok to TWR."
     ),
+    "beat_market": (
+        "Czy w wybranym okresie zarobiłeś więcej, niż gdybyś po prostu kupował indeks S&P 500 (500 największych "
+        "spółek z USA, z reinwestowanymi dywidendami, przeliczony na złote po kursie NBP). Porównanie to portfel-cień: "
+        "na początku okresu ma w indeksie tyle, ile był wart Twój portfel, a każdą Twoją wpłatę wydaje na indeks tego "
+        "samego dnia (wypłatę bierze ze sprzedaży indeksu). Kwota to różnica między Twoim portfelem a tym cieniem: "
+        "plus znaczy, że Twoje wybory (spółki, obligacje, gotówka, waluty, moment zakupów) dały więcej niż indeks, "
+        "minus, że prosty fundusz na S&P 500 dałby więcej. Wykres pokazuje, jak ta różnica zmieniała się w czasie."
+    ),
+    "beat_market_missing": (
+        "Brak notowań indeksu S&P 500 za ten okres. Pobierz dane rynkowe na stronie Dane rynkowe: indeks "
+        "pobiera się razem z cenami Twoich instrumentów."
+    ),
+    "beat_market_waiting": (
+        "Indeks S&P 500 nie ma jeszcze notowania zamknięcia w tym okresie (sesja w USA trwa albo jeszcze się nie "
+        "zaczęła). Porównanie pojawi się po zamknięciu sesji i pobraniu danych rynkowych; dłuższy okres pokaże "
+        "wynik do ostatniego zamknięcia."
+    ),
     "total_gain": "Wartość portfela minus wpłacony kapitał: łączny zysk od początku historii.",
     "today": (
         "Dzisiejszy zysk lub strata: zmiana wartości portfela od zamknięcia poprzedniej sesji, bez wpłat i wypłat. "

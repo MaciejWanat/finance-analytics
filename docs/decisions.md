@@ -898,6 +898,27 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - The rest costs all purchases minus the purchase value of every sold part; when one is unknown, the purchases are split by volume. `PARSER_VERSION` 18.
 - **Consequences:** the quantity history before a partial sale is complete again, so earlier charts and TWR can change slightly for such positions.
 
+### D-080 "Czy pobiłeś giełdę?" tile: the portfolio against the S&P 500 (resolves Q-004)
+- **Date:** 2026-11-19 · **Status:** Accepted
+- **Context:** the user wanted a tile on Portfel answering yes or no whether the portfolio returned more than the S&P 500 in the selected period, with the amount it is ahead or behind and a chart of how that gap moved.
+- **Decision:**
+  - Benchmark: the S&P 500 Total Return index (`^SP500TR` on Yahoo, dividends reinvested), in PLN at NBP USD mid rates, so it is measured like the portfolio: with dividends and with the currency. `market.update` adds it to the Yahoo tickers from the portfolio's first day (first operation, bank balance or bond purchase); USD rates follow from its price currency. It is fetched like any price: automatically only online, on request offline (D-031).
+  - Comparison: a shadow portfolio (`portfolio/benchmark.py`). On the period's first day it holds the index worth the portfolio's value; every later deposit buys the index on its day, every withdrawal sells it. Gap = portfolio − shadow; "Tak" when the gap on the last day is above zero. A money comparison, not TWR against the index return, so the answer and the amount always agree; both percentages (TWR and the index change) are in the tooltip.
+  - The comparison ends on the last day the index has a close: a day it has not closed yet would set the portfolio's live move against a level that stood still. The tooltip names that day when it is before the last day.
+  - With "Po inflacji" the gap is computed nominally and then put in today's złoty (the index is nominal).
+  - The tile is the seventh on Portfel, with a sparkline and "Pełny wykres" of the gap over time. Without index quotes it shows "–" and says to download market data.
+- **Consequences:** one more Yahoo ticker per market update. The index is not an instrument, so it is not listed in "Dane rynkowe" coverage; a download error shows with the others.
+
+### D-081 Portfel tiles in two rows: 4 + 3
+- **Date:** 2026-11-19 · **Status:** Accepted (changes the one-row layout of D-063 and D-080)
+- **Context:** with "Czy pobiłeś giełdę?" (D-080) Portfel had seven tiles in one row; at about 1366 px their labels were cut off ("Czy pob…").
+- **Decision:** two rows of four places: "Wartość portfela", "Dzisiaj", "Wynik w okresie", "Wynik na walutach"; then "Wpłacony kapitał", "Zysk do wpłat", "Czy pobiłeś giełdę?" and one empty place, so every tile has the same width. `kpi_row(kpis, columns=)` leaves the places after the last tile empty.
+
+### D-082 "Bieżące pozycje" shows every row
+- **Date:** 2026-11-19 · **Status:** Accepted
+- **Context:** the positions table on Portfel showed ten rows and scrolled inside itself; the user wants every position visible at once.
+- **Decision:** `table(..., height="content")` draws the table as tall as its rows (Streamlit's `height="content"`, capped at 10 000 px); "Bieżące pozycje" uses it. Other tables keep the default of ten rows. The "Szukaj" field still narrows the table.
+
 ---
 
 ## Open questions
@@ -907,7 +928,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 | Q-001 | How does XTB record stock splits in position history (adjusted volumes and prices, or a separate operation)? | Open: check against real data |
 | Q-002 | Where do COI coupons go? If to a bank account outside the tracked portfolio, they count as a withdrawal. | Resolved 2026-11-16 by D-026: coupons and redemptions are withdrawals (net of tax) |
 | Q-003 | IKE and IKZE accounts exist at XTB. Effects to model: no capital-gains tax on dividends and sales (withholding tax still applies), maybe a view of yearly contribution limits. Can bonds be held in IKE too? | Open. Bonds: yes, the issue letters allow IKE and IKZE at PKO BP; D-026 drops the tax for bonds on an account with `tax_wrapper` IKE/IKZE, but still counts their coupons as withdrawals although they stay on the IKE register. |
-| Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Open |
+| Q-004 | Benchmark for comparisons (e.g. WIG, MSCI ACWI in PLN): whether and when? | Resolved 2026-11-19 by D-080: the S&P 500 (total return, in PLN) on Portfel |
 | Q-005 | Open-source licence (e.g. MIT, Apache-2.0, AGPL-3.0). | Resolved 2026-11-16 by D-030 |
 | Q-007 | Online mode: how to keep prices live, where the setting lives, how offline is enforced. | Resolved 2026-11-16 by D-021 |
 | Q-006 | XTB export details not yet confirmed: ~~(a) the text-only row in an empty *Closed Positions* sheet~~ resolved 2026-11-16: a `Profit/loss` total row; ~~(b) summary row before positions~~ resolved 2026-11-16: yes; (c) ~~cash operation types for sales and withdrawals~~ resolved 2026-11-17 by D-043 (`Stock sell`, `Withdrawal`, `Subaccount transfer`); still open: their comment formats, types for fees and FX conversion, and the *Closed Positions* value types, none of which appear in the sample; (d) on PLN/EUR accounts holding USD instruments, which currency `Amount`, `Value` and the profits are in. The mock assumes the account currency. | Open: needs a larger export or the user's answer |

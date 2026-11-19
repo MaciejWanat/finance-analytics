@@ -15,6 +15,7 @@ from finance_analytics.config import Settings
 from finance_analytics.market.feed import fx_trading, markets_active
 from finance_analytics.market.intraday import read_intraday
 from finance_analytics.market.live import read_live
+from finance_analytics.portfolio.benchmark import BENCHMARK_CURRENCY, BENCHMARK_TICKER, index_in_pln
 from finance_analytics.portfolio.intraday import DayWindow, Intraday, day_window, intraday_values
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import (
@@ -162,6 +163,19 @@ def load_valuation(
             st.info("Brak pozycji i operacji do wyceny.")
         st.stop()
     return valuation, live_at
+
+
+@st.cache_data(show_spinner=False, max_entries=2)
+def _benchmark(db_path: str, version: tuple, first: pd.Timestamp, last: pd.Timestamp) -> pd.Series:
+    close = reports.price_series(Path(db_path), BENCHMARK_TICKER)
+    fx = reports.fx_series(Path(db_path), BENCHMARK_CURRENCY)
+    return index_in_pln(close, fx, pd.date_range(first, last, freq="D"))
+
+
+def load_benchmark(settings: Settings, calendar: pd.DatetimeIndex) -> pd.Series:
+    """The S&P 500 (total return) in PLN on every day of `calendar` (D-080); cached per data version, so live
+    redraws do not read it again. All NaN when it was never downloaded."""
+    return _benchmark(str(settings.db_path), data_version(settings.db_path), calendar[0], calendar[-1])
 
 
 def one_day(settings: Settings, v: Valuation, now: datetime | None = None) -> DayWindow:
