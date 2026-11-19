@@ -21,6 +21,7 @@ looks at the app: pages call `touch()`; after 2 minutes without it the thread en
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 import time
 import warnings
@@ -71,7 +72,22 @@ def yahoo_stream() -> Stream:
     # and the feed closes it itself. Only this one message from yfinance.live is silenced.
     warnings.filterwarnings("ignore", message=r"connect\(\) must be used as a context manager",
                             category=DeprecationWarning, module=r"yfinance\.live")
+    logger = logging.getLogger("yfinance")
+    if not any(isinstance(f, _NormalCloseFilter) for f in logger.filters):
+        logger.addFilter(_NormalCloseFilter())
     return yf.WebSocket(verbose=False)
+
+
+class _NormalCloseFilter(logging.Filter):
+    """Drops yfinance's "Error while listening" record when the connection was closed normally (code 1000).
+
+    The feed closes the stream itself (idle, resubscribe, mode change), and yfinance logs that as an error with a
+    full traceback. A real drop (any other close) is still logged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        return not (exc is not None and type(exc).__name__ == "ConnectionClosedOK")
 
 
 @dataclass(frozen=True)

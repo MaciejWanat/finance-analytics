@@ -355,3 +355,17 @@ def test_a_quiet_stream_at_night_is_fine(imported):
     feed.step()
     assert not stream.closed.is_set() and feed.status().state != "muted"
     feed.stop()
+
+
+def test_normal_close_is_not_logged_as_an_error():
+    import logging
+
+    from websockets.exceptions import ConnectionClosedOK
+
+    def record(exc: BaseException) -> logging.LogRecord:
+        return logging.LogRecord("yfinance", logging.ERROR, "live.py", 1, "Error while listening to messages: %s",
+                                 (exc,), (type(exc), exc, None))
+
+    flt = feed_module._NormalCloseFilter()
+    assert not flt.filter(record(ConnectionClosedOK(None, None)))
+    assert flt.filter(record(ConnectionError("dropped")))
