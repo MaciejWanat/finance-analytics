@@ -6,6 +6,8 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-19
+
 ### Added
 
 - **"Dzisiaj %" for every position on Portfel:** today's result of each holding, from the same close as the
@@ -190,6 +192,7 @@ XTB export are still assumptions (see *Known limitations*), so expect fixes befo
   `bond_series.yaml` for a new series.
 - Tax figures are estimates, not tax advice.
 
+[0.13.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.13.0
 [0.12.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.12.0
 [0.11.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.11.0
 [0.10.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.10.0

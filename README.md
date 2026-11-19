@@ -37,7 +37,7 @@ everything in one local SQLite file and shows it in a browser UI on `localhost`,
 
 | Page | What it shows |
 |---|---|
-| **Portfel** | Value of everything in PLN over time, or within today every 5 minutes (1D); live in online mode; tiles for today's result, the result for the period (TWR), the result on currencies, contributed capital, profit vs deposits, the annual return (XIRR) and "Czy pobiłeś giełdę?" (the portfolio against the same money put into the S&P 500 on the same days); a full holdings table; allocation by account, asset class, instrument or currency; current holdings with cost (NBP rate of the purchase day), result and a 90-day sparkline; a "Po inflacji" switch that shows everything in today's złoty. |
+| **Portfel** | Value of everything in PLN over time, or within today every 5 minutes (1D); live in online mode; tiles for today's result, the result for the period (TWR), the result on currencies, contributed capital, profit vs deposits, the annual return (XIRR) and "Czy pobiłeś giełdę?" (the portfolio against the same money put into the S&P 500 on the same days); a full holdings table; allocation by account, asset class, instrument or currency; current holdings with cost (NBP rate of the purchase day), result in PLN, result % and today's % in the instrument's own currency, and a 90-day sparkline; a "Po inflacji" switch that shows everything in today's złoty. |
 | **Zwroty** | TWR, XIRR, maximum and current drawdown for 1D / 1M / 3M / YTD / 1R / 3L / Maks.; cumulative TWR for the portfolio and each account; nominal vs real (after CPI) return; the split of the PLN return into prices × currencies × other, per instrument and per currency; underwater chart; per-account table; monthly returns heatmap. |
 | **Dywidendy** | Gross, withholding tax and net dividends in PLN at the NBP rate of the day before payment (D-1), monthly, per company and per tax year, with an estimate of the Polish tax still due (PIT-38; none on IKE/IKZE). |
 | **Obligacje** | Treasury bonds valued from the issue-letter rules: gross value, accrued interest, current rate and where it comes from, payout today after the early-redemption fee and tax; a form to add or delete purchases. |
@@ -80,7 +80,7 @@ There are two ways in: install a **release** to use the app, or install **from s
 ### Install a release (recommended)
 
 Each [GitHub release](https://github.com/MaciejWanat/finance-analytics/releases) has the app
-attached as one file, a wheel named like `finance_analytics-0.12.0-py3-none-any.whl`. You install
+attached as one file, a wheel named like `finance_analytics-0.13.0-py3-none-any.whl`. You install
 it with [uv](https://docs.astral.sh/uv/), a free, open-source installer for Python programs:
 it puts the app in its own isolated environment, adds the `fa` command, and downloads a suitable
 Python by itself if your computer has none. You need neither git nor Python beforehand.
@@ -99,13 +99,13 @@ Python by itself if your computer has none. You need neither git nor Python befo
    with the GitHub CLI:
 
    ```bash
-   gh release download v0.12.0 --repo MaciejWanat/finance-analytics --pattern "*.whl"
+   gh release download v0.13.0 --repo MaciejWanat/finance-analytics --pattern "*.whl"
    ```
 
 3. **Install it:**
 
    ```bash
-   uv tool install finance_analytics-0.12.0-py3-none-any.whl
+   uv tool install finance_analytics-0.13.0-py3-none-any.whl
    ```
 
    If the terminal then does not recognise `fa`, run `uv tool update-shell` once and open a new
@@ -120,7 +120,7 @@ Python by itself if your computer has none. You need neither git nor Python befo
    ```
 
 If you have git, steps 2 and 3 can be one command that builds the release straight from its tag:
-`uv tool install "git+https://github.com/MaciejWanat/finance-analytics@v0.12.0"`.
+`uv tool install "git+https://github.com/MaciejWanat/finance-analytics@v0.13.0"`.
 
 ### Install from source (development)
 
@@ -155,7 +155,7 @@ fa init
   `Set-ExecutionPolicy -Scope Process RemoteSigned`, or call `.venv\Scripts\fa.exe` directly.
 - From source, `fa init` also enables the privacy pre-commit hook
   (`git config core.hooksPath .githooks`), and the data folder is `data/` in the repository.
-- `main` holds the latest code; `git checkout v0.12.0` gives a released version. What changed in
+- `main` holds the latest code; `git checkout v0.13.0` gives a released version. What changed in
   each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## First steps
