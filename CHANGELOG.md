@@ -6,6 +6,8 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-19
+
 ### Added
 
 - **"Czy pobiłeś giełdę?" on Portfel:** "Tak" or "Nie" for the selected period, with the amount the portfolio is
@@ -177,6 +179,7 @@ XTB export are still assumptions (see *Known limitations*), so expect fixes befo
   `bond_series.yaml` for a new series.
 - Tax figures are estimates, not tax advice.
 
+[0.12.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.12.0
 [0.11.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.11.0
 [0.10.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.10.0
 [0.9.0]: https://github.com/MaciejWanat/finance-analytics/releases/tag/v0.9.0
