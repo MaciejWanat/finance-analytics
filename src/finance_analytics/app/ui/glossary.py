@@ -84,6 +84,16 @@ G: dict[str, str] = {
         "Duża liczba to procent (TWR dnia), plakietka to kwota w złotych. W weekend, w święto i zanim pobierzesz "
         "dzisiejsze notowania widać ostatnią sesję."
     ),
+    "position_today": (
+        "Dzisiejszy wynik pozycji: zmiana kursu instrumentu w jego walucie od zamknięcia poprzedniej sesji, bez "
+        "zmiany kursu walut. Ten sam dzień co w kafelku Dzisiaj, który liczy cały portfel w złotych. Zakup lub "
+        "sprzedaż w ciągu dnia nie zmienia wyniku. Kreska, gdy pozycji nie było na poprzednim zamknięciu."
+    ),
+    "pnl_pct_local": (
+        "O ile urósł lub spadł instrument od zakupu, w jego walucie, bez zmiany kursu walut: wartość w walucie "
+        "instrumentu wobec kosztu przeliczonego po kursie NBP z dnia zakupu. Wynik w złotych obok uwzględnia "
+        "też waluty, więc procent i kwota mogą mieć różne znaki."
+    ),
     "contributed": "Suma wszystkich wpłat minus wypłaty, przeliczona na PLN po kursie NBP z dnia operacji.",
     "portfolio_value": "Wartość wszystkich pozycji i gotówki na wszystkich rachunkach, w PLN.",
     # --- stocks vs currency -----------------------------------------------------------------

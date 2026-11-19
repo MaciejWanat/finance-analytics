@@ -6,6 +6,17 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **"Dzisiaj %" for every position on Portfel:** today's result of each holding, from the same close as the
+  "Dzisiaj" tile: the change of one unit's price in the instrument's own currency, so a purchase or sale that day
+  is not a gain or a loss.
+
+### Changed
+
+- **"Wynik %" of a position on Portfel leaves the currency out:** the instrument's move in its own currency, with
+  the cost at the NBP rate of the purchase day. "Wynik (zł)" and every tile still count in PLN, currencies included.
+
 ## [0.12.0] - 2026-11-19
 
 ### Added

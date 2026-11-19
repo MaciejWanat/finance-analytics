@@ -39,12 +39,13 @@ from finance_analytics.portfolio.benchmark import compare
 from finance_analytics.portfolio.returns import (
     period_return,
     period_xirr,
+    position_local_results,
     position_result_trends,
     twr_index,
     underwater,
     xirr_curve,
 )
-from finance_analytics.portfolio.today import today_result
+from finance_analytics.portfolio.today import position_day_returns, today_result
 from finance_analytics.portfolio.valuation import market_days
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 
@@ -495,7 +496,7 @@ section("Bieżące pozycje", "Wartość po ostatniej cenie i kursie waluty (w tr
 def positions() -> None:
     """The holdings table; live in online mode (D-069)."""
     v, _ = live_valuation()
-    daily, total, _, lots = scaled(v)
+    daily, total, flows, lots = scaled(v)
     value_now = total.iloc[-1]
     last_day = daily[(daily["date"] == end) & (daily["kind"] == "position")]
     holdings = last_day.groupby(["account", "symbol", "name", "asset_class", "currency"], as_index=False).agg(
@@ -506,9 +507,16 @@ def positions() -> None:
     cost = open_lots.groupby(["account", "symbol"])["cost_pln"].sum(min_count=1)  # all unknown -> unknown, not 0
     holdings["cost"] = [cost.get((a, s)) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
     holdings["pnl"] = holdings["value"] - holdings["cost"]
-    # A cost of zero (or below) is not a real cost: show the result % as unknown rather than +∞.
-    holdings["pnl_pct"] = holdings["pnl"] / holdings["cost"].where(holdings["cost"] > 0)
+    # The result % is the move of the instrument in its own currency, without the currency rate (the user's choice);
+    # the amount stays in PLN. Nominal, also with "Po inflacji". An unknown or non-positive cost gives "–".
+    local = position_local_results(v.daily, v.lots, v.fx, end)
+    holdings["pnl_pct"] = [local.get((a, s)) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
     holdings["share"] = holdings["value"] / value_now
+    # Today per position (the same day and base close as the "Dzisiaj" tile): the change of one unit's price in its
+    # own currency, without the currency rate.
+    tile = today_result(total, flows, market_days(v), by_us_session=by_us_session, now=datetime.now(UTC))
+    today = position_day_returns(daily, tile.base, min(tile.day, end))
+    holdings["today"] = [today.get((a, s)) for a, s in zip(holdings["account"], holdings["symbol"], strict=True)]
     # The 90-day trend is the result (value minus the cost of the lots held that day), so a purchase
     # does not bend the line (D-054).
     trends = position_result_trends(daily, lots, end)
@@ -517,10 +525,10 @@ def positions() -> None:
     holdings = holdings.sort_values("value", ascending=False)
     table(
         holdings[["symbol", "account", "name", "asset_class", "qty", "price", "currency", "value", "share", "cost",
-                  "pnl", "pnl_pct", "trend"]],
+                  "pnl", "pnl_pct", "today", "trend"]],
         numbers={"qty": 4, "price": 2, "value": 2, "cost": 2, "pnl": 2},
-        percents=["share", "pnl_pct"],
-        signed=["pnl", "pnl_pct"],
+        percents=["share", "pnl_pct", "today"],
+        signed=["pnl", "pnl_pct", "today"],
         trends=["trend"],
         search="positions",
         height="content",  # every position at once, no scrolling inside the table (D-082)
@@ -529,10 +537,11 @@ def positions() -> None:
             "account": "Rachunek", "symbol": "Ticker", "name": "Instrument", "asset_class": "Klasa", "qty": "Ilość",
             "price": "Kurs",
             "currency": "Waluta", "value": "Wartość (zł)", "share": "Udział", "cost": "Koszt (zł)",
-            "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "trend": "90 dni",
+            "pnl": "Wynik (zł)", "pnl_pct": "Wynik %", "today": "Dzisiaj %", "trend": "90 dni",
         },
         helps={"symbol": G["ticker"], "asset_class": G["asset_class"], "price": G["last_price"], "cost": G["cost"],
-               "pnl": G["pnl"], "pnl_pct": G["pnl"], "share": G["share"], "trend": G["trend_90"]},
+               "pnl": G["pnl"], "pnl_pct": G["pnl_pct_local"], "today": G["position_today"], "share": G["share"],
+               "trend": G["trend_90"]},
     )
 
 

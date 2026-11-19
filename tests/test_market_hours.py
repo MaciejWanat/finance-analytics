@@ -226,3 +226,26 @@ def test_today_by_session_folds_a_holiday_and_ignores_deposits():
     amount, pct = friday.change
     assert amount == pytest.approx(20.0)  # Thursday's +5 and Friday's +15, not the deposit
     assert pct == pytest.approx(1505 / 1500 * 1520 / 1505 - 1)
+
+
+def test_position_day_return_is_the_change_of_one_unit():
+    """Per position "Dzisiaj %": the price in its own currency; a purchase that day is not a gain; a position bought
+    since the base has none."""
+    import pandas as pd
+
+    from finance_analytics.portfolio.today import position_day_returns
+
+    thu, fri = pd.Timestamp("2026-11-19"), pd.Timestamp("2026-11-20")
+    daily = pd.DataFrame({
+        "date": [thu, fri, fri, fri, thu],
+        "account": "XTB", "kind": ["position", "position", "position", "position", "cash"],
+        "symbol": ["A.US", "A.US", "B.US", "A.US", None],
+        # A: 10 units at 100 on Thursday; on Friday 20 units at 105 (10 bought), in two rows. B: bought on Friday.
+        "qty": [10.0, 10.0, 5.0, 10.0, 1000.0], "value_local": [1000.0, 1050.0, 500.0, 1050.0, 1000.0],
+        # The PLN values move with the currency too; the per-position "Dzisiaj %" leaves that out.
+        "value_pln": [4000.0, 4410.0, 2100.0, 4410.0, 4000.0],
+    })
+    returns = position_day_returns(daily, thu, fri)
+    assert returns[("XTB", "A.US")] == pytest.approx(0.05)
+    assert pd.isna(returns[("XTB", "B.US")])
+    assert len(returns) == 2

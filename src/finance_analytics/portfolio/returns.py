@@ -291,3 +291,33 @@ def position_result_trends(daily: pd.DataFrame, lots: pd.DataFrame, end: pd.Time
     joined["result"] = (joined["value_pln"] - joined["held_cost"].fillna(0.0)).round(0)
     joined = joined.sort_values(["account", "symbol", "date"])
     return {key: group.tolist() for key, group in joined.groupby(["account", "symbol"])["result"]}
+
+
+def position_local_results(daily: pd.DataFrame, lots: pd.DataFrame, fx: pd.DataFrame, end: pd.Timestamp) -> pd.Series:
+    """(account, symbol) -> result % of each position held on `end` in the instrument's own currency, without the
+    currency rate: value in that currency over the cost of the open lots in it. The cost is the PLN cost of each
+    lot at the NBP rate of that currency on its opening day, the same rates the PLN figures use.
+
+    `fx`: calendar x currency, PLN per unit (`Valuation.fx`). NaN when a cost or a rate is unknown, or not positive.
+    """
+    held = daily[(daily["date"] == end) & (daily["kind"] == "position")]
+    keys = ["account", "symbol"]
+    value = held.groupby(keys)["value_local"].sum()
+    currency = held.groupby(keys)["currency"].last()
+    aliases = daily.drop_duplicates("account_id").set_index("account_id")["account"]
+    open_lots = lots[lots["close_date"].isna()].assign(account=lambda d: d["account_id"].map(aliases))
+    open_lots = open_lots[open_lots.set_index(keys).index.isin(currency.index)]
+
+    def rate(row) -> float:
+        ccy = currency.get((row.account, row.symbol))
+        if ccy == "PLN":
+            return 1.0
+        if ccy not in fx.columns:
+            return float("nan")
+        return float(fx[ccy].asof(row.open_date))
+
+    rates = [rate(row) for row in open_lots.itertuples(index=False)]
+    cost = (open_lots["cost_pln"] / pd.Series(rates, index=open_lots.index, dtype=float)).groupby(
+        [open_lots["account"], open_lots["symbol"]]).sum(min_count=1)
+    cost = cost.where(cost > 0)
+    return (value / cost.reindex(value.index) - 1).rename("pnl_local")

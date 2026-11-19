@@ -188,3 +188,25 @@ def test_xirr_of_a_short_period_is_put_on_a_yearly_basis():
     assert xirr([(date(2026, 11, 18), -1000), (date(2026, 11, 19), 950)]) == pytest.approx(-1, abs=1e-6)
     assert xirr([(date(2026, 10, 19), -1000), (date(2026, 11, 19), 1040)]) == pytest.approx(
         1.04 ** (365.25 / 31) - 1, rel=1e-6)
+
+
+def test_position_local_result_leaves_the_currency_out():
+    """"Wynik %" per position: the instrument's move in its own currency, cost at the NBP rate of the opening day."""
+    from finance_analytics.portfolio.returns import position_local_results
+
+    days = pd.date_range("2026-01-01", "2026-01-03")
+    fx = pd.DataFrame({"USD": [4.0, 4.0, 3.0], "PLN": 1.0}, index=days)
+    daily = pd.DataFrame({
+        "date": days[-1], "account_id": ["a1", "a1", "a2"], "account": ["XTB", "XTB", "PLN"], "kind": "position",
+        "symbol": ["X.US", "X.US", "Y.PL"], "currency": ["USD", "USD", "PLN"],
+        "value_local": [110.0, 110.0, 90.0], "value_pln": [330.0, 330.0, 90.0],
+    })
+    lots = pd.DataFrame({
+        "account_id": ["a1", "a1", "a1", "a2"], "symbol": ["X.US", "X.US", "X.US", "Y.PL"],
+        "open_date": [days[0], days[1], days[0], days[0]], "close_date": [pd.NaT, pd.NaT, days[1], pd.NaT],
+        "cost_pln": [400.0, 400.0, 999.0, 100.0],  # 100 USD each at 4,00; the closed lot does not count
+    })
+    result = position_local_results(daily, lots, fx, days[-1])
+    # 220 USD over 200 USD: +10 %, although in PLN (660 vs 800) it is a loss, because the dollar fell.
+    assert result[("XTB", "X.US")] == pytest.approx(0.10)
+    assert result[("PLN", "Y.PL")] == pytest.approx(-0.10)

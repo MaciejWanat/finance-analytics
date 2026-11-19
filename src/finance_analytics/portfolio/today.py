@@ -48,3 +48,24 @@ def today_result(
     base = pd.Timestamp(previous_trading_day(day.date()))
     per_day = chained_returns(returns, session)
     return Today(day, change_since(values, flows, base, min(day, end)), per_day[per_day.index.isin(shown)], base)
+
+
+def position_day_returns(daily: pd.DataFrame, base: pd.Timestamp | None, day: pd.Timestamp) -> pd.Series:
+    """(account, symbol) -> today's return of each position held on `day`, from the close of `base`: the change
+    of one unit's price in the instrument's own currency, without the currency rate (the user asked for the move
+    of the instrument alone). Per unit, so a purchase or a sale that day is not a gain or a loss.
+
+    The same day and base as the "Dzisiaj" tile (`today_result`). NaN for a position not held at `base` (bought
+    since then) or without a positive unit value.
+    """
+    positions = daily[daily["kind"] == "position"]
+    keys = ["account", "symbol"]
+
+    def unit_value(on: pd.Timestamp | None) -> pd.Series:
+        if on is None:
+            return pd.Series(dtype=float)
+        rows = positions[positions["date"] == on].groupby(keys)[["qty", "value_local"]].sum()
+        return (rows["value_local"] / rows["qty"].where(rows["qty"] > 0)).where(lambda s: s > 0)
+
+    now, before = unit_value(day), unit_value(base)
+    return (now / before.reindex(now.index) - 1).rename("today")

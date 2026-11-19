@@ -62,7 +62,9 @@ Profiled times are about 1.5–2× the real ones.
     (one Plotly constructor each); the value chart. With 1D also `one_day` and `load_intraday`
     (`intraday_values`, every row × every 5 minutes, vectorised).
   - `positions()`: holdings on the last day, cost of open lots, 90-day result trends
-    (`returns.position_result_trends`, one as-of join), the table.
+    (`returns.position_result_trends`, one as-of join), "Wynik %" in the instrument's currency
+    (`returns.position_local_results`, one rate lookup per open lot), "Dzisiaj %" per position (`today_result` for
+    the day and its base close, then `today.position_day_returns`, two group-bys), the table.
 - **Sent to the browser:** per `headline()` run: eight KPI tiles in two rows of four (D-081, D-083) with sparklines (~3.5 KB each) and the value chart
   (~44 KB on Maks.). Per `positions()` run: the holdings table (~55 KB with 26 positions), every row shown (D-082). Whole page ~142 KB
   (Maks.), ~117 KB (1D). The value chart, the sparklines and the "Pełny wykres" dialog are live charts
