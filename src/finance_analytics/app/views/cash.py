@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import area_total, category_bars, current_mode, line_chart, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import current_slice, load_valuation, require_database
+from ui.data import load_valuation, require_database
 from ui.fmt import fmt_date, fmt_money_compact
 from ui.glossary import G
 from ui.theme import color_map
@@ -124,11 +124,6 @@ if accounts.empty or snapshots.empty:
     st.stop()
 
 # ------------------------------------------------------------------------------------------- values
-part = current_slice()  # the sidebar filter (D-085)
-if part.active and not part.keeps("Gotówka", "cash"):
-    empty_state("Filtr wyklucza gotówkę", "Wybrana część portfela nie obejmuje gotówki. Zmień albo wyczyść filtr "
-                "w pasku bocznym.", icon=":material/filter_alt_off:")
-    st.stop()
 v, _ = load_valuation(settings, stop_if_empty=False)
 bank = v.daily[(v.daily["kind"] == "cash") & v.daily["account_id"].isin(accounts["id"])]
 if bank.empty:

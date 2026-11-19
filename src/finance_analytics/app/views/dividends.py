@@ -6,12 +6,11 @@ import pandas as pd
 import streamlit as st
 from ui.charts import current_mode, show, stacked_bars
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import ONE_DAY, RANGES, current_slice, load_valuation, one_day, period_start, require_valued_data
+from ui.data import ONE_DAY, RANGES, load_valuation, one_day, period_start, require_valued_data
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct, plural
 from ui.glossary import G
 from ui.theme import OTHER_LABEL, color_map
 
-from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.portfolio.dividends import load_events, payments, per_company, per_year
 from finance_analytics.portfolio.valuation import data_version
@@ -33,15 +32,6 @@ def dividend_payments(db_path: str, version: tuple) -> pd.DataFrame:
 
 v, _ = load_valuation(settings)
 paid = dividend_payments(str(settings.db_path), data_version(settings.db_path))
-part = current_slice()  # the sidebar filter (D-085): only the companies it keeps
-if part.active and not paid.empty:
-    classes = reports.filter_options(settings.db_path).set_index("symbol")["asset_class"]
-    paid = paid[part.mask(paid.assign(asset_class=paid["symbol"].map(classes)))].reset_index(drop=True)
-    if paid.empty:
-        empty_state("Brak dywidend w tej części portfela",
-                    "Żaden instrument objęty filtrem nie wypłacił dywidendy. Zmień albo wyczyść filtr w pasku bocznym.",
-                    icon=":material/filter_alt_off:")
-        st.stop()
 if paid.empty:
     empty_state(
         "Nie ma jeszcze dywidend",

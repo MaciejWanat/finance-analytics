@@ -20,8 +20,9 @@ from finance_analytics.market.intraday import store_bars
 from finance_analytics.mock.xtb_export import write_mock_export
 from finance_analytics.sources.sync import import_xtb, sync
 
-PAGES = {name: str(APP_DIR / "views" / f"{name}.py") for name in ("portfolio", "returns", "dividends")}
-PERIOD_KEYS = {"portfolio": "period", "returns": "returns_period", "dividends": "dividends_period"}
+PAGES = {name: str(APP_DIR / "views" / f"{name}.py") for name in ("portfolio", "returns", "compare", "dividends")}
+PERIOD_KEYS = {"portfolio": "period", "returns": "returns_period", "compare": "compare_period",
+               "dividends": "dividends_period"}
 RATES = {"USD": 4.0, "EUR": 4.3, "GBP": 5.0}
 
 
@@ -122,32 +123,70 @@ def test_live_charts_use_the_in_place_component_when_static_serving_is_on(data_d
 # ----------------------------------------------------------------------------- portfolio filter (D-085)
 
 
-@pytest.mark.parametrize("page", list(PAGES) + ["cash", "bonds"])
 @pytest.mark.parametrize("classes, symbols", [(["stock"], []), (["etf", "stock"], []), ([], ["NOPE.US"]),
                                               (["cash"], [])])
-def test_analysis_pages_render_with_the_filter(data_dir, monkeypatch, page, classes, symbols):
+def test_portfel_renders_with_the_filter(data_dir, monkeypatch, classes, symbols):
     monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
-    at = AppTest.from_file(str(APP_DIR / "views" / f"{page}.py"), default_timeout=90)
+    at = AppTest.from_file(PAGES["portfolio"], default_timeout=90)
     at.session_state["filter_classes"], at.session_state["filter_symbols"] = classes, symbols
     at.run()
     assert not at.exception, at.exception
     assert not at.error
 
 
-def test_a_filtered_portfel_says_so_and_shows_the_index_line(data_dir, monkeypatch):
+def test_a_filtered_portfel_names_the_filter_and_shows_the_index_line(data_dir, monkeypatch):
     monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
     at = AppTest.from_file(PAGES["portfolio"], default_timeout=90)
     at.session_state["filter_classes"] = ["stock"]
     at.session_state["sp500_line"] = True
     at.run()
     assert not at.exception, at.exception
-    assert any("Filtr: **Akcje**" in c.value for c in at.caption)
+    assert any(m.value == ["stock"] for m in at.multiselect)
     assert at.toggle(key="sp500_line") is not None
 
 
-def test_a_filter_matching_nothing_explains_itself(data_dir, monkeypatch):
+def test_an_unknown_instrument_drops_out_of_the_filter(data_dir, monkeypatch):
+    """A filter left from other data (an instrument no longer offered) falls back to the whole portfolio."""
     monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
-    at = AppTest.from_file(PAGES["returns"], default_timeout=90)
+    at = AppTest.from_file(PAGES["portfolio"], default_timeout=90)
     at.session_state["filter_symbols"] = ["NOPE.US"]
     at.run()
-    assert any("nie obejmuje niczego" in i.value for i in at.info)
+    assert not at.exception, at.exception
+    assert at.session_state["filter_symbols"] == []
+    assert not any("nie obejmuje niczego" in i.value for i in at.info)
+
+
+@pytest.mark.parametrize("page", [p for p in PAGES if p != "portfolio"] + ["cash", "bonds"])
+def test_other_pages_ignore_the_filter(data_dir, monkeypatch, page):
+    """The filter belongs to Portfel only (D-087): a filter left in the session changes nothing elsewhere."""
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(str(APP_DIR / "views" / f"{page}.py"), default_timeout=90)
+    at.session_state["filter_symbols"] = ["NOPE.US"]
+    at.run()
+    assert not at.exception, at.exception
+    assert not any("nie obejmuje niczego" in i.value for i in at.info)
+    assert not any("filtr" in c.value.lower() for c in at.caption)
+
+
+@pytest.mark.parametrize("unit", ["TWR", "Wartość w zł"])
+@pytest.mark.parametrize("period", ["1D", "1R"])
+def test_porownanie_draws_every_chosen_series_with_its_row(data_dir, monkeypatch, unit, period):
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(PAGES["compare"], default_timeout=90)
+    at.session_state["compare_period"] = period
+    at.session_state["compare_unit"] = unit
+    at.session_state["compare_series"] = ["portfolio", "sp500", "class:stock", "symbol:NVDA.US"]
+    at.run()
+    assert not at.exception, at.exception
+    rows = at.dataframe[0].value
+    assert rows["Linia"].tolist()[0] == "Cały portfel"
+    assert len(rows) >= 3  # the S&P 500 only with its prices downloaded
+
+
+def test_porownanie_starts_with_the_portfolio_and_the_classes_held(data_dir, monkeypatch):
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(PAGES["compare"], default_timeout=90).run()
+    assert not at.exception, at.exception
+    chosen = at.session_state["compare_series"]
+    assert chosen[0] == "portfolio" and all(key.startswith("class:") for key in chosen[1:])
+    assert len(at.session_state["compare_colors"]) == len(chosen)

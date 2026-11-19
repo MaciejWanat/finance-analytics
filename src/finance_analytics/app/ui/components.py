@@ -54,6 +54,10 @@ _CSS = """
 [class*="st-key-kpi_tile"] > [class*="st-key-kpi_spark_"],
 [class*="st-key-kpi_tile"] > :not([class*="st-key-kpi_spark_"]) + [class*="st-key-kpi_open_"] { margin-top: auto; }
 
+/* A page's control row next to "Okres" (Portfel: Filtr, Po inflacji): a popover button as tall as the period
+   buttons (2 rem), so the row lines up on one centre. */
+.st-key-page_controls [data-testid="stPopover"] button { min-height: 2rem; height: 2rem; padding-block: 0; }
+
 /* Live prices lamp in the sidebar (D-069): a slow pulse while the stream is connected. The phase comes from the
    clock (a negative delay), so redrawing the line every few seconds does not restart the pulse. */
 @keyframes fa-pulse {
@@ -261,6 +265,8 @@ def kpi_row(kpis: Sequence[Kpi], columns: int | None = None) -> None:
 RUN_END_KEY = "fa_run_end"  # the marker drawn last in every full run (main.py); the pill CSS keys on it
 DIALOG_OPEN = "dialog_open"  # main.py does not rerun the whole app while a dialog is open (it would close it)
 DIALOG_KPI = "dialog_kpi"  # the label of the tile whose dialog is open
+MARK_COLUMN = " "  # the unnamed first column of `table(marks=...)`
+MARK = "●"
 
 
 def _close_detail() -> None:
@@ -308,6 +314,7 @@ def table(
     missing_labels: dict[str, str] | None = None,
     search: str | None = None,
     height: Literal["auto", "content"] = "auto",
+    marks: Sequence[str] | None = None,
 ) -> None:
     """A dataframe with Polish number formatting that still sorts numerically.
 
@@ -322,9 +329,16 @@ def table(
     labels: column -> header text; helps: column -> tooltip on the header (texts from
     ui/glossary.py). Empty cells show as "–" instead of None/NaN, unless a column has
     an explicit label in missing_labels.
+
+    marks: one colour per row: a first, unnamed column with a dot in that colour, the key of a chart's series
+    (the text next to it stays in ink).
     """
     tokens = TOKENS[current_mode()]
     labels = labels or {}
+    if marks is not None:
+        df = df.copy()
+        df.insert(0, MARK_COLUMN, [MARK] * len(df))
+    marks = list(marks) if marks is not None else None
     if search:
         query = live_search(search, "Szukaj: ticker, nazwa, rachunek…")  # filters while typing (D-057)
         if query:
@@ -364,6 +378,8 @@ def table(
 
     if signed:
         styler = styler.map(sign_color, subset=list(signed))
+    if marks is not None:
+        styler = styler.apply(lambda column: [f"color: {color}" for color in marks], subset=[MARK_COLUMN])
     # Header tooltips: a help-only Column keeps the Styler's formatted values.
     tooltip = {labels.get(col, col): text for col, text in (helps or {}).items()}
     config: dict[str, object] = {col: st.column_config.Column(help=text) for col, text in tooltip.items()}

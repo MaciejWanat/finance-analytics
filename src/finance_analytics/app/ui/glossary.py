@@ -411,14 +411,35 @@ G: dict[str, str] = {
         "sesje; liczone na tym komputerze, bez internetu."
     ),
     "portfolio_filter": (
-        "Pokazuje na wszystkich stronach analizy tylko wybraną część portfela: wybrane klasy aktywów lub "
+        "Pokazuje na tej stronie tylko wybraną część portfela: wybrane klasy aktywów lub "
         "instrumenty (w obrębie jednego pola: którekolwiek z wybranych; oba pola naraz: muszą pasować oba). "
         "Wycinek liczony jest jak osobny portfel: kupno instrumentu to wpłata do wycinka, sprzedaż i dywidenda to "
         "wypłata, więc TWR, XIRR i wynik pokazują, ile zarobiły same wybrane pozycje. Filtr trwa, dopóki nie "
-        "zamkniesz karty przeglądarki."
+        "zamkniesz karty przeglądarki. Pozostałe strony zawsze pokazują cały portfel; części portfela obok "
+        "siebie zobaczysz na stronie Porównanie."
     ),
     "sp500_reference": (
         "Dodaje na wykresie linię portfela-cienia: te same wpłaty i wypłaty, w te same dni, włożone w indeks "
         "S&P 500 (z dywidendami, w PLN). Linia startuje z wartością portfela na początku okresu."
+    ),
+    "compare_series": (
+        "Do 8 linii naraz: cały portfel, klasy aktywów, pojedyncze instrumenty (łącznie ze wszystkich rachunków) "
+        "i S&P 500. Każda część liczona jest jak osobny portfel: kupno to wpłata do niej, sprzedaż i dywidenda to "
+        "wypłata, więc linia pokazuje tylko ruch rynku na tym, co faktycznie miałeś. Filtr portfela z paska "
+        "bocznego tej strony nie dotyczy. Wybór trwa, dopóki nie zamkniesz karty przeglądarki."
+    ),
+    "compare_unit": (
+        "TWR: skumulowany zwrot każdej linii od początku okresu, niezależny od wpłat i wypłat, więc części różnej "
+        "wielkości dają się porównać. Wartość w zł: ile była warta każda część danego dnia; S&P 500 nie ma tu "
+        "wartości, więc znika z wykresu."
+    ),
+    "compare_gaps": (
+        "Linia jest tylko w dniach, gdy coś z tej części miałeś (i w dniu przed zakupem, od którego liczy się "
+        "start). Po sprzedaży wszystkiego się urywa, a po odkupie wraca z tego samego poziomu: gdy nic nie masz, "
+        "zwrot się nie zmienia."
+    ),
+    "compare_result": (
+        "Wartość na koniec okresu minus wartość na początku i minus wpłaty do tej części (zakupy), plus wypłaty z "
+        "niej (sprzedaże, dywidendy). Czyli ile ta część zarobiła w złotych."
     ),
 }

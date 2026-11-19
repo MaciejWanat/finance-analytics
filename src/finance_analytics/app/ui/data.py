@@ -31,12 +31,13 @@ from finance_analytics.portfolio.valuation import (
 )
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 from ui.components import empty_state
+from ui.glossary import G
 from ui.theme import ASSET_CLASS_LABELS
 
 RANGES = ["1D", "1T", "1M", "3M", "YTD", "1R", "3L", "Maks."]
 ONE_DAY = "1D"  # the day of the "Dzisiaj" tile, every 5 minutes (D-070)
 DAILY_POINTS_DAYS = 14  # a period this short (1T) gets daily points in sparklines and bars, not weekly (D-078)
-# The portfolio filter (D-085): asset classes and instruments, kept in the session across pages (main.py draws it).
+# The portfolio filter of Portfel (D-085, D-087): asset classes and instruments, kept in the session.
 FILTER_CLASSES = "filter_classes"
 FILTER_SYMBOLS = "filter_symbols"
 # True while the whole app script runs (main.py); a fragment's own timer run sees False (D-069).
@@ -144,23 +145,53 @@ def _valuation(db_path: str, version: tuple, today: date, live: tuple, model: in
     return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
 
-def current_slice() -> Slice:
-    """The part of the portfolio the sidebar filter keeps (D-085); empty: everything."""
-    return Slice(frozenset(st.session_state.get(FILTER_CLASSES) or ()),
-                 frozenset(st.session_state.get(FILTER_SYMBOLS) or ()))
+def _keep(key: str) -> None:
+    """Copy a filter widget's value to its session key: Streamlit forgets a widget's state on a page that does not
+    draw it, the copy survives a visit to another page."""
+    st.session_state[key] = list(st.session_state[f"_{key}"])
+
+
+def _clear_filter() -> None:
+    for key in (FILTER_CLASSES, FILTER_SYMBOLS):
+        st.session_state[key] = []
 
 
 def filter_text(part: Slice) -> str:
-    """'Akcje, ETF · NVDA.US' for the note above a filtered page."""
+    """'Akcje, ETF · NVDA.US' for the tooltip of an active filter."""
     classes = [ASSET_CLASS_LABELS.get(c, c) for c in ASSET_CLASS_LABELS if c in part.classes]
     classes += sorted(c for c in part.classes if c not in ASSET_CLASS_LABELS)
     return " · ".join(text for text in (", ".join(classes), ", ".join(sorted(part.symbols))) if text)
 
 
-def filter_note(part: Slice) -> None:
-    """The line under a page's header that says the page shows only a part of the portfolio."""
-    st.caption(f":material/filter_alt: Filtr: **{filter_text(part)}**. Wszystkie liczby i wykresy dotyczą tylko tej "
-               "części portfela; zmienisz go w pasku bocznym.")
+def portfolio_filter(settings: Settings) -> Slice:
+    """The "Filtr" popover of Portfel (D-085, D-087): asset classes and instruments, OR within a field, AND between.
+    Returns the part it keeps; empty: everything. While it is on, the button shows how many items it keeps and
+    its tooltip names them."""
+    options = reports.filter_options(settings.db_path) if settings.db_path.exists() else pd.DataFrame()
+    if options.empty:
+        return Slice()
+    present = set(options["asset_class"])
+    classes = [c for c in ASSET_CLASS_LABELS if c in present] + sorted(present - set(ASSET_CLASS_LABELS))
+    chosen = [c for c in st.session_state.get(FILTER_CLASSES, []) if c in classes]
+    offered = options[options["asset_class"].isin(chosen)] if chosen else options
+    names = dict(zip(offered["symbol"], offered["name"], strict=True))
+    picked = [s for s in st.session_state.get(FILTER_SYMBOLS, []) if s in names]
+    st.session_state[FILTER_CLASSES], st.session_state[FILTER_SYMBOLS] = chosen, picked
+    st.session_state[f"_{FILTER_CLASSES}"], st.session_state[f"_{FILTER_SYMBOLS}"] = chosen, picked
+    part = Slice(frozenset(chosen), frozenset(picked))
+    # A narrow button: the count on it, what it keeps in its tooltip.
+    label = f"Filtr ({len(chosen) + len(picked)})" if part.active else "Filtr"
+    with st.popover(label, icon=":material/filter_alt:", type="primary" if part.active else "secondary",
+                    use_container_width=False, help=f"Tylko: {filter_text(part)}" if part.active else None):
+        st.multiselect("Klasa aktywów", classes, key=f"_{FILTER_CLASSES}", on_change=_keep, args=(FILTER_CLASSES,),
+                       format_func=lambda c: ASSET_CLASS_LABELS.get(c, c), placeholder="Wszystkie",
+                       help=G["portfolio_filter"])
+        st.multiselect("Instrument", list(names), key=f"_{FILTER_SYMBOLS}", on_change=_keep, args=(FILTER_SYMBOLS,),
+                       format_func=lambda s: s if names[s] == s else f"{s} · {names[s]}", placeholder="Wszystkie")
+        if part.active:
+            st.button("Wyczyść filtr", icon=":material/filter_alt_off:", on_click=_clear_filter,
+                      use_container_width=True)
+    return part
 
 
 @st.cache_data(show_spinner=False, max_entries=6)
@@ -171,32 +202,30 @@ def _sliced(db_path: str, version: tuple, today: date, live: tuple, model: int, 
 
 
 def load_valuation(
-    settings: Settings, *, stop_if_empty: bool = True, live_run: bool = False
+    settings: Settings, *, stop_if_empty: bool = True, live_run: bool = False, part: Slice | None = None
 ) -> tuple[Valuation, datetime | None]:
     """The daily valuation (cached per data version), with live quotes in online mode (D-021).
 
     An empty valuation stops the page with a note, unless the page handles it (`stop_if_empty=False`).
     `live_run`: called from a live fragment's timer run (D-069), so no spinner flashes every few seconds.
-    With the sidebar filter on (D-085) it is the valuation of the filtered part, and a full run notes the filter
-    on the page.
+    `part`: the valuation of that part of the portfolio only (the filter of Portfel, D-085, D-087); a filter that
+    keeps nothing stops the page with a note.
     """
     live_prices, live_fx, live_at = {}, {}, None
     if load_preferences(settings).online:
         live_prices, live_fx, live_at = read_live(settings.db_path)
     live_key = (tuple(sorted(live_prices.items())), tuple(sorted(live_fx.items())))
-    part = current_slice()
+    part = part or Slice()
     key = (str(settings.db_path), data_version(settings.db_path), date.today(), live_key, MODEL_VERSION)
     with st.spinner("Liczę wycenę portfela…") if not live_run else nullcontext():
         if part.active:
             valuation = _sliced(*key, tuple(sorted(part.classes)), tuple(sorted(part.symbols)))
         else:
             valuation = _valuation(*key)
-    if part.active and not live_run:
-        filter_note(part)
-        if valuation.total.empty and stop_if_empty:
-            st.info("Filtr nie obejmuje niczego, co było w portfelu. Zmień go albo wyczyść w pasku bocznym.",
-                    icon=":material/filter_alt_off:")
-            st.stop()
+    if part.active and valuation.total.empty and stop_if_empty and not live_run:
+        st.info("Filtr nie obejmuje niczego, co było w portfelu. Zmień go albo wyczyść.",
+                icon=":material/filter_alt_off:")
+        st.stop()
     if valuation.total.empty and stop_if_empty:
         if any(w.startswith(NO_RATES) for w in valuation.warnings):
             st.info("Nie da się jeszcze nic wycenić: brakuje kursów NBP dla walut Twoich kont. Pobierz je na "

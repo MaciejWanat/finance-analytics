@@ -279,3 +279,19 @@ def test_one_week_period_starts_seven_days_back():
     assert RANGES[:3] == ["1D", "1T", "1M"]
     assert period_start("1T", pd.Timestamp("2020-01-01"), end) == pd.Timestamp("2026-11-11")
     assert period_start("1T", pd.Timestamp("2026-11-15"), end) == pd.Timestamp("2026-11-15")
+
+
+def test_table_marks_put_a_coloured_dot_before_each_row():
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import pandas as pd
+        from ui.components import table
+
+        table(pd.DataFrame({"name": ["A", "B"], "twr": [0.1, -0.2]}), percents=["twr"], signed=["twr"],
+              marks=["#2a78d6", "#eb6834"])
+
+    at = AppTest.from_function(page, default_timeout=30).run()
+    assert not at.exception
+    frame = at.dataframe[0].value
+    assert list(frame.columns)[:2] == [" ", "name"] and frame.iloc[:, 0].tolist() == ["●", "●"]

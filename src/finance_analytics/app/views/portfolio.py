@@ -23,6 +23,7 @@ from ui.data import (
     load_valuation,
     one_day,
     period_start,
+    portfolio_filter,
     require_valued_data,
 )
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct
@@ -64,25 +65,32 @@ except PreferencesError:  # the sidebar reports a broken settings file
 # Fast while an exchange is in session, slow while markets are quiet (D-071).
 LIVE_EVERY = live_every(preferences)
 STREAMING = preferences.streaming  # the stream says "na żywo" without the time of the last price (D-069)
-v, live_at = load_valuation(settings)
+# ------------------------------------- period, portfolio filter and inflation switch (scope the whole page)
+period_col, controls_col = st.columns([3, 2], vertical_alignment="bottom")
+with period_col:
+    period = st.segmented_control("Okres", RANGES, default="Maks.", key="period", required=True,
+                                  help=G["periods"])
+# Filtr and Po inflacji side by side at the right edge, centred on one line; the switch is drawn below, once the CPI
+# is known, into the same row.
+controls = controls_col.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center",
+                                  gap="medium", key="page_controls")
+with controls:
+    PART = portfolio_filter(settings)  # D-085, D-087: only this page is filtered
+v, live_at = load_valuation(settings, part=PART)
 total = v.total
 
 # Inflation (D-025, D-058): the price level per day, from the saved GUS CPI; nothing without it.
 cpi = reports.cpi_monthly(settings.db_path)
 daily_cpi = inflation.daily_from_cpi(cpi, total.index)[1] if not cpi.empty else None
 
-# ------------------------------------------------- period filter and inflation switch (scope the whole page)
-period_col, real_col = st.columns([4, 1], vertical_alignment="bottom")
-with period_col:
-    period = st.segmented_control("Okres", RANGES, default="Maks.", key="period", required=True,
-                                  help=G["periods"])
-with real_col:
+with controls:
     # The note on estimated months lives in the help, not on the page: a line that comes and goes with
     # the switch would move everything below it (D-060).
     real_help = G["real_view_no_cpi"] if daily_cpi is None else G["real_view"] + (
         " Ostatnie miesiące bez opublikowanego CPI liczone z ostatniej inflacji r/r."
         if daily_cpi["estimated"].iloc[-1] else "")
-    real_view = st.toggle("Po inflacji", key="real_view", disabled=daily_cpi is None, help=real_help)
+    real_view = st.toggle("Po inflacji", key="real_view", disabled=daily_cpi is None, help=real_help,
+                          width="content")
 real_view = bool(real_view and daily_cpi is not None)
 
 end = total.index[-1]
@@ -157,7 +165,7 @@ def live_valuation():
     change of pace (an exchange opens or the last one closes, D-071), unless a chart dialog is open."""
     if st.session_state.get(FULL_RUN, True):
         return v, live_at
-    fresh, fresh_at = load_valuation(settings, live_run=True)
+    fresh, fresh_at = load_valuation(settings, live_run=True, part=PART)
     if fresh.total.index[-1] != end:
         st.rerun(scope="app")
     if live_every(preferences) != LIVE_EVERY and not st.session_state.get(DIALOG_OPEN):

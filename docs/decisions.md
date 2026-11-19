@@ -938,7 +938,7 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - "–" with "brak wyniku" only when there is no solution (e.g. nothing at the start and no deposits).
 
 ### D-085 Portfolio filter: asset classes and instruments on every analysis page; the S&P 500 line on Portfel
-- **Date:** 2026-11-19 · **Status:** Accepted
+- **Date:** 2026-11-19 · **Status:** Accepted; where the filter lives superseded by D-087
 - **Context:** the user wanted every view filtered by asset class or ticker, the two combinable, with charts showing only what the filter keeps; and the S&P 500 as a reference on the portfolio view. Agreed in an interview: two dimensions (asset class, instrument), returns of a part measured like a portfolio, the filter in the sidebar for the session, charts of the part only.
 - **Decision:**
   - **Where:** "Filtr portfela" in the sidebar, on the five analysis pages (Portfel, Zwroty, Dywidendy, Obligacje, Gotówka): "Klasa aktywów" and "Instrument" multiselects. OR within a field, AND between them; empty means everything. The instruments offered narrow to the chosen classes (`reports.filter_options`: instruments ever held, bond series bought, cash). Kept in the session across pages (`filter_classes`, `filter_symbols`; a widget copy because Streamlit forgets the state of a widget a page does not draw), not saved to disk. A filtered page says so under its header.
@@ -946,6 +946,28 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
   - Dywidendy lists only the companies kept; Obligacje analyses the kept series (the list of purchases stays whole, for editing); Gotówka says when the filter leaves cash out. A filter matching nothing stops the page with a note.
   - **S&P 500 line:** a "S&P 500 dla porównania" switch above the Portfel value chart adds the shadow portfolio of "Czy pobiłeś giełdę?" (D-080) as a dotted line in the second series colour, with a legend. With a filter it is the same flows of the part put into the index. Not in 1D (no daily index close within the day); the switch stays visible, disabled, so the chart does not move (D-060).
 - **Consequences:** the trade price differs from that day's close by a little; that difference lands in the account's cash, not in the position (visible only when cash is in the filter). A dividend paid after a position was sold out is a withdrawal from nothing, so it does not count in the part's TWR (XIRR still sees it). `MODEL_VERSION` 9.
+
+### D-086 "Porównanie" page: instruments, asset classes and references side by side on one chart
+- **Date:** 2026-11-20 · **Status:** Accepted
+- **Context:** the user wants a chart to which they can add instruments or asset classes of the portfolio and see them next to each other. Agreed in an interview; every series reuses the part of the portfolio of D-085.
+- **Decision:**
+  - **Where:** a new page "Porównanie" in the Analiza group, after Zwroty. It has its own series picker and period; the sidebar "Filtr portfela" does not apply to it (the picker is the filter).
+  - **Series:** one item of a list per line: an instrument (all accounts together), an asset class, "Cały portfel" or the S&P 500. Each portfolio series is a `Slice` (D-085) with its own flows. No user-defined groups in this step.
+  - **Measure:** cumulative TWR in % from 0% at the start of the period, by default; a "Wartość w zł" switch shows each series' value in PLN instead. Always in PLN, so series compare; the currency part stays in "Akcje czy waluty?" on Zwroty.
+  - **Days without a holding:** a series is drawn only on days it holds something. After a full sale the line breaks; after a repurchase it continues from the same level (TWR chained across the gap). In the zł mode the value in a gap is 0.
+  - **References:** "Cały portfel" (the slice without a filter) and the S&P 500 (total return in PLN, `benchmark.index_in_pln`). The S&P 500 is shown in the TWR mode only and not in 1D; there a short note replaces the line.
+  - **Colours:** at most 8 series (the palette). "Cały portfel" is always series colour 1 and the S&P 500 colour 2, as on Portfel; any other series takes the first free colour when added and keeps it until removed. The picker blocks a ninth with a hint.
+  - **Default:** "Cały portfel" and every asset class held today (capped at 8). The choice lives in the session only, like the filter; nothing is saved to disk.
+  - **Periods:** every range, 1D included: in 1D each slice goes through `portfolio/intraday.intraday_values` (D-070); bonds and PLN cash stay flat. Live quotes come in like on Zwroty: the sidebar reruns the page at most once a minute when new ones arrived (`main.LIVE_PAGES`, D-071); no live fragment, since eight parts per redraw would cost more than the page is worth.
+  - **Table under the chart:** one row per series with a dot in its colour: TWR, result in zł, largest fall from the peak, value at the end of the period. A series with no holding in the period stays in the table with "—" and "brak pozycji w okresie", without a line.
+- **Testing:** a synthetic portfolio with a hand-computed case (purchase, full sale, repurchase): TWR continuous across the gap; "Cały portfel" equals the TWR on Zwroty.
+- **Not in scope:** user-defined groups, price change regardless of holding, TWR without currencies, saving the choice to disk.
+
+### D-087 The portfolio filter only on Portfel, next to "Okres"
+- **Date:** 2026-11-20 · **Status:** Accepted
+- **Context:** the user found the sidebar filter of D-085 on every analysis page confusing: it belongs to Portfel only.
+- **Decision:** "Filtr" is a popover in the control row of Portfel, between "Okres" and "Po inflacji" (`ui.data.portfolio_filter`); a narrow button: while the filter is on it turns primary, shows the number of chosen items ("Filtr (2)") and names them in its tooltip. Same two multiselects and rules as D-085 (OR within a field, AND between; kept in the session). Zwroty, Dywidendy, Obligacje and Gotówka always show the whole portfolio; `load_valuation` takes the part explicitly (`part=`), no page reads the filter by itself. Parts side by side stay on Porównanie (D-086). The note under the header of a filtered page is gone: the button says it.
+- **Consequences:** the valuation of a part (`slicing.slice_valuation`) is unchanged.
 
 ---
 

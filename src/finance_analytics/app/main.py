@@ -8,12 +8,10 @@ from datetime import UTC, datetime, timedelta
 
 import streamlit as st
 from ui.components import DIALOG_OPEN, StatusRow, apply_global_styles, live_status, run_end_marker, status_list
-from ui.data import FILTER_CLASSES, FILTER_SYMBOLS, FULL_RUN
+from ui.data import FULL_RUN
 from ui.fmt import market_text, plural
 from ui.glossary import G
-from ui.theme import ASSET_CLASS_LABELS
 
-from finance_analytics import reports
 from finance_analytics.config import get_settings
 from finance_analytics.diagnostics import get_monitor
 from finance_analytics.market.auto import maybe_update_market
@@ -34,6 +32,7 @@ pages = {
     "Analiza": [
         st.Page("views/portfolio.py", title="Portfel", icon=":material/monitoring:", default=True),
         st.Page("views/returns.py", title="Zwroty", icon=":material/trending_up:"),
+        st.Page("views/compare.py", title="Porównanie", icon=":material/stacked_line_chart:"),
         st.Page("views/dividends.py", title="Dywidendy", icon=":material/payments:"),
         st.Page("views/bonds.py", title="Obligacje", icon=":material/account_balance:"),
         st.Page("views/cash.py", title="Gotówka", icon=":material/account_balance_wallet:"),
@@ -86,7 +85,8 @@ def _inbox_tick() -> int:
     return len(result.copied)
 
 
-LIVE_PAGES = {"Zwroty", "Dywidendy"}  # read live quotes but redraw only on a full run (Portfel has live fragments)
+# Read live quotes but redraw only on a full run (Portfel has live fragments).
+LIVE_PAGES = {"Zwroty", "Porównanie", "Dywidendy"}
 LIVE_RERUN_SECONDS = 60  # at most this often a page in LIVE_PAGES is redrawn for new live quotes
 STREAM_TEXT = {"streaming": "na żywo", "connecting": "łączę ze strumieniem…", "error": "ponawiam połączenie…",
                "paused": "rynki zamknięte"}
@@ -163,47 +163,6 @@ def network_status() -> None:
         st.rerun()
 
 
-ANALYSIS_PAGES = {page.title for page in pages["Analiza"]}  # the pages the portfolio filter applies to (D-085)
-
-
-def _keep(key: str) -> None:
-    """Copy a filter widget's value to its session key: Streamlit forgets a widget's state on a page that does not
-    draw it (Importy), the copy survives."""
-    st.session_state[key] = list(st.session_state[f"_{key}"])
-
-
-def _clear_filter() -> None:
-    for key in (FILTER_CLASSES, FILTER_SYMBOLS):
-        st.session_state[key] = []
-
-
-def portfolio_filter() -> None:
-    """Asset classes and instruments every analysis page is limited to (D-085); OR within a field, AND between."""
-    if not settings.db_path.exists():
-        return
-    options = reports.filter_options(settings.db_path)
-    if options.empty:
-        return
-    present = set(options["asset_class"])
-    classes = [c for c in ASSET_CLASS_LABELS if c in present] + sorted(present - set(ASSET_CLASS_LABELS))
-    chosen = [c for c in st.session_state.get(FILTER_CLASSES, []) if c in classes]
-    offered = options[options["asset_class"].isin(chosen)] if chosen else options
-    names = dict(zip(offered["symbol"], offered["name"], strict=True))
-    picked = [s for s in st.session_state.get(FILTER_SYMBOLS, []) if s in names]
-    st.session_state[FILTER_CLASSES], st.session_state[FILTER_SYMBOLS] = chosen, picked
-    st.session_state[f"_{FILTER_CLASSES}"], st.session_state[f"_{FILTER_SYMBOLS}"] = chosen, picked
-    active = bool(chosen or picked)
-    with st.expander("Filtr portfela", icon=":material/filter_alt:", expanded=active):
-        st.multiselect("Klasa aktywów", classes, key=f"_{FILTER_CLASSES}", on_change=_keep, args=(FILTER_CLASSES,),
-                       format_func=lambda c: ASSET_CLASS_LABELS.get(c, c), placeholder="Wszystkie",
-                       help=G["portfolio_filter"])
-        st.multiselect("Instrument", list(names), key=f"_{FILTER_SYMBOLS}", on_change=_keep, args=(FILTER_SYMBOLS,),
-                       format_func=lambda s: s if names[s] == s else f"{s} · {names[s]}", placeholder="Wszystkie")
-        if active:
-            st.button("Wyczyść filtr", icon=":material/filter_alt_off:", on_click=_clear_filter,
-                      use_container_width=True)
-
-
 @st.fragment(run_every=timedelta(seconds=30))
 def market_clock() -> None:
     """Open and closed exchanges with the time to the next change (D-066, D-068); works offline too."""
@@ -221,8 +180,6 @@ st.session_state[FULL_RUN] = True  # a fragment's timer rerun sees False
 st.session_state[DIALOG_OPEN] = False
 try:
     with st.sidebar:
-        if navigation.title in ANALYSIS_PAGES:
-            portfolio_filter()
         network_status()
         market_clock()
         st.caption(":material/lock: Dane zostają na tym komputerze.")
