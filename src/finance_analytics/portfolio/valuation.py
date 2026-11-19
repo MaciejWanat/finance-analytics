@@ -28,8 +28,10 @@ import pandas as pd
 
 from finance_analytics.portfolio import bonds as bond_math
 
-MODEL_VERSION = 8  # bump when Valuation's fields or rules change, so UI caches are not reused
+MODEL_VERSION = 9  # bump when Valuation's fields or rules change, so UI caches are not reused
 SPLIT_TOLERANCE = 0.25  # how close open price / adjusted close must be to the split ratio
+CASH_SYMBOL = "Gotówka"  # the symbol of cash rows, broker and bank alike
+INCOME_COLUMNS = ["date", "account_id", "symbol", "amount_pln"]
 NO_RATES = "Brak kursów NBP dla"  # start of the warning for a currency without rates (the UI checks for it)
 
 
@@ -64,7 +66,7 @@ class BondInputs:
 class Inputs:
     lots: pd.DataFrame  # account_id, instrument_id, symbol, name, asset_class, ticker, volume, open_date,
     #                     close_date, open_price, close_price, purchase_value
-    ledger: pd.DataFrame  # account_id, date, type, amount
+    ledger: pd.DataFrame  # account_id, date, type, amount, symbol (of the instrument, for dividends; may be absent)
     accounts: pd.DataFrame  # account_id, alias, currency, tax_wrapper
     prices: pd.DataFrame  # ticker, date, close
     currencies: dict[str, str]  # ticker -> price currency
@@ -81,18 +83,30 @@ class Inputs:
 class Valuation:
     daily: pd.DataFrame  # long: date, account_id, account, kind, symbol, name, asset_class, currency,
     #                      qty, price, fx, value_local, value_pln, priced
-    flows: pd.DataFrame  # external cash flows: date, account_id, amount, amount_pln
+    flows: pd.DataFrame  # external cash flows: date, account_id, amount, amount_pln, symbol (the row they go to:
+    #                      a bond series, or CASH_SYMBOL for deposits, withdrawals and bank balances)
     lots: pd.DataFrame  # lots with cost_pln (FX on the opening day) and adjusted volume
     warnings: list[str] = field(default_factory=list)
     prices: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x ticker, price currency (carried)
     fx: pd.DataFrame = field(default_factory=pd.DataFrame)  # calendar x currency, PLN per unit used for values
     currencies: dict[str, str] = field(default_factory=dict)  # ticker -> price currency
     cash_warnings: list[str] = field(default_factory=list)  # the subset about bank cash ("Gotówka" shows only these)
+    # Net dividends (after withholding tax) as credited: date, account_id, symbol, amount_pln (NBP rate of the day).
+    income: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(columns=INCOME_COLUMNS))
+    # The last day of the whole portfolio. A filtered part (D-085) may hold nothing at its end; its total still runs
+    # to this day, at zero.
+    last_day: pd.Timestamp | None = None
 
     @cached_property
     def total(self) -> pd.Series:
-        """Value of everything per day; computed once per valuation (pages read it many times per run)."""
-        return self.daily.groupby("date")["value_pln"].sum()
+        """Value of everything per day; computed once per valuation (pages read it many times per run). Every day
+        from the first row to `last_day`; a day without rows (a filtered part held nothing) is worth zero."""
+        total = self.daily.groupby("date")["value_pln"].sum()
+        if total.empty:
+            return total
+        end = max(total.index[-1], self.last_day) if self.last_day is not None else total.index[-1]
+        total = total.reindex(pd.date_range(total.index[0], end, freq="D", name="date"), fill_value=0.0)
+        return total
 
 
 def market_days(v: Valuation) -> pd.DatetimeIndex:
@@ -125,7 +139,10 @@ def load_inputs(db_path: Path) -> Inputs:
             FROM positions p JOIN instruments i ON i.id = p.instrument_id
             """
         )
-        ledger = q("SELECT account_id, substr(ts, 1, 10) AS date, type, amount FROM cash_ledger")
+        ledger = q(
+            "SELECT c.account_id, substr(c.ts, 1, 10) AS date, c.type, c.amount, i.xtb_symbol AS symbol "
+            "FROM cash_ledger c LEFT JOIN instruments i ON i.id = c.instrument_id"
+        )
         accounts = q("SELECT id AS account_id, alias, currency, tax_wrapper FROM accounts")
         prices = q("SELECT ticker, date, close FROM prices")
         currencies = dict(conn.execute("SELECT ticker, currency FROM ticker_info").fetchall())
@@ -234,7 +251,8 @@ def _bond_rows(inputs: Inputs, lots: pd.DataFrame, calendar: pd.DatetimeIndex, e
     warnings.extend(result.warnings)
     rows = result.daily[result.daily["date"].isin(calendar)]
     if rows.empty:
-        return pd.DataFrame(), result.flows.assign(currency="PLN", amount_pln=result.flows["amount"])
+        return pd.DataFrame(), result.flows.rename(columns={"series": "symbol"}).assign(
+            currency="PLN", amount_pln=result.flows["amount"])
     types = {code: p.type for code, p in params.items()}
     rows = rows.assign(
         kind="bond", symbol=rows["series"],
@@ -242,7 +260,7 @@ def _bond_rows(inputs: Inputs, lots: pd.DataFrame, calendar: pd.DatetimeIndex, e
         asset_class="bond", currency="PLN", price=rows["value"] / rows["qty"], fx=1.0,
         value_local=rows["value"], value_pln=rows["value"], priced=True,
     ).drop(columns=["series", "value"])
-    flows = result.flows.assign(currency="PLN", amount_pln=result.flows["amount"])
+    flows = result.flows.rename(columns={"series": "symbol"}).assign(currency="PLN", amount_pln=result.flows["amount"])
     return rows, flows
 
 
@@ -278,12 +296,13 @@ def _bank_rows(snapshots: pd.DataFrame, accounts: pd.DataFrame, calendar: pd.Dat
         change = change[change != 0]
         flow_frames.append(pd.DataFrame({
             "account_id": account_id, "date": change.index, "type": "BANK", "amount": change.to_numpy(),
+            "symbol": CASH_SYMBOL,
             "currency": currency, "amount_pln": change.to_numpy() * fx.loc[change.index, currency].to_numpy(),
         }))
     if not frames:
         return pd.DataFrame(), pd.DataFrame()
     rows = pd.concat(frames, ignore_index=True)
-    rows = rows.assign(kind="cash", symbol="Gotówka", name="Gotówka", asset_class="cash", priced=True)
+    rows = rows.assign(kind="cash", symbol=CASH_SYMBOL, name=CASH_SYMBOL, asset_class="cash", priced=True)
     return rows, pd.concat(flow_frames, ignore_index=True)
 
 
@@ -452,7 +471,7 @@ def value_portfolio(
             cash_frames.append(frame)
     cash = pd.concat(cash_frames) if cash_frames else pd.DataFrame()
     if not cash.empty:
-        cash = cash.assign(kind="cash", symbol="Gotówka", name="Gotówka", asset_class="cash", priced=True)
+        cash = cash.assign(kind="cash", symbol=CASH_SYMBOL, name=CASH_SYMBOL, asset_class="cash", priced=True)
 
     # --- treasury bonds (D-026): gross value in PLN; purchases in, coupons and redemptions out ------------
     bond_rows, bond_flows = _bond_rows(inputs, bond_lots, calendar, end, accounts, warnings)
@@ -472,6 +491,7 @@ def value_portfolio(
     # --- external flows (deposits and withdrawals), in PLN at the day's NBP rate ----------------------
     ledger_flows = inputs.ledger["type"].isin(["DEPOSIT", "WITHDRAWAL"]) & (inputs.ledger["date"] <= pd.Timestamp(end))
     flows = inputs.ledger[ledger_flows].copy()
+    flows["symbol"] = CASH_SYMBOL
     flows["currency"] = flows["account_id"].map(accounts["currency"])
     flows["amount_pln"] = [
         amount * rate(ccy).asof(day) for amount, ccy, day in zip(flows["amount"], flows["currency"], flows["date"],
@@ -481,9 +501,23 @@ def value_portfolio(
     if extra:
         frames = [frame for frame in (flows, *extra) if not frame.empty]
         flows = pd.concat(frames, ignore_index=True).sort_values("date", kind="stable")
+    # --- dividends, net of withholding tax, at the day's NBP rate (they move value from a position to cash) -
+    paid = inputs.ledger["type"].isin(["DIVIDEND", "WHT"]) & (inputs.ledger["date"] <= pd.Timestamp(end))
+    income = inputs.ledger[paid]
+    if "symbol" in income.columns and not income.empty:
+        income = (income.dropna(subset=["symbol"])
+                  .groupby(["date", "account_id", "symbol"], as_index=False)["amount"].sum())
+        income["amount_pln"] = [
+            amount * rate(accounts.loc[account, "currency"]).asof(day)
+            for amount, account, day in zip(income["amount"], income["account_id"], income["date"], strict=True)
+        ]
+        income = income[INCOME_COLUMNS]
+    else:
+        income = pd.DataFrame(columns=INCOME_COLUMNS)
     return Valuation(daily=daily.reset_index(drop=True), flows=flows.reset_index(drop=True), lots=lots,
                      warnings=sorted(set(warnings)), prices=prices, fx=fx_value, currencies=dict(inputs.currencies),
-                     cash_warnings=sorted(set(cash_warnings)))
+                     cash_warnings=sorted(set(cash_warnings)), income=income.reset_index(drop=True),
+                     last_day=calendar[-1])
 
 
 def apply_live(

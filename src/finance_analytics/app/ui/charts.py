@@ -72,8 +72,10 @@ def _base(mode: Mode, height: int) -> go.Figure:
     return fig
 
 
-def area_total(series: pd.Series, *, name: str, mode: Mode, height: int = 360) -> go.Figure:
-    """One series over time, e.g. total portfolio value. No legend: the title names it."""
+def area_total(series: pd.Series, *, name: str, mode: Mode, height: int = 360, reference: pd.Series | None = None,
+               reference_name: str = "") -> go.Figure:
+    """One series over time, e.g. total portfolio value. No legend: the title names it. `reference`: a second line
+    to compare with (the S&P 500 shadow portfolio, D-085), dashed, in the second series colour, with a legend."""
     color = TOKENS[mode].series[0]
     fig = _base(mode, height)
     fig.add_trace(
@@ -88,7 +90,15 @@ def area_total(series: pd.Series, *, name: str, mode: Mode, height: int = 360) -
             hovertemplate=f"{HOVER_PLN}<extra></extra>",
         )
     )
-    fig.update_layout(showlegend=False)
+    if reference is not None and len(reference):
+        fig.add_trace(go.Scatter(
+            x=reference.index, y=reference.values, name=reference_name, mode="lines",
+            line={"color": TOKENS[mode].series[1], "width": 2, "dash": "dot"},
+            hovertemplate=f"{HOVER_PLN}<extra>{reference_name}</extra>",
+        ))
+        fig.update_layout(showlegend=True, legend={"orientation": "h", "y": 1.08, "x": 0})
+    else:
+        fig.update_layout(showlegend=False)
     return fig
 
 

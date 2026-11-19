@@ -27,7 +27,7 @@ from ui.data import (
 )
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct
 from ui.glossary import G
-from ui.theme import OTHER_LABEL, color_map
+from ui.theme import ASSET_CLASS_LABELS, OTHER_LABEL, color_map
 
 from finance_analytics import reports
 from finance_analytics.config import get_settings
@@ -52,10 +52,6 @@ from finance_analytics.preferences import Preferences, PreferencesError, load_pr
 BREAKDOWNS = {"Klasa aktywów": "asset_class", "Rachunek": "account", "Instrument": "symbol", "Waluta": "currency"}
 # Fixed order = fixed palette slot per class, so a class keeps its colour whatever else the portfolio holds.
 # "other" is shown as OTHER_LABEL and gets the neutral colour.
-ASSET_CLASS_LABELS = {
-    "stock": "Akcje", "etf": "ETF", "bond": "Obligacje", "precious_metals": "Metale szlachetne", "cash": "Gotówka",
-    "other": OTHER_LABEL,
-}
 MAX_PARTS = 8
 
 page_header("Portfel", "Wartość wszystkich rachunków w PLN, dzień po dniu.")
@@ -406,11 +402,25 @@ def headline() -> None:
     if day is None:
         section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, od {window.index[0]:%d.%m.%Y} do {end:%d.%m.%Y}."
                 f"{live_note}", help=G["portfolio_value"])
-        show(area_total(window, name="Portfel", mode=mode, height=340), key="total", live=True, view=CHART_VIEW)
+    else:
+        flat = f" Bez notowań w ciągu dnia (linia płaska): {', '.join(intra.missing)}." if intra.missing else ""
+        section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, {fmt_date(day.day)} co 5 minut, względem "
+                f"zamknięcia {fmt_date(day.base)}.{live_note}{flat}", help=G["intraday"])
+    # The S&P 500 as a reference (D-085): the shadow portfolio of the market tile, on the daily chart only. The
+    # switch stays in place in every period, so it never moves the chart (D-060).
+    with_index = st.toggle(
+        "S&P 500 dla porównania", key="sp500_line", disabled=day is not None or vs is None,
+        help=G["sp500_reference"] + (" Niedostępne dla 1D." if day is not None else
+                                     " Brak notowań S&P 500 w tym okresie; pobierz je na stronie Dane rynkowe."
+                                     if vs is None else ""))
+    if day is None:
+        reference = None
+        if with_index and vs is not None:
+            reference = vs.shadow * factor.reindex(vs.shadow.index).fillna(1.0) if factor is not None else vs.shadow
+        show(area_total(window, name="Portfel", mode=mode, height=340, reference=reference,
+                        reference_name="S&P 500 za te same wpłaty"),
+             key="total", live=True, view=f"{CHART_VIEW}|{bool(reference is not None)}")
         return
-    flat = f" Bez notowań w ciągu dnia (linia płaska): {', '.join(intra.missing)}." if intra.missing else ""
-    section("Wartość portfela", f"{UNIT[0].upper() + UNIT[1:]}, {fmt_date(day.day)} co 5 minut, względem "
-            f"zamknięcia {fmt_date(day.base)}.{live_note}{flat}", help=G["intraday"])
     if coverage(settings.db_path, day.start, day.end) is None:
         if preferences.online:
             st.info("Notowania z dziś pobierają się w tle; wykres pojawi się za chwilę.", icon=":material/schedule:")

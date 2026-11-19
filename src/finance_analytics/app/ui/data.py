@@ -17,6 +17,7 @@ from finance_analytics.market.intraday import read_intraday
 from finance_analytics.market.live import read_live
 from finance_analytics.portfolio.benchmark import BENCHMARK_CURRENCY, BENCHMARK_TICKER, index_in_pln
 from finance_analytics.portfolio.intraday import DayWindow, Intraday, day_window, intraday_values
+from finance_analytics.portfolio.slicing import Slice, slice_valuation
 from finance_analytics.portfolio.today import today_result
 from finance_analytics.portfolio.valuation import (
     MODEL_VERSION,
@@ -30,10 +31,14 @@ from finance_analytics.portfolio.valuation import (
 )
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 from ui.components import empty_state
+from ui.theme import ASSET_CLASS_LABELS
 
 RANGES = ["1D", "1T", "1M", "3M", "YTD", "1R", "3L", "Maks."]
 ONE_DAY = "1D"  # the day of the "Dzisiaj" tile, every 5 minutes (D-070)
 DAILY_POINTS_DAYS = 14  # a period this short (1T) gets daily points in sparklines and bars, not weekly (D-078)
+# The portfolio filter (D-085): asset classes and instruments, kept in the session across pages (main.py draws it).
+FILTER_CLASSES = "filter_classes"
+FILTER_SYMBOLS = "filter_symbols"
 # True while the whole app script runs (main.py); a fragment's own timer run sees False (D-069).
 FULL_RUN = "full_app_run"
 
@@ -139,6 +144,32 @@ def _valuation(db_path: str, version: tuple, today: date, live: tuple, model: in
     return value_portfolio(load_inputs(Path(db_path)), today, live_prices=live_prices, live_fx=live_fx)
 
 
+def current_slice() -> Slice:
+    """The part of the portfolio the sidebar filter keeps (D-085); empty: everything."""
+    return Slice(frozenset(st.session_state.get(FILTER_CLASSES) or ()),
+                 frozenset(st.session_state.get(FILTER_SYMBOLS) or ()))
+
+
+def filter_text(part: Slice) -> str:
+    """'Akcje, ETF · NVDA.US' for the note above a filtered page."""
+    classes = [ASSET_CLASS_LABELS.get(c, c) for c in ASSET_CLASS_LABELS if c in part.classes]
+    classes += sorted(c for c in part.classes if c not in ASSET_CLASS_LABELS)
+    return " · ".join(text for text in (", ".join(classes), ", ".join(sorted(part.symbols))) if text)
+
+
+def filter_note(part: Slice) -> None:
+    """The line under a page's header that says the page shows only a part of the portfolio."""
+    st.caption(f":material/filter_alt: Filtr: **{filter_text(part)}**. Wszystkie liczby i wykresy dotyczą tylko tej "
+               "części portfela; zmienisz go w pasku bocznym.")
+
+
+@st.cache_data(show_spinner=False, max_entries=6)
+def _sliced(db_path: str, version: tuple, today: date, live: tuple, model: int, classes: tuple,
+            symbols: tuple) -> Valuation:
+    whole = _valuation(db_path, version, today, live, model)
+    return slice_valuation(whole, Slice(frozenset(classes), frozenset(symbols)))
+
+
 def load_valuation(
     settings: Settings, *, stop_if_empty: bool = True, live_run: bool = False
 ) -> tuple[Valuation, datetime | None]:
@@ -146,15 +177,26 @@ def load_valuation(
 
     An empty valuation stops the page with a note, unless the page handles it (`stop_if_empty=False`).
     `live_run`: called from a live fragment's timer run (D-069), so no spinner flashes every few seconds.
+    With the sidebar filter on (D-085) it is the valuation of the filtered part, and a full run notes the filter
+    on the page.
     """
     live_prices, live_fx, live_at = {}, {}, None
     if load_preferences(settings).online:
         live_prices, live_fx, live_at = read_live(settings.db_path)
     live_key = (tuple(sorted(live_prices.items())), tuple(sorted(live_fx.items())))
+    part = current_slice()
+    key = (str(settings.db_path), data_version(settings.db_path), date.today(), live_key, MODEL_VERSION)
     with st.spinner("Liczę wycenę portfela…") if not live_run else nullcontext():
-        valuation = _valuation(
-            str(settings.db_path), data_version(settings.db_path), date.today(), live_key, MODEL_VERSION
-        )
+        if part.active:
+            valuation = _sliced(*key, tuple(sorted(part.classes)), tuple(sorted(part.symbols)))
+        else:
+            valuation = _valuation(*key)
+    if part.active and not live_run:
+        filter_note(part)
+        if valuation.total.empty and stop_if_empty:
+            st.info("Filtr nie obejmuje niczego, co było w portfelu. Zmień go albo wyczyść w pasku bocznym.",
+                    icon=":material/filter_alt_off:")
+            st.stop()
     if valuation.total.empty and stop_if_empty:
         if any(w.startswith(NO_RATES) for w in valuation.warnings):
             st.info("Nie da się jeszcze nic wycenić: brakuje kursów NBP dla walut Twoich kont. Pobierz je na "

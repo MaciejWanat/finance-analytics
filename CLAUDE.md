@@ -104,6 +104,7 @@ report, never from memory.
     - `today.py`: the "Dzisiaj" tile: which day or US session it shows and its result (D-063, D-067).
     - `intraday.py`: the portfolio within one day every 5 minutes, anchored to the daily valuation (D-070).
     - `attribution.py`: the PLN return split into prices × currencies × other (D-023).
+    - `slicing.py`: a filtered part of the portfolio (asset classes, instruments) with its own flows (D-085).
     - `dividends.py`: dividends in PLN at NBP D-1 and the PIT-38 estimate (D-024).
     - `inflation.py`: price level from CPI, real returns, value in today's złoty (D-025).
     - `bonds.py`: treasury bonds: interest periods, rates, daily value, coupons, early redemption (D-026).

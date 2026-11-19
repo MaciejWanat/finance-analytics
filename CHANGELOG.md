@@ -6,6 +6,15 @@ All notable changes to this project are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Portfolio filter in the sidebar:** limit Portfel, Zwroty, Dywidendy, Obligacje and Gotówka to chosen asset
+  classes and/or instruments. Every number and chart then covers only that part, measured like a portfolio of its
+  own: buying an instrument is a deposit into the part, selling it or a dividend a withdrawal, so TWR, XIRR and the
+  result show what the chosen holdings earned. Kept while the browser tab is open.
+- **"S&P 500 dla porównania" on the Portfel value chart:** a dotted line of the same deposits and withdrawals put
+  into the S&P 500 (with dividends, in PLN), for the whole portfolio or the filtered part.
+
 ## [0.13.0] - 2026-11-19
 
 ### Added

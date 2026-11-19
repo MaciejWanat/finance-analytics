@@ -117,3 +117,37 @@ def test_live_charts_use_the_in_place_component_when_static_serving_is_on(data_d
     assert not at.exception, at.exception
     assert len(at.get("bidi_component")) >= 7  # six sparklines and the value chart
     assert len(at.get("plotly_chart")) == 2  # composition and allocation stay Streamlit's own
+
+
+# ----------------------------------------------------------------------------- portfolio filter (D-085)
+
+
+@pytest.mark.parametrize("page", list(PAGES) + ["cash", "bonds"])
+@pytest.mark.parametrize("classes, symbols", [(["stock"], []), (["etf", "stock"], []), ([], ["NOPE.US"]),
+                                              (["cash"], [])])
+def test_analysis_pages_render_with_the_filter(data_dir, monkeypatch, page, classes, symbols):
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(str(APP_DIR / "views" / f"{page}.py"), default_timeout=90)
+    at.session_state["filter_classes"], at.session_state["filter_symbols"] = classes, symbols
+    at.run()
+    assert not at.exception, at.exception
+    assert not at.error
+
+
+def test_a_filtered_portfel_says_so_and_shows_the_index_line(data_dir, monkeypatch):
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(PAGES["portfolio"], default_timeout=90)
+    at.session_state["filter_classes"] = ["stock"]
+    at.session_state["sp500_line"] = True
+    at.run()
+    assert not at.exception, at.exception
+    assert any("Filtr: **Akcje**" in c.value for c in at.caption)
+    assert at.toggle(key="sp500_line") is not None
+
+
+def test_a_filter_matching_nothing_explains_itself(data_dir, monkeypatch):
+    monkeypatch.setenv(DATA_DIR_ENV, str(data_dir.data_dir))
+    at = AppTest.from_file(PAGES["returns"], default_timeout=90)
+    at.session_state["filter_symbols"] = ["NOPE.US"]
+    at.run()
+    assert any("nie obejmuje niczego" in i.value for i in at.info)

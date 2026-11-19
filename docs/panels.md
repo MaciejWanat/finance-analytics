@@ -46,11 +46,12 @@ Profiled times are about 1.5–2× the real ones.
 
 ## Portfel (`views/portfolio.py`)
 
-- **Refresh:** full run on load and on any filter change (Okres, Po inflacji, Podział). Two live fragments in
+- **Refresh:** full run on load and on any filter change (Okres, Po inflacji, Podział, the sidebar filter). The
+  "S&P 500 dla porównania" switch reruns only `headline()`. Two live fragments in
   online mode, `headline()` and `positions()`, every `live_every(preferences)`. Offline: no timer. A fragment run
   that finds a new day, or a change of market pace, reruns the whole page.
 - **Inputs:** `ui.data.load_valuation` (positions, cash ledger, prices, NBP rates, bonds, bank balances,
-  `live_quotes`), `cpi_monthly` (Po inflacji), `intraday_quotes` (1D), `config/settings.yaml`.
+  `live_quotes`; the filtered part when the sidebar filter is on, D-085), `cpi_monthly` (Po inflacji), `intraday_quotes` (1D), `config/settings.yaml`.
 - **Computed once per data version:** the valuation of the whole history (`_history`); the CPI factor; the S&P 500
   in PLN for "Czy pobiłeś giełdę?" (`ui.data.load_benchmark`, D-080); the composition and allocation block (`wide`, bars, segmented bar, shares table), which is outside the fragments and
   so changes only on a full run.
@@ -59,7 +60,9 @@ Profiled times are about 1.5–2× the real ones.
     `fx_pnl` and "Dzisiaj" over the whole history (cheap vector maths, still the largest part); the shadow S&P 500
     portfolio of the period (`benchmark.compare`, vector maths); XIRR of the period, nominal and real, plus the last
     point of its curve (the rest of the curve is cached, `xirr_history`; daily points up to 92 days, D-083, D-084); eight sparklines
-    (one Plotly constructor each); the value chart. With 1D also `one_day` and `load_intraday`
+    (one Plotly constructor each); the value chart, with the shadow S&P 500 line when switched on (D-085). With the
+    sidebar filter on, the part's valuation (`slicing.slice_valuation`: one pivot of quantities and unit values per
+    position over the calendar) is cached per live key and filter (`_sliced`, 6 entries). With 1D also `one_day` and `load_intraday`
     (`intraday_values`, every row × every 5 minutes, vectorised).
   - `positions()`: holdings on the last day, cost of open lots, 90-day result trends
     (`returns.position_result_trends`, one as-of join), "Wynik %" in the instrument's currency
@@ -80,7 +83,8 @@ Profiled times are about 1.5–2× the real ones.
 - **Refresh:** full run on load and on filter changes. No fragments. In online mode the sidebar reruns the whole
   app at most once a minute when new live quotes arrived (`main.LIVE_PAGES`). Kept that way after measuring
   (D-071): ~170 ms per run (Maks.), ~220 ms (1D).
-- **Inputs:** `load_valuation`, `cpi_monthly`, `intraday_quotes` (1D).
+- **Inputs:** `load_valuation` (the filtered part with the sidebar filter on, D-085), `cpi_monthly`,
+  `intraday_quotes` (1D).
 - **Computed once per data version:** the valuation of the history (`_history`).
 - **Computed on every redraw:** live valuation (`apply_live`), TWR and XIRR for the portfolio and each account,
   drawdowns, monthly returns heatmap, attribution (prices × currencies × other); 1D: `load_intraday`.
@@ -91,7 +95,8 @@ Profiled times are about 1.5–2× the real ones.
 - **Refresh:** full run on load and on filter changes; like Zwroty, at most once a minute in online mode when
   new live quotes arrived (`main.LIVE_PAGES`), ~70 ms per run.
 - **Inputs:** `load_valuation` (portfolio value for the yield), dividend and withholding-tax events with NBP rates
-  (`dividends.load_events`).
+  (`dividends.load_events`); with the sidebar filter on, `reports.filter_options` to keep only the companies it
+  covers (D-085).
 - **Computed once per data version:** `dividend_payments` (`st.cache_data` keyed by the data version) and the
   valued history.
 - **Computed on every redraw:** live valuation (`apply_live`), the period window, sums per month, company and tax
@@ -106,7 +111,8 @@ Profiled times are about 1.5–2× the real ones.
   `cpi_monthly`.
 - **Computed once per data version:** `bond_inputs` and `bond_history` (`bonds.value_lots`), both `st.cache_data`
   keyed by the data version.
-- **Computed on every redraw:** tables, KPI tiles and the value chart from the cached history.
+- **Computed on every redraw:** tables, KPI tiles and the value chart from the cached history; with the sidebar
+  filter on, the lots and history rows of the series it keeps (D-085).
 - **Sent to the browser:** the whole page on each run.
 
 ## Gotówka (`views/cash.py`)
@@ -114,7 +120,7 @@ Profiled times are about 1.5–2× the real ones.
 - **Refresh:** full run on load and after an edit of `manual/cash_balances.csv` (form or upload, then `sync` and
   `st.rerun()`). No timer.
 - **Inputs:** `bank_accounts`, `cash_snapshots`, `cash_issues`, `load_valuation` (bank rows of the valuation, live
-  rates on the last day in online mode).
+  rates on the last day in online mode); a sidebar filter without cash stops the page with a note (D-085).
 - **Computed once per data version:** the valued history (`_history`).
 - **Computed on every redraw:** live valuation (`apply_live`, only on a full run here), balances per account and
   currency, charts.
@@ -161,7 +167,8 @@ Profiled times are about 1.5–2× the real ones.
   zasobów" link to Ustawienia only while the 1-minute CPU or the memory is high.
 - **Computed once per data version:** nothing.
 - **Computed on every redraw:** the mode badge, the live lamp and text, the list of exchanges with the time to
-  their next change. The feed itself runs in its own thread and is only `touch()`ed here. With the stream on, a stream
+  their next change. On a full run of an analysis page also "Filtr portfela" (D-085): one small query
+  (`reports.filter_options`) and two multiselects. The feed itself runs in its own thread and is only `touch()`ed here. With the stream on, a stream
   that sends nothing for a minute while markets trade is replaced by polling every 2 minutes ("strumień milczy",
   D-075).
 - **Sent to the browser:** a few small elements per run. With the stream on and the Ustawienia page open (no live

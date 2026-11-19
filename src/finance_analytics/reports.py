@@ -85,6 +85,25 @@ def holdings(db_path: Path) -> pd.DataFrame:
     )
 
 
+def filter_options(db_path: Path) -> pd.DataFrame:
+    """What the portfolio filter offers (D-085): every instrument ever held and every bond series bought, with its
+    asset class (symbol, name, asset_class); plus cash when there is any account with cash."""
+    frame = _query(
+        db_path,
+        """
+        SELECT DISTINCT i.xtb_symbol AS symbol, i.name, i.asset_class
+        FROM positions p JOIN instruments i ON i.id = p.instrument_id
+        UNION
+        SELECT DISTINCT series, series, 'bond' FROM bond_lots
+        UNION
+        SELECT 'Gotówka', 'Gotówka', 'cash' WHERE EXISTS (SELECT 1 FROM cash_ledger)
+            OR EXISTS (SELECT 1 FROM cash_snapshots)
+        ORDER BY 1
+        """,
+    )
+    return frame
+
+
 def holds_us_listed(db_path: Path) -> bool:
     """Whether an open position is in a US-listed instrument (XTB symbol 'NVDA.US'), for the market clock."""
     with closing(open_readonly(db_path)) as conn:

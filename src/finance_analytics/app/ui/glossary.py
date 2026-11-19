@@ -410,4 +410,15 @@ G: dict[str, str] = {
         "9:00–17:00; przez kilka tygodni wiosną i jesienią USA o godzinę wcześniej. Uwzględnia święta i skrócone "
         "sesje; liczone na tym komputerze, bez internetu."
     ),
+    "portfolio_filter": (
+        "Pokazuje na wszystkich stronach analizy tylko wybraną część portfela: wybrane klasy aktywów lub "
+        "instrumenty (w obrębie jednego pola: którekolwiek z wybranych; oba pola naraz: muszą pasować oba). "
+        "Wycinek liczony jest jak osobny portfel: kupno instrumentu to wpłata do wycinka, sprzedaż i dywidenda to "
+        "wypłata, więc TWR, XIRR i wynik pokazują, ile zarobiły same wybrane pozycje. Filtr trwa, dopóki nie "
+        "zamkniesz karty przeglądarki."
+    ),
+    "sp500_reference": (
+        "Dodaje na wykresie linię portfela-cienia: te same wpłaty i wypłaty, w te same dni, włożone w indeks "
+        "S&P 500 (z dywidendami, w PLN). Linia startuje z wartością portfela na początku okresu."
+    ),
 }

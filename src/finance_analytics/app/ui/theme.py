@@ -22,6 +22,11 @@ import plotly.graph_objects as go
 Mode = Literal["light", "dark"]
 
 OTHER_LABEL = "Inne"
+# Polish names of the asset classes (instruments.asset_class, plus bonds and cash).
+ASSET_CLASS_LABELS = {
+    "stock": "Akcje", "etf": "ETF", "bond": "Obligacje", "precious_metals": "Metale szlachetne", "cash": "Gotówka",
+    "other": OTHER_LABEL,
+}
 FONT_FAMILY = '"Source Sans Pro", "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif'
 
 

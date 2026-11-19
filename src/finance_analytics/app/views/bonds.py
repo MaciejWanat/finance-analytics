@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from ui.charts import area_total, current_mode, show
 from ui.components import Kpi, empty_state, kpi_row, page_header, section, table
-from ui.data import require_database
+from ui.data import current_slice, filter_note, require_database
 from ui.fmt import fmt_date, fmt_money, fmt_money_compact, fmt_pct, plural
 from ui.glossary import G
 
@@ -104,6 +104,17 @@ for lot in lots.itertuples(index=False):
                                   tax_free=lot.account_id in tax_free) if p else None
     statuses.append(status)
 held = [(lot, s) for lot, s in zip(lots.itertuples(index=False), statuses, strict=True) if s is not None]
+part = current_slice()  # the sidebar filter (D-085): analysis of the series it keeps; the list of purchases stays whole
+if part.active:
+    filter_note(part)
+    kept = [(lot, s) for lot, s in held if part.keeps(lot.series, "bond")]
+    if held and not kept:
+        empty_state("Filtr wyklucza Twoje obligacje",
+                    "Wybrana część portfela nie obejmuje żadnej z Twoich serii obligacji. Zmień albo wyczyść filtr "
+                    "w pasku bocznym.", icon=":material/filter_alt_off:")
+        purchase_form(known, accounts)
+        st.stop()
+    held = kept
 
 if not held:
     empty_state(
@@ -125,6 +136,10 @@ nominal = sum(100.0 * s.quantity for _, s in held)
 payout = sum(float(s.payout) for _, s in held)
 avg_rate = sum(float(s.period.rate) * float(s.gross) * s.quantity for _, s in held) / gross / 100
 history = bond_history(str(settings.db_path), version, today, tax_free)
+if part.active:
+    history = bond_math.BondValuation(daily=history.daily[[part.keeps(s, "bond") for s in history.daily["series"]]],
+                                      flows=history.flows[[part.keeps(s, "bond") for s in history.flows["series"]]],
+                                      warnings=history.warnings)
 by_day = history.daily.groupby("date")[["value", "qty"]].sum().sort_index()
 total = by_day["value"]
 year_ago = pd.Timestamp(today) - pd.DateOffset(years=1)

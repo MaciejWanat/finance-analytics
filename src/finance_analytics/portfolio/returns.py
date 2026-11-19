@@ -276,6 +276,8 @@ def position_result_trends(daily: pd.DataFrame, lots: pd.DataFrame, end: pd.Time
     """(account, symbol) -> result per day over the last `days` days: value minus the cost of the lots held that day
     (D-054). One as-of join for all positions: a lookup per position cost a millisecond each live redraw (D-071)."""
     recent = daily[(daily["kind"] == "position") & (daily["date"] > end - pd.Timedelta(days=days))]
+    if recent.empty or lots.empty:  # e.g. a filtered part with cash only (D-085)
+        return {}
     values = recent.groupby(["account", "symbol", "date"], as_index=False)["value_pln"].sum()
     aliases = daily.drop_duplicates("account_id").set_index("account_id")["account"]
     all_lots = lots.assign(account=lambda d: d["account_id"].map(aliases), cost=lambda d: d["cost_pln"].fillna(0.0))

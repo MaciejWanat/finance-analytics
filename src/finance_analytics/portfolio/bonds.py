@@ -370,7 +370,7 @@ def lot_status(params: SeriesParams, purchase: date, quantity: int, day: date, d
 @dataclass
 class BondValuation:
     daily: pd.DataFrame  # date, account_id, series, qty, value (PLN, gross)
-    flows: pd.DataFrame  # date, account_id, type (DEPOSIT | WITHDRAWAL), amount (PLN)
+    flows: pd.DataFrame  # date, account_id, type (DEPOSIT | WITHDRAWAL), amount (PLN), series
     warnings: list[str]
 
 
@@ -401,12 +401,12 @@ def value_lots(lots: pd.DataFrame, params: dict[str, SeriesParams], data: Market
         for period in periods:
             if period.source in COMPUTED_SOURCES and period.note:
                 warnings.add(f"{series}, okres {period.number} od {period.start:%d.%m.%Y}: {period.note}")
-        flows.append((pd.Timestamp(purchase), lot.account_id, "DEPOSIT", float(NOMINAL * quantity)))
+        flows.append((pd.Timestamp(purchase), lot.account_id, "DEPOSIT", float(NOMINAL * quantity), series))
         for payment in payments(p, periods):
             if payment.date > end:
                 continue
             net = payment.amount * quantity - tax(payment.interest, quantity, tax_free=tax_free)
-            flows.append((pd.Timestamp(payment.date), lot.account_id, "WITHDRAWAL", -float(net)))
+            flows.append((pd.Timestamp(payment.date), lot.account_id, "WITHDRAWAL", -float(net), series))
         for period in periods:
             last = min(period.end - timedelta(days=1), end)
             day = period.start
@@ -419,7 +419,7 @@ def value_lots(lots: pd.DataFrame, params: dict[str, SeriesParams], data: Market
         daily = daily.groupby(["date", "account_id", "series"], as_index=False)[["qty", "value"]].sum()
     return BondValuation(
         daily=daily,
-        flows=pd.DataFrame(flows, columns=["date", "account_id", "type", "amount"]),
+        flows=pd.DataFrame(flows, columns=["date", "account_id", "type", "amount", "series"]),
         warnings=sorted(warnings),
     )
 
