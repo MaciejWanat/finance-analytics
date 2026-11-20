@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import pytest
 from test_valuation import D, lot, make_inputs
 
@@ -74,3 +75,22 @@ def test_fx_pnl_is_the_daily_currency_gain_in_pln():
     cash = fx_pnl(value_portfolio(make_inputs(ledger=[("usd", D("2026-01-05"), "DEPOSIT", 1000.0)], fx=FX),
                                   date(2026, 1, 7)))
     assert cash["USD"].sum() == pytest.approx(400.0)
+
+
+def test_daily_sources_split_the_day_into_market_and_currency_and_leave_the_dividend():
+    # Same case: day 6 is 400 zł from the price, day 7 is 440 zł from the rate; the 22 zł dividend is left out,
+    # so with the rest the parts add up to the day's result.
+    from finance_analytics.portfolio.attribution import daily_sources
+    from finance_analytics.portfolio.today import Today, day_breakdown
+
+    v = value_portfolio(make_inputs(lots=[lot()], ledger=LEDGER, prices=PRICES, fx=FX), date(2026, 1, 7))
+    sources = daily_sources(v)
+    assert tuple(sources.loc[D("2026-01-06")]) == pytest.approx((400.0, 0.0, 0.0))
+    assert tuple(sources.loc[D("2026-01-07")]) == pytest.approx((0.0, 0.0, 440.0))
+
+    day = D("2026-01-07")
+    amount = float(v.total[day] - v.total[D("2026-01-06")])
+    parts = day_breakdown(sources, Today(day, (amount, 0.0), pd.Series(dtype=float), D("2026-01-06"), day))
+    assert (parts["market"], parts["fx"], parts["other"]) == pytest.approx((0.0, 440.0, 22.0))
+    assert parts.sum() == pytest.approx(amount)
+    assert day_breakdown(sources, Today(day, None, pd.Series(dtype=float))) is None

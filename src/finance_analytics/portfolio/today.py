@@ -28,6 +28,7 @@ class Today:
     change: tuple[float, float] | None  # (PLN, return) from the close before it; None without an earlier close
     per_day: pd.Series  # the return of every such day, for the sparkline
     base: pd.Timestamp | None = None  # the close the result is measured from (the day before, or the previous session)
+    until: pd.Timestamp | None = None  # the close the result is measured to
 
 
 def today_result(
@@ -40,14 +41,15 @@ def today_result(
         day = moved[-1] if len(moved) else end
         per_day = returns[returns.index.isin(moved)] if len(moved) else returns
         base = day - pd.Timedelta(days=1)
-        return Today(day, change_since(values, flows, base), per_day, base)
+        return Today(day, change_since(values, flows, base), per_day, base, end)
     session = pd.Series([pd.Timestamp(session_of(d.date())) for d in values.index], index=values.index)
     opened = pd.Timestamp(last_opened_session(now))
     shown = sorted(s for s in set(session[session.index.isin(moved)]) if s <= opened)
     day = shown[-1] if shown else end
     base = pd.Timestamp(previous_trading_day(day.date()))
     per_day = chained_returns(returns, session)
-    return Today(day, change_since(values, flows, base, min(day, end)), per_day[per_day.index.isin(shown)], base)
+    until = min(day, end)
+    return Today(day, change_since(values, flows, base, until), per_day[per_day.index.isin(shown)], base, until)
 
 
 def position_day_returns(daily: pd.DataFrame, base: pd.Timestamp | None, day: pd.Timestamp) -> pd.Series:
@@ -69,3 +71,15 @@ def position_day_returns(daily: pd.DataFrame, base: pd.Timestamp | None, day: pd
 
     now, before = unit_value(day), unit_value(base)
     return (now / before.reindex(now.index) - 1).rename("today")
+
+
+def day_breakdown(sources: pd.DataFrame, tile: Today) -> pd.Series | None:
+    """The tile's PLN result split by where it came from: `sources` (`attribution.daily_sources`, in the tile's
+    units) summed over the tile's days, plus "other" (what they do not explain), so the parts add up to the tile.
+    None without a result."""
+    if tile.change is None or tile.base is None or tile.until is None:
+        return None
+    window = sources[(sources.index > tile.base) & (sources.index <= tile.until)]
+    parts = window.sum().reindex(["market", "bonds", "fx"], fill_value=0.0)
+    parts["other"] = tile.change[0] - parts.sum()
+    return parts.astype(float)

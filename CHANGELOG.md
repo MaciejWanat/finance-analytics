@@ -8,6 +8,8 @@ All notable changes to this project are listed here. The format follows
 
 ### Added
 
+- **Breakdown of "Dzisiaj":** hovering over the tile's "?" shows today's result without currencies first,
+  then what it came from in zł: stocks, ETFs and metals (in their own currency), bonds, currencies and the rest.
 - **Portfolio filter on Portfel:** a "Filtr" button next to "Okres" limits the page to chosen asset
   classes and/or instruments; other pages always show the whole portfolio. Every number and chart then covers only that part, measured like a portfolio of its
   own: buying an instrument is a deposit into the part, selling it or a dividend a withdrawal, so TWR, XIRR and the

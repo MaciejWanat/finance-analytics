@@ -81,6 +81,28 @@ def fx_pnl(v: Valuation) -> pd.DataFrame:
     return combined.drop(columns=["PLN"], errors="ignore")
 
 
+def daily_sources(v: Valuation) -> pd.DataFrame:
+    """Daily PLN gain or loss by where it came from, date x [market, bonds, fx] (the "Dzisiaj" breakdown):
+    - market: the price effect of every position (stocks, ETFs, metals), in its own currency at the previous day's
+      NBP rate, so without the currency move;
+    - bonds: the change of the treasury bonds' value minus their purchases and redemptions (the interest accrued);
+    - fx: the currency effect of positions and foreign cash (`fx_pnl` summed over currencies).
+    What none of them explains (dividends, fees, bank cash, a purchase price against that day's close) is left to
+    the caller as the rest of the day's result.
+    """
+    calendar = v.total.index
+    pnl_price, pnl_fx, cash_fx, *_ = _pnl_tables(v)
+    bond_rows = v.daily[v.daily["kind"] == "bond"]
+    bond_value = bond_rows.groupby("date")["value_pln"].sum().reindex(calendar, fill_value=0.0)
+    bond_flows = (v.flows[v.flows["symbol"].isin(set(bond_rows["symbol"]))].groupby("date")["amount_pln"].sum()
+                  .reindex(calendar, fill_value=0.0))
+    return pd.DataFrame({
+        "market": pnl_price.sum(axis=1).reindex(calendar),
+        "bonds": bond_value - bond_value.shift(1, fill_value=0.0) - bond_flows,
+        "fx": pnl_fx.sum(axis=1).reindex(calendar).add(cash_fx.sum(axis=1).reindex(calendar), fill_value=0.0),
+    }, index=calendar).fillna(0.0)
+
+
 def attribute(v: Valuation, start: pd.Timestamp, end: pd.Timestamp) -> Attribution:
     pnl_price, pnl_fx, cash_fx, symbol_currency, symbol_ticker, qty = _pnl_tables(v)
     values = v.total

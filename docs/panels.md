@@ -57,7 +57,8 @@ Profiled times are about 1.5–2× the real ones.
   so changes only on a full run.
 - **Computed on every redraw:**
   - `headline()`: live valuation (`apply_live`, cached per live key, 6 entries); `total`, flows, TWR, underwater,
-    `fx_pnl` and "Dzisiaj" over the whole history (cheap vector maths, still the largest part); the shadow S&P 500
+    `fx_pnl` and "Dzisiaj" over the whole history, with its breakdown by source (`attribution.daily_sources`,
+    the same price and currency tables as `fx_pnl` once more, D-088) (cheap vector maths, still the largest part); the shadow S&P 500
     portfolio of the period (`benchmark.compare`, vector maths); XIRR of the period, nominal and real, plus the last
     point of its curve (the rest of the curve is cached, `xirr_history`; daily points up to 92 days, D-083, D-084); eight sparklines
     (one Plotly constructor each); the value chart, with the shadow S&P 500 line when switched on (D-085). With the

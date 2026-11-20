@@ -971,6 +971,14 @@ Statuses: `Proposed`, `Accepted`, `Superseded by D-xxx`, `Rejected`.
 
 ---
 
+### D-088 "Dzisiaj" tooltip: where today's result came from, first without currencies
+- **Date:** 2026-11-20 · **Status:** Accepted
+- **Context:** the user wants the "Dzisiaj" tile, on hover, to show what today's result is made of (stocks, ETFs and metals together / bonds / currencies); most of all how much they earned today without the currency move.
+- **Decision:** the tile's tooltip starts with "Bez walut: ±X zł (±Y %)" (the tile's amount minus the currency part; the percent is the day's TWR with the currency part taken out, (1 + r) / (1 + fx / value at the base close) − 1), then a list in PLN: "Akcje, ETF i metale" (the price effect of every position, in its own currency at the previous day's NBP rate, as in D-023), "Obligacje" (the change of the bonds' value minus purchases and redemptions), "Waluty" (the currency effect of positions and foreign cash, D-059) and "Inne (dywidendy, odsetki, opłaty)" for the rest, shown only when at least 0,50 zł. The parts are summed over the same days as the tile (`Today.until`, `today.day_breakdown`) and add up to the tile's amount. In the tooltip only; the tile itself is unchanged.
+- **Consequences:** `attribution.daily_sources` gives the daily parts; with "Po inflacji" they are put in today's złoty like the currency tile.
+
+---
+
 ## Open questions
 
 | ID | Question | Status |

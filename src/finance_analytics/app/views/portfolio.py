@@ -35,7 +35,7 @@ from finance_analytics.config import get_settings
 from finance_analytics.market.intraday import coverage, update_intraday
 from finance_analytics.market.live import live_symbols
 from finance_analytics.portfolio import inflation
-from finance_analytics.portfolio.attribution import fx_pnl
+from finance_analytics.portfolio.attribution import daily_sources, fx_pnl
 from finance_analytics.portfolio.benchmark import compare
 from finance_analytics.portfolio.returns import (
     period_return,
@@ -46,7 +46,7 @@ from finance_analytics.portfolio.returns import (
     underwater,
     xirr_curve,
 )
-from finance_analytics.portfolio.today import position_day_returns, today_result
+from finance_analytics.portfolio.today import day_breakdown, position_day_returns, today_result
 from finance_analytics.portfolio.valuation import market_days
 from finance_analytics.preferences import Preferences, PreferencesError, load_preferences
 
@@ -261,7 +261,27 @@ def headline() -> None:
     tile = today_result(total, flows, market_days(v), by_us_session=by_us_session, now=datetime.now(UTC))
     session, today, session_returns = tile.day, tile.change, tile.per_day
     today_badges = [(fmt_money(today[0], decimals=0, signed=True), today[0])] if today else []
-    today_help = (G["today"] + (G["today_us_session"] if by_us_session else G["today_calendar_day"])
+    # Where today's result came from (D-088): positions without the currency move, bonds, currencies and the rest;
+    # first the result without currencies, the number the user cares about most.
+    sources = daily_sources(v)
+    if factor is not None:
+        sources = sources.mul(factor.reindex(sources.index).fillna(1.0), axis=0)
+    parts = day_breakdown(sources, tile)
+    breakdown = ""
+    if parts is not None:
+        base_value = float(total.asof(tile.base))
+        fx_return = parts["fx"] / base_value if base_value > 0 else 0.0
+        without_fx = (1 + today[1]) / (1 + fx_return) - 1 if fx_return > -1 else None
+        lines = [("Akcje, ETF i metale", parts["market"], (v.daily["kind"] == "position").any()),
+                 ("Obligacje", parts["bonds"], (v.daily["kind"] == "bond").any()),
+                 ("Waluty", parts["fx"], True),
+                 ("Inne (dywidendy, odsetki, opłaty)", parts["other"], abs(parts["other"]) >= 0.5)]
+        breakdown = (f"**Bez walut: {fmt_money(today[0] - parts['fx'], decimals=0, signed=True)}"
+                     + (f" ({fmt_pct(without_fx, 2)})" if without_fx is not None else "") + "**\n\n"
+                     + "".join(f"- {label}: {fmt_money(amount, decimals=0, signed=True)}\n"
+                               for label, amount, shown in lines if shown)
+                     + "\n")
+    today_help = (breakdown + G["today"] + (G["today_us_session"] if by_us_session else G["today_calendar_day"])
                   + (f" Teraz widać sesję z {fmt_date(session)}." if session < end else "")
                   + (" Ceny na żywo ze strumienia." if live_at and STREAMING
                      else f" Ceny na żywo z {live_at.astimezone():%H:%M}." if live_at

@@ -81,7 +81,9 @@ G: dict[str, str] = {
     "total_gain": "Wartość portfela minus wpłacony kapitał: łączny zysk od początku historii.",
     "today": (
         "Dzisiejszy zysk lub strata: zmiana wartości portfela od zamknięcia poprzedniej sesji, bez wpłat i wypłat. "
-        "Duża liczba to procent (TWR dnia), plakietka to kwota w złotych. W weekend, w święto i zanim pobierzesz "
+        "Duża liczba to procent (TWR dnia), plakietka to kwota w złotych. Rozbicie wyżej: „Bez walut” to wynik bez "
+        "zmiany kursów walut; akcje, ETF i metale liczone w walucie instrumentu po wczorajszym kursie NBP, waluty "
+        "to sama zmiana kursu na pozycjach i gotówce w walutach. W weekend, w święto i zanim pobierzesz "
         "dzisiejsze notowania widać ostatnią sesję."
     ),
     "position_today": (
